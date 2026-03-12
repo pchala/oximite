@@ -1,0 +1,13 @@
+[project]
+name = "oximite-tests"
+version = "0.1.0"
+description = "Hardware-in-the-loop (HIL) test suite for the Pico W espresso machine"
+requires-python = ">=3.9"
+dependencies = [
+    "pyserial>=3.5",
+    "matplotlib>=3.8.0",
+]
+
+[tool.uv]
+# Tells uv that this is just a scripting/testing environment, not a package to be built
+managed = true

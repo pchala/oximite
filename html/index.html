@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>oximite espresso</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --bg: #121212; --panel: #1e1e1e; --text: #e0e0e0; --accent: #bb86fc; --danger: #cf6679; --success: #03dac6; --border: #333; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; display: grid; grid-template-columns: 1fr; gap: 20px; max-width: 800px; margin: 0 auto; }
+        .panel { background: var(--panel); padding: 20px; border-radius: 8px; border: 1px solid var(--border); }
+        h2 { margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .stat-box { background: #2c2c2c; padding: 15px; border-radius: 6px; text-align: center; font-size: 1.2em; font-weight: bold; }
+        .stat-label { font-size: 0.7em; color: #aaa; text-transform: uppercase; display: block; }
+        button { background: var(--accent); color: #000; border: none; padding: 10px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; transition: opacity 0.2s; }
+        button:hover { opacity: 0.8; } button.danger { background: var(--danger); } button.success { background: var(--success); }
+        input, select { width: 100%; padding: 8px; margin-top: 5px; margin-bottom: 15px; background: #2c2c2c; color: white; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; } th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
+        canvas { width: 100% !important; height: 300px !important; }
+        label { font-size: 0.8em; color: #aaa; }
+    </style>
+</head>
+<body>
+    <div class="panel">
+        <h2>oximite <span id="machine-state" style="float:right; color:var(--accent);">IDLE</span></h2>
+        <div class="grid-2" style="margin-bottom: 20px;">
+            <div class="stat-box"><span class="stat-label">Temperature</span><span id="val-t">0.0</span> °C</div>
+            <div class="stat-box"><span class="stat-label">Pressure</span><span id="val-p">0.0</span> Bar</div>
+            <div class="stat-box"><span class="stat-label">Flow Rate</span><span id="val-fl">0.0</span> ml/s</div>
+            <div class="stat-box"><span class="stat-label">Volume</span><span id="val-vol">0.0</span> ml</div>
+        </div>
+        <div class="grid-2">
+            <button class="success" onclick="sendCommand('brew')">START BREW</button>
+            <button class="danger" onclick="sendCommand('stop')">STOP</button>
+            <button onclick="sendCommand('flush')">FLUSH</button>
+            <button onclick="sendCommand('steam')">STEAM MODE</button>
+            <button onclick="sendCommand('descale')">DESCALE</button>
+        </div>
+    </div>
+    
+    <div class="panel">
+        <h2>Extraction Graph</h2><canvas id="telemetryChart"></canvas>
+    </div>
+    
+    <div class="panel">
+        <h2>Saved Profiles</h2>
+        <table style="margin-bottom: 0;">
+            <thead><tr><th>Slot</th><th>Name</th><th style="text-align: right;">Actions</th></tr></thead>
+            <tbody id="saved-profiles-body"></tbody>
+        </table>
+    </div>
+
+    <div class="panel" id="profile-editor">
+        <h2>Profile Editor</h2>
+        <div class="grid-2">
+            <div>
+                <label>Target Slot</label>
+                <select id="prof-slot">
+                    <option value="0">Slot 0</option><option value="1">Slot 1</option><option value="2">Slot 2</option>
+                    <option value="3">Slot 3</option><option value="4">Slot 4</option><option value="5">Slot 5</option>
+                    <option value="6">Slot 6</option><option value="7">Slot 7</option><option value="8">Slot 8</option><option value="9">Slot 9</option>
+                </select>
+            </div>
+            <div>
+                <label>Profile Name</label><input type="text" id="prof-name" placeholder="e.g., Blooming Slayer">
+            </div>
+        </div>
+        <table id="step-table">
+            <thead><tr><th>Time (s)</th><th>Volume (ml)</th><th>Pressure (Bar)</th><th>Max flow (ml/s)</th><th>Action</th></tr></thead>
+            <tbody id="step-body"></tbody>
+        </table>
+        <div class="grid-2">
+            <button onclick="addStep()">+ Add Step</button>
+            <button class="success" onclick="runCustomProfile()">Run (Without Saving)</button>
+        </div>
+        <button onclick="saveProfileToSlot()" style="width: 100%; margin-top: 15px;">Save Profile to Flash</button>
+    </div>
+
+    <div class="panel">
+        <h2>Machine Settings</h2>
+        <div class="grid-3">
+            <div><label>Brew Temp (°C)</label><input type="number" id="set-bt" value="92.0" step="0.5"></div>
+            <div><label>Steam Temp (°C)</label><input type="number" id="set-st" value="135.0" step="0.5"></div>
+            <div><label>Temp Offset (°C)</label><input type="number" id="set-to" value="-2.5" step="0.1"></div>
+        </div>
+        <div class="grid-3">
+            <div><label>Steam Limit (s)</label><input type="number" id="set-sl" value="120" step="1"></div>
+            <div><label>Steam Pressure (Bar)</label><input type="number" id="set-sp" value="1.5" step="0.1"></div>
+            <div><label>Flow sensor (Edges/L)</label><input type="number" id="set-fepl" value="3850.0" step="1"></div>
+        </div>
+        <h3>PID: Temperature</h3>
+        <div class="grid-3">
+            <div><label>Kp</label><input type="number" id="set-tkp" value="2.0" step="0.1"></div>
+            <div><label>Ki</label><input type="number" id="set-tki" value="0.01" step="0.001"></div>
+            <div><label>Kd</label><input type="number" id="set-tkd" value="5.0" step="0.1"></div>
+        </div>
+        <h3>PID: Pressure</h3>
+        <div class="grid-3">
+            <div><label>Kp</label><input type="number" id="set-pkp" value="2.0" step="0.1"></div>
+            <div><label>Ki</label><input type="number" id="set-pki" value="0.1" step="0.01"></div>
+            <div><label>Kd</label><input type="number" id="set-pkd" value="0.5" step="0.1"></div>
+        </div>
+        <h3>Wi-Fi Configuration</h3>
+        <div class="grid-2">
+            <div><label>SSID</label><input type="text" id="set-ssid" placeholder="Network Name"></div>
+            <div><label>Password</label><input type="password" id="set-pass" placeholder="Network Password"></div>
+        </div>
+        <button onclick="saveSettings()" style="width: 100%;">Save to Flash</button>
+    </div>
+
+<script>
+    const ctx = document.getElementById('telemetryChart').getContext('2d');
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [ { label: 'Pressure (Bar)', borderColor: '#03dac6', data: [], yAxisID: 'y' }, { label: 'Flow (ml/s)', borderColor: '#bb86fc', data: [], yAxisID: 'y' }, { label: 'Volume (ml)', borderColor: '#cf6679', data: [], yAxisID: 'y1' } ] },
+        options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { x: { display: false }, y: { type: 'linear', position: 'left', min: 0, max: 12 }, y1: { type: 'linear', position: 'right', min: 0, max: 50, grid: { drawOnChartArea: false } } }, elements: { point: { radius: 0 } } }
+    });
+
+    // --- CORE COMMAND FUNCTION ---
+    async function sendCommand(cmd, payload = {}) {
+        try {
+            await fetch('/api/cmd', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ cmd: cmd, ...payload }) 
+            });
+        } catch (e) {
+            console.error("Command error:", e);
+        }
+    }
+
+    // --- TELEMETRY POLLING ---
+    let lastState = 0; let ticks = 0; let isPolling = false;
+    async function pollTelemetry() {
+        if (isPolling) return;
+        isPolling = true;
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000);
+            const res = await fetch('/api/telemetry', { signal: controller.signal });
+            clearTimeout(timeoutId);
+            const data = await res.json();
+            
+            document.getElementById('val-t').innerText = data.t.toFixed(1); 
+            document.getElementById('val-p').innerText = data.p.toFixed(1);
+            document.getElementById('val-fl').innerText = data.fl.toFixed(1); 
+            document.getElementById('val-vol').innerText = data.vol.toFixed(1);
+            document.getElementById('machine-state').innerText = ["IDLE", "BREWING", "STEAMING", "DESCALING"][data.st] || "UNKNOWN";
+            
+            if (lastState === 0 && data.st !== 0) { chart.data.labels = []; chart.data.datasets.forEach(d => d.data = []); ticks = 0; }
+            if (data.st !== 0) { chart.data.labels.push(ticks++); chart.data.datasets[0].data.push(data.p); chart.data.datasets[1].data.push(data.fl); chart.data.datasets[2].data.push(data.vol); chart.update(); }
+            lastState = data.st;
+        } catch (e) {} finally {
+            isPolling = false;
+            setTimeout(pollTelemetry, 250);
+        }
+    }
+    
+
+    // --- SETTINGS ---
+    function saveSettings() {
+        sendCommand('save_settings', { 
+            brew_temp: parseFloat(document.getElementById('set-bt').value), 
+            steam_temp: parseFloat(document.getElementById('set-st').value), 
+            temp_offset: parseFloat(document.getElementById('set-to').value),
+            steam_time_limit_s: parseFloat(document.getElementById('set-sl').value),
+            steam_pressure: parseFloat(document.getElementById('set-sp').value),
+            temp_kp: parseFloat(document.getElementById('set-tkp').value),
+            temp_ki: parseFloat(document.getElementById('set-tki').value),
+            temp_kd: parseFloat(document.getElementById('set-tkd').value),
+            press_kp: parseFloat(document.getElementById('set-pkp').value),
+            press_ki: parseFloat(document.getElementById('set-pki').value),
+            press_kd: parseFloat(document.getElementById('set-pkd').value),
+            flow_edges_per_liter: parseFloat(document.getElementById('set-fepl').value),
+            wifi_ssid: document.getElementById('set-ssid').value,
+            wifi_password: document.getElementById('set-pass').value
+        });
+        alert("Settings Saved!");
+    }
+    async function loadSettings() {
+        try {
+            const res = await fetch('/api/settings'); const data = await res.json();
+            document.getElementById('set-bt').value = data.brew_temp; 
+            document.getElementById('set-st').value = data.steam_temp;
+            document.getElementById('set-to').value = data.temp_offset;
+            if (data.steam_time_limit_s !== undefined) document.getElementById('set-sl').value = data.steam_time_limit_s;
+            if (data.steam_pressure !== undefined) document.getElementById('set-sp').value = data.steam_pressure;
+            if (data.temp_kp !== undefined) document.getElementById('set-tkp').value = data.temp_kp;
+            if (data.temp_ki !== undefined) document.getElementById('set-tki').value = data.temp_ki;
+            if (data.temp_kd !== undefined) document.getElementById('set-tkd').value = data.temp_kd;
+            if (data.press_kp !== undefined) document.getElementById('set-pkp').value = data.press_kp;
+            if (data.press_ki !== undefined) document.getElementById('set-pki').value = data.press_ki;
+            if (data.press_kd !== undefined) document.getElementById('set-pkd').value = data.press_kd;
+            if (data.flow_edges_per_liter !== undefined) document.getElementById('set-fepl').value = data.flow_edges_per_liter;
+            if (data.wifi_ssid !== undefined) document.getElementById('set-ssid').value = data.wifi_ssid;
+            if (data.wifi_password !== undefined) document.getElementById('set-pass').value = data.wifi_password;
+        } catch (e) {}
+    }
+    
+
+    // --- PROFILE EDITOR ---
+    let steps = [{ time_s: 15.0, volume: 0.0, pressure: 9.0, flow: 0.0 }];
+    function renderSteps() {
+        const tbody = document.getElementById('step-body'); tbody.innerHTML = '';
+        steps.forEach((step, idx) => {
+            tbody.innerHTML += `<tr>
+                <td><input type="number" step="0.5" value="${step.time_s}" onchange="steps[${idx}].time_s=parseFloat(this.value)"></td>
+                <td><input type="number" step="1.0" value="${step.volume}" onchange="steps[${idx}].volume=parseFloat(this.value)"></td>
+                <td><input type="number" step="0.5" value="${step.pressure}" onchange="steps[${idx}].pressure=parseFloat(this.value)"></td>
+                <td><input type="number" step="0.5" value="${step.flow}" onchange="steps[${idx}].flow=parseFloat(this.value)"></td>
+                <td><button class="danger" onclick="removeStep(${idx})">X</button></td></tr>`;
+        });
+    }
+    function addStep() { steps.push({ time_s: 0.0, volume: 0.0, pressure: 0.0, flow: 0.0 }); renderSteps(); }
+    function removeStep(idx) { steps.splice(idx, 1); renderSteps(); }
+    function runCustomProfile() {
+        const name = document.getElementById('prof-name').value;
+        if (!name) return alert("Validation Error: Profile needs a name.");
+        if (steps.length === 0) return alert("Validation Error: Profile needs at least one step.");
+        sendCommand('profile', { profile: { name: name, steps: steps } });
+    }
+    renderSteps();
+
+    // --- PROFILE CRUD ---
+    async function loadProfilesList() {
+        try {
+            const res = await fetch('/api/profiles'); const data = await res.json();
+            const tbody = document.getElementById('saved-profiles-body'); tbody.innerHTML = '';
+            if (data.length === 0) { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#888;">No profiles saved yet.</td></tr>'; return; }
+            data.forEach(p => {
+                tbody.innerHTML += `<tr><td>${p.slot}</td><td><strong>${p.name}</strong></td>
+                    <td style="text-align: right;">
+                        <button class="success" style="padding: 5px 10px;" onclick="runSlot(${p.slot})">Run</button>
+                        <button style="padding: 5px 10px;" onclick="editSlot(${p.slot})">Edit</button>
+                        <button class="danger" style="padding: 5px 10px;" onclick="deleteSlot(${p.slot})">X</button>
+                    </td></tr>`;
+            });
+        } catch (e) {}
+    }
+    async function runSlot(slot) { if(confirm(`Execute profile from slot ${slot}?`)) { sendCommand('run_slot', { slot: slot }); } }
+    async function deleteSlot(slot) { if(confirm(`Permanently delete profile in slot ${slot}?`)) { await sendCommand('delete_profile', { slot: slot }); setTimeout(loadProfilesList, 500); } }
+    async function editSlot(slot) {
+        try {
+            const res = await fetch(`/api/profile/${slot}`); const p = await res.json();
+            document.getElementById('prof-slot').value = slot; document.getElementById('prof-name').value = p.name;
+            steps = p.steps; renderSteps(); 
+            document.getElementById('profile-editor').scrollIntoView({ behavior: 'smooth' });
+        } catch (e) { alert("Failed to fetch profile data!"); }
+    }
+    function saveProfileToSlot() {
+        const name = document.getElementById('prof-name').value; const slot = parseInt(document.getElementById('prof-slot').value);
+        if (!name || steps.length === 0) return alert("Invalid Profile!");
+        sendCommand('save_profile', { slot: slot, profile: { name: name, steps: steps } });
+        alert(`Profile saved to Slot ${slot}!`); setTimeout(loadProfilesList, 500);
+    }
+
+    // --- SYNCHRONIZED BOOT SEQUENCE ---
+    // This forces the browser to load data one step at a time, preventing TCP socket exhaustion!
+    async function bootMachineUI() {
+        console.log("Loading Settings...");
+        await loadSettings();
+        
+        console.log("Loading Profiles...");
+        await loadProfilesList();
+        
+        console.log("Starting Live Telemetry...");
+        pollTelemetry();
+    }
+
+    // Start the UI
+    bootMachineUI();
+</script>
+</body>
+</html>

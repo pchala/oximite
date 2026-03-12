@@ -1,0 +1,42 @@
+@startuml
+[*] --> HeatingUp
+
+HeatingUp --> Idle : Temp >= Target - 1C
+Idle --> Sleeping : Timeout (20m)
+Sleeping --> HeatingUp : Any Command
+
+Idle --> Brewing : Brew / RunProfile / Flush
+Brewing --> Idle : Stop / Completion / Safety Timeout (120s)
+
+Idle --> Steaming : Steam
+Steaming --> CoolingDown : Completion / Stop / Time Limit
+CoolingDown --> Idle : Temp <= Target + 2C
+
+Idle --> Descaling : Descale
+Descaling --> Idle : Completion / Any Command
+
+state Brewing {
+  state "Execute Steps" as Steps
+  [*] --> Steps
+  Steps : MACHINE_STATE = 1
+}
+
+state Steaming {
+  [*] --> MaintainPressure
+  MaintainPressure : MACHINE_STATE = 2
+}
+
+state Descaling {
+  [*] --> HeatTo60
+  HeatTo60 --> PumpHalf : Temp >= 55
+  PumpHalf --> Soak : Volume >= 500
+  Soak --> PumpEmpty : Timeout (10m)
+  PumpEmpty --> [*] : Flow < 0.5
+  Descaling : MACHINE_STATE = 3
+}
+
+Idle : MACHINE_STATE = 0
+Sleeping : MACHINE_STATE = 4
+HeatingUp : MACHINE_STATE = 5
+CoolingDown : MACHINE_STATE = 6
+@enduml
