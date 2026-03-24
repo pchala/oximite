@@ -81,7 +81,10 @@ pub fn setup_flow_sm(
 pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
     let mut total_edges = 0u32;
     // Calibration constant (edges per liter) loaded from settings.
-    let mut edges_per_liter = crate::settings::SettingsManager::get().await.flow_edges_per_liter;
+    let mut edges_per_liter = crate::settings::SettingsManager::get()
+        .await
+        .hardware
+        .flow_edges_per_liter;
     if edges_per_liter <= 0.0 {
         edges_per_liter = 3850.0; // Fallback to avoid division by zero
     }
@@ -98,7 +101,7 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
             timeout,
             select(
                 select(sm.rx().wait_pull(), SIG_RESET_VOLUME.wait()),
-                settings_ticker.next()
+                settings_ticker.next(),
             ),
         )
         .await
@@ -119,11 +122,18 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
                 }
 
                 if current_ticks > 0 {
-                    let flow_ml_s = flow_numerator / (current_ticks as f32);
+                    let raw_flow_ml_s = flow_numerator / (current_ticks as f32);
                     let vol_ml = (total_edges as f32) * ml_per_edge;
 
                     let mut state = FLOW_WATCH.try_get().unwrap_or(FlowState::default());
-                    state.flow_rate_ml_s = flow_ml_s;
+                    
+                    const ALPHA: f32 = 0.3; // EMA filter coefficient
+                    if state.flow_rate_ml_s == 0.0 {
+                        state.flow_rate_ml_s = raw_flow_ml_s;
+                    } else {
+                        state.flow_rate_ml_s = state.flow_rate_ml_s + ALPHA * (raw_flow_ml_s - state.flow_rate_ml_s);
+                    }
+                    
                     state.total_volume_ml = vol_ml;
                     FLOW_WATCH.sender().send(state);
                 } else {
@@ -140,12 +150,18 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
             }
             Ok(Either::Second(_)) => {
                 // Periodically update calibration if it changed
-                let new_edges_per_liter = crate::settings::SettingsManager::get().await.flow_edges_per_liter;
+                let new_edges_per_liter = crate::settings::SettingsManager::get()
+                    .await
+                    .hardware
+                    .flow_edges_per_liter;
                 if new_edges_per_liter > 0.0 && new_edges_per_liter != edges_per_liter {
                     edges_per_liter = new_edges_per_liter;
                     ml_per_edge = 1000.0 / edges_per_liter;
                     flow_numerator = (CLOCK_FREQ_HZ / CYCLES_PER_LOOP) * ml_per_edge;
-                    defmt::info!("Flow meter calibration updated: {} edges/L", edges_per_liter);
+                    defmt::info!(
+                        "Flow meter calibration updated: {} edges/L",
+                        edges_per_liter
+                    );
                 }
             }
             Err(_) => {

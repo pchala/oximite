@@ -22,61 +22,117 @@ pub struct BrewProfile {
     pub steps: heapless::Vec<BrewProfileStep, 10>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct SettingsManager {
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct MachineSettings {
     pub brew_temp: f32,
     pub steam_temp: f32,
-    pub temp_offset: f32,
     pub steam_time_limit_s: f32,
     pub steam_pressure: f32,
-    pub temp_kp: f32,
-    pub temp_ki: f32,
-    pub temp_kd: f32,
-    pub press_kp: f32,
-    pub press_ki: f32,
-    pub press_kd: f32,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct HardwareSettings {
+    pub temp_offset: f32,
     pub flow_edges_per_liter: f32,
-    pub wifi_ssid: heapless::String<32>,
-    pub wifi_password: heapless::String<64>,
+    pub temp_feed_forward: f32,
+    pub flow_multiplier: f32,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct PidSettings {
+    pub kp: f32,
+    pub ki: f32,
+    pub kd: f32,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct WifiSettings {
+    pub ssid: heapless::String<32>,
+    pub password: heapless::String<64>,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct UsageSettings {
+    pub total_ml_since_descale: f32,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct SettingsManager {
+    pub machine: MachineSettings,
+    pub hardware: HardwareSettings,
+    pub temp_pid: PidSettings,
+    pub press_pid: PidSettings,
+    pub wifi: WifiSettings,
+    pub usage: UsageSettings,
 }
 
 impl Default for SettingsManager {
     fn default() -> Self {
         Self {
-            brew_temp: 92.0,
-            steam_temp: 135.0,
-            temp_offset: -2.5,
-            steam_time_limit_s: 120.0,
-            steam_pressure: 1.5,
-            temp_kp: 2.0,
-            temp_ki: 0.01,
-            temp_kd: 5.0,
-            press_kp: 2.0,
-            press_ki: 0.1,
-            press_kd: 0.5,
-            flow_edges_per_liter: 3850.0,
-            wifi_ssid: heapless::String::try_from("Oximite-Setup").unwrap(),
-            wifi_password: heapless::String::try_from("password").unwrap(),
+            machine: MachineSettings {
+                brew_temp: 92.0,
+                steam_temp: 135.0,
+                steam_time_limit_s: 120.0,
+                steam_pressure: 1.5,
+            },
+            hardware: HardwareSettings {
+                temp_offset: -2.5,
+                flow_edges_per_liter: 3850.0,
+                temp_feed_forward: 35.0,
+                flow_multiplier: 20.0,
+            },
+            temp_pid: PidSettings {
+                kp: 2.0,
+                ki: 0.01,
+                kd: 5.0,
+            },
+            press_pid: PidSettings {
+                kp: 2.0,
+                ki: 0.1,
+                kd: 0.5,
+            },
+            wifi: WifiSettings {
+                ssid: heapless::String::try_from("").unwrap(),
+                password: heapless::String::try_from("").unwrap(),
+            },
+            usage: UsageSettings {
+                total_ml_since_descale: 0.0,
+            },
         }
     }
 }
 
 static CURRENT_SETTINGS: Mutex<CriticalSectionRawMutex, SettingsManager> =
     Mutex::new(SettingsManager {
-        brew_temp: 92.0,
-        steam_temp: 135.0,
-        temp_offset: -2.5,
-        steam_time_limit_s: 120.0,
-        steam_pressure: 1.5,
-        temp_kp: 2.0,
-        temp_ki: 0.01,
-        temp_kd: 5.0,
-        press_kp: 2.0,
-        press_ki: 0.1,
-        press_kd: 0.5,
-        flow_edges_per_liter: 3850.0,
-        wifi_ssid: heapless::String::new(),
-        wifi_password: heapless::String::new(),
+        machine: MachineSettings {
+            brew_temp: 92.0,
+            steam_temp: 135.0,
+            steam_time_limit_s: 120.0,
+            steam_pressure: 1.5,
+        },
+        hardware: HardwareSettings {
+            temp_offset: -2.5,
+            flow_edges_per_liter: 3850.0,
+            temp_feed_forward: 35.0,
+            flow_multiplier: 20.0,
+        },
+        temp_pid: PidSettings {
+            kp: 2.0,
+            ki: 0.01,
+            kd: 5.0,
+        },
+        press_pid: PidSettings {
+            kp: 2.0,
+            ki: 0.1,
+            kd: 0.5,
+        },
+        wifi: WifiSettings {
+            ssid: heapless::String::new(),
+            password: heapless::String::new(),
+        },
+        usage: UsageSettings {
+            total_ml_since_descale: 0.0,
+        },
     });
 
 impl SettingsManager {
@@ -90,52 +146,197 @@ impl SettingsManager {
 
     pub async fn load_from_flash<T: Instance>(flash: &mut Flash<'_, T, Async, 2097152>) {
         let mut scratch = [0u8; 1024];
+        let mut loaded_settings = Self::default();
+        let mut anything_loaded = false;
 
-        let fetch_result: Result<Option<&[u8]>, _> = fetch_item(
+        if let Ok(Some(item_bytes)) = fetch_item(
             flash,
             FS_RANGE,
             &mut NoCache::new(),
             &mut scratch,
-            b"sys_settings",
+            b"sys_machine",
         )
-        .await;
-
-        match fetch_result {
-            Ok(Some(item_bytes)) => {
-                if let Ok((settings, _)) = serde_json_core::from_slice::<Self>(item_bytes) {
-                    defmt::info!("Settings loaded from FS.");
-                    Self::update_ram(settings).await;
-                }
-            }
-            _ => {
-                defmt::info!("No settings found in flash. Using defaults.");
-                Self::update_ram(Self::default()).await;
+        .await
+        {
+            if let Ok((machine, _)) = serde_json_core::from_slice::<MachineSettings>(item_bytes) {
+                loaded_settings.machine = machine;
+                anything_loaded = true;
             }
         }
+        if let Ok(Some(item_bytes)) = fetch_item(
+            flash,
+            FS_RANGE,
+            &mut NoCache::new(),
+            &mut scratch,
+            b"sys_hardware",
+        )
+        .await
+        {
+            if let Ok((hardware, _)) = serde_json_core::from_slice::<HardwareSettings>(item_bytes) {
+                loaded_settings.hardware = hardware;
+                anything_loaded = true;
+            }
+        }
+        if let Ok(Some(item_bytes)) = fetch_item(
+            flash,
+            FS_RANGE,
+            &mut NoCache::new(),
+            &mut scratch,
+            b"sys_temp_pid",
+        )
+        .await
+        {
+            if let Ok((temp_pid, _)) = serde_json_core::from_slice::<PidSettings>(item_bytes) {
+                loaded_settings.temp_pid = temp_pid;
+                anything_loaded = true;
+            }
+        }
+        if let Ok(Some(item_bytes)) = fetch_item(
+            flash,
+            FS_RANGE,
+            &mut NoCache::new(),
+            &mut scratch,
+            b"sys_press_pid",
+        )
+        .await
+        {
+            if let Ok((press_pid, _)) = serde_json_core::from_slice::<PidSettings>(item_bytes) {
+                loaded_settings.press_pid = press_pid;
+                anything_loaded = true;
+            }
+        }
+        if let Ok(Some(item_bytes)) = fetch_item(
+            flash,
+            FS_RANGE,
+            &mut NoCache::new(),
+            &mut scratch,
+            b"sys_wifi",
+        )
+        .await
+        {
+            if let Ok((wifi, _)) = serde_json_core::from_slice::<WifiSettings>(item_bytes) {
+                loaded_settings.wifi = wifi;
+                anything_loaded = true;
+            }
+        }
+        if let Ok(Some(item_bytes)) = fetch_item(
+            flash,
+            FS_RANGE,
+            &mut NoCache::new(),
+            &mut scratch,
+            b"sys_usage",
+        )
+        .await
+        {
+            if let Ok((usage, _)) = serde_json_core::from_slice::<UsageSettings>(item_bytes) {
+                loaded_settings.usage = usage;
+                anything_loaded = true;
+            }
+        }
+
+        if anything_loaded {
+            defmt::info!("Settings loaded from FS.");
+        } else {
+            defmt::info!("No settings found in flash. Using defaults.");
+        }
+        Self::update_ram(loaded_settings).await;
     }
 
-    pub async fn save_to_flash<T: Instance>(
+    pub async fn save_changes_to_flash<T: Instance>(
         flash: &mut Flash<'_, T, Async, 2097152>,
-        settings: &Self,
+        old_settings: &Self,
+        new_settings: &Self,
     ) {
-        let mut scratch = [0u8; 2048];
-        let mut data = [0u8; 2048];
-        match serde_json_core::to_slice(settings, &mut data) {
-            Ok(len) => {
+        let mut scratch = [0u8; 1024];
+        let mut data = [0u8; 1024];
+        let mut saved_anything = false;
+
+        if old_settings.machine != new_settings.machine {
+            if let Ok(len) = serde_json_core::to_slice(&new_settings.machine, &mut data) {
                 let _ = store_item(
                     flash,
                     FS_RANGE,
                     &mut NoCache::new(),
                     &mut scratch,
-                    b"sys_settings",
+                    b"sys_machine",
                     &&data[..len],
                 )
                 .await;
-                defmt::info!("Settings saved to FS.");
+                saved_anything = true;
             }
-            Err(_e) => {
-                defmt::error!("Failed to serialize settings. They were not saved.");
+        }
+        if old_settings.hardware != new_settings.hardware {
+            if let Ok(len) = serde_json_core::to_slice(&new_settings.hardware, &mut data) {
+                let _ = store_item(
+                    flash,
+                    FS_RANGE,
+                    &mut NoCache::new(),
+                    &mut scratch,
+                    b"sys_hardware",
+                    &&data[..len],
+                )
+                .await;
+                saved_anything = true;
             }
+        }
+        if old_settings.temp_pid != new_settings.temp_pid {
+            if let Ok(len) = serde_json_core::to_slice(&new_settings.temp_pid, &mut data) {
+                let _ = store_item(
+                    flash,
+                    FS_RANGE,
+                    &mut NoCache::new(),
+                    &mut scratch,
+                    b"sys_temp_pid",
+                    &&data[..len],
+                )
+                .await;
+                saved_anything = true;
+            }
+        }
+        if old_settings.press_pid != new_settings.press_pid {
+            if let Ok(len) = serde_json_core::to_slice(&new_settings.press_pid, &mut data) {
+                let _ = store_item(
+                    flash,
+                    FS_RANGE,
+                    &mut NoCache::new(),
+                    &mut scratch,
+                    b"sys_press_pid",
+                    &&data[..len],
+                )
+                .await;
+                saved_anything = true;
+            }
+        }
+        if old_settings.wifi != new_settings.wifi {
+            if let Ok(len) = serde_json_core::to_slice(&new_settings.wifi, &mut data) {
+                let _ = store_item(
+                    flash,
+                    FS_RANGE,
+                    &mut NoCache::new(),
+                    &mut scratch,
+                    b"sys_wifi",
+                    &&data[..len],
+                )
+                .await;
+                saved_anything = true;
+            }
+        }
+        if old_settings.usage != new_settings.usage {
+            if let Ok(len) = serde_json_core::to_slice(&new_settings.usage, &mut data) {
+                let _ = store_item(
+                    flash,
+                    FS_RANGE,
+                    &mut NoCache::new(),
+                    &mut scratch,
+                    b"sys_usage",
+                    &&data[..len],
+                )
+                .await;
+                saved_anything = true;
+            }
+        }
+        if saved_anything {
+            defmt::info!("Settings changes saved to FS.");
         }
     }
 

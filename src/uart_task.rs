@@ -4,7 +4,7 @@ use embassy_time::{Duration, Ticker, Timer};
 use serde::{Deserialize, Serialize};
 
 use crate::settings::BrewProfile;
-use crate::state::{MachineCommand, get_state, SIG_COMMAND};
+use crate::state::{get_state, MachineCommand, SIG_COMMAND};
 use crate::{control, flow_meter};
 
 #[derive(Serialize)]
@@ -24,6 +24,7 @@ struct UartCommand<'a> {
     cmd: &'a str,
     profile: Option<BrewProfile>,
     settings: Option<crate::settings::SettingsManager>,
+    power: Option<f32>,
 }
 
 #[embassy_executor::task]
@@ -88,32 +89,40 @@ pub async fn uart_rx_task(mut rx: UartRx<'static, Async>) {
 
 fn handle_command(json_str: &str) {
     match serde_json_core::from_str::<UartCommand>(json_str) {
-        Ok((payload, _)) => {
-            match payload.cmd {
-                "stop" => SIG_COMMAND.signal(MachineCommand::Stop),
-                "brew" => SIG_COMMAND.signal(MachineCommand::Brew),
-                "steam" => SIG_COMMAND.signal(MachineCommand::Steam),
-                "flush" => SIG_COMMAND.signal(MachineCommand::Flush),
-                "descale" => SIG_COMMAND.signal(MachineCommand::Descale),
-                "profile" => {
-                    if let Some(p) = payload.profile {
-                        defmt::info!("UART: Running profile '{}'", p.name.as_str());
-                        SIG_COMMAND.signal(MachineCommand::RunProfile(p));
-                    }
-                }
-                "save_settings" => {
-                    if let Some(s) = payload.settings {
-                        defmt::info!("UART: Saving settings");
-                        SIG_COMMAND.signal(MachineCommand::SaveSettings(s));
-                    }
-                }
-                _ => {
-                    defmt::warn!("Unknown UART command: {}", payload.cmd);
+        Ok((payload, _)) => match payload.cmd {
+            "stop" => SIG_COMMAND.signal(MachineCommand::Stop),
+            "brew" => SIG_COMMAND.signal(MachineCommand::Brew),
+            "steam" => SIG_COMMAND.signal(MachineCommand::Steam),
+            "flush" => SIG_COMMAND.signal(MachineCommand::Flush),
+            "descale" => SIG_COMMAND.signal(MachineCommand::Descale),
+            "direct_pump" => {
+                SIG_COMMAND.signal(MachineCommand::Stop);
+                if let Some(p) = payload.power {
+                    SIG_COMMAND.signal(MachineCommand::DirectPump(p));
                 }
             }
-        }
+            "profile" => {
+                if let Some(p) = payload.profile {
+                    defmt::info!("UART: Running profile '{}'", p.name.as_str());
+                    SIG_COMMAND.signal(MachineCommand::RunProfile(p));
+                }
+            }
+            "save_settings" => {
+                if let Some(s) = payload.settings {
+                    defmt::info!("UART: Saving settings");
+                    SIG_COMMAND.signal(MachineCommand::SaveSettings(s));
+                }
+            }
+            _ => {
+                defmt::warn!("Unknown UART command: {}", payload.cmd);
+            }
+        },
         Err(e) => {
-            defmt::error!("UART JSON Parse Error: {:?} for string: {}", defmt::Debug2Format(&e), json_str);
+            defmt::error!(
+                "UART JSON Parse Error: {:?} for string: {}",
+                defmt::Debug2Format(&e),
+                json_str
+            );
         }
     }
 }

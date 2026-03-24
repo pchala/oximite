@@ -1,4 +1,6 @@
-use embassy_rp::pio::{Common, Config, Direction, FifoJoin, Instance, Pin, StateMachine, ShiftDirection};
+use embassy_rp::pio::{
+    Common, Config, Direction, FifoJoin, Instance, Pin, ShiftDirection, StateMachine,
+};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use fixed::FixedU32;
@@ -20,8 +22,7 @@ impl Rgb {
     }
 }
 
-static LED_DATA: Mutex<CriticalSectionRawMutex, [Rgb; 2]> =
-    Mutex::new([Rgb::off(), Rgb::off()]);
+static LED_DATA: Mutex<CriticalSectionRawMutex, [Rgb; 2]> = Mutex::new([Rgb::off(), Rgb::off()]);
 
 pub async fn set_leds(leds: [Rgb; 2]) {
     *LED_DATA.lock().await = leds;
@@ -36,16 +37,16 @@ pub fn setup_ws2812_sm<P: Instance, const SM: usize>(
         ".side_set 1",
         ".wrap_target",
         "get_data:",
-        "pull block      side 0",      // STALL: Forces line LOW when FIFO is empty!
-        "set y, 23       side 0",      // Loop 24 times for 1 LED
+        "pull block      side 0", // STALL: Forces line LOW when FIFO is empty!
+        "set y, 23       side 0", // Loop 24 times for 1 LED
         "bitloop:",
-        "out x, 1        side 0 [2]",  
-        "jmp !x do_zero  side 1 [1]",  
+        "out x, 1        side 0 [2]",
+        "jmp !x do_zero  side 1 [1]",
         "do_one:",
-        "jmp y-- bitloop side 1 [4]",  // Long High
-        "jmp get_data    side 0",      // Done 24 bits. Force line LOW.
+        "jmp y-- bitloop side 1 [4]", // Long High
+        "jmp get_data    side 0",     // Done 24 bits. Force line LOW.
         "do_zero:",
-        "jmp y-- bitloop side 0 [4]",  // Long Low
+        "jmp y-- bitloop side 0 [4]", // Long Low
         ".wrap"
     );
 

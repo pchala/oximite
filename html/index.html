@@ -7,9 +7,10 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root { --bg: #121212; --panel: #1e1e1e; --text: #e0e0e0; --accent: #bb86fc; --danger: #cf6679; --success: #03dac6; --border: #333; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; display: grid; grid-template-columns: 1fr; gap: 20px; max-width: 800px; margin: 0 auto; }
-        .panel { background: var(--panel); padding: 20px; border-radius: 8px; border: 1px solid var(--border); }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; max-width: 800px; margin: 0 auto; }
+        .panel { background: var(--panel); padding: 20px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px; }
         h2 { margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        h3 { margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 5px; font-size: 1.1em; color: #ccc; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
         .stat-box { background: #2c2c2c; padding: 15px; border-radius: 6px; text-align: center; font-size: 1.2em; font-weight: bold; }
@@ -20,97 +21,140 @@
         table { width: 100%; border-collapse: collapse; margin-bottom: 15px; } th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
         canvas { width: 100% !important; height: 300px !important; }
         label { font-size: 0.8em; color: #aaa; }
+        
+        /* Tabs Styling */
+        .tabs { display: flex; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+        .tab-button { background: none; color: var(--text); border: none; padding: 10px 20px; font-size: 1.1em; cursor: pointer; border-bottom: 2px solid transparent; opacity: 0.6; border-radius: 0; margin-right: 10px; transition: all 0.2s; }
+        .tab-button:hover { opacity: 1; }
+        .tab-button.active { opacity: 1; border-bottom-color: var(--accent); color: var(--accent); font-weight: bold; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
     </style>
 </head>
 <body>
-    <div class="panel">
-        <h2>oximite <span id="machine-state" style="float:right; color:var(--accent);">IDLE</span></h2>
-        <div class="grid-2" style="margin-bottom: 20px;">
-            <div class="stat-box"><span class="stat-label">Temperature</span><span id="val-t">0.0</span> °C</div>
-            <div class="stat-box"><span class="stat-label">Pressure</span><span id="val-p">0.0</span> Bar</div>
-            <div class="stat-box"><span class="stat-label">Flow Rate</span><span id="val-fl">0.0</span> ml/s</div>
-            <div class="stat-box"><span class="stat-label">Volume</span><span id="val-vol">0.0</span> ml</div>
-        </div>
-        <div class="grid-2">
-            <button class="success" onclick="sendCommand('brew')">START BREW</button>
-            <button class="danger" onclick="sendCommand('stop')">STOP</button>
-            <button onclick="sendCommand('flush')">FLUSH</button>
-            <button onclick="sendCommand('steam')">STEAM MODE</button>
-            <button onclick="sendCommand('descale')">DESCALE</button>
-        </div>
-    </div>
-    
-    <div class="panel">
-        <h2>Extraction Graph</h2><canvas id="telemetryChart"></canvas>
-    </div>
-    
-    <div class="panel">
-        <h2>Saved Profiles</h2>
-        <table style="margin-bottom: 0;">
-            <thead><tr><th>Slot</th><th>Name</th><th style="text-align: right;">Actions</th></tr></thead>
-            <tbody id="saved-profiles-body"></tbody>
-        </table>
+    <div class="tabs">
+        <button class="tab-button active" onclick="openTab(event, 'tab-home')">Home</button>
+        <button class="tab-button" onclick="openTab(event, 'tab-settings')">Settings</button>
     </div>
 
-    <div class="panel" id="profile-editor">
-        <h2>Profile Editor</h2>
-        <div class="grid-2">
-            <div>
-                <label>Target Slot</label>
-                <select id="prof-slot">
-                    <option value="0">Slot 0</option><option value="1">Slot 1</option><option value="2">Slot 2</option>
-                    <option value="3">Slot 3</option><option value="4">Slot 4</option><option value="5">Slot 5</option>
-                    <option value="6">Slot 6</option><option value="7">Slot 7</option><option value="8">Slot 8</option><option value="9">Slot 9</option>
-                </select>
+    <div id="tab-home" class="tab-content active">
+        <div class="panel">
+            <h2>oximite <span id="machine-state" style="float:right; color:var(--accent);">IDLE</span></h2>
+            <div class="grid-2" style="margin-bottom: 20px;">
+                <div class="stat-box"><span class="stat-label">Temperature</span><span id="val-t">0.0</span> °C</div>
+                <div class="stat-box"><span class="stat-label">Pressure</span><span id="val-p">0.0</span> Bar</div>
+                <div class="stat-box"><span class="stat-label">Flow Rate</span><span id="val-fl">0.0</span> ml/s</div>
+                <div class="stat-box"><span class="stat-label">Volume</span><span id="val-vol">0.0</span> ml</div>
             </div>
-            <div>
-                <label>Profile Name</label><input type="text" id="prof-name" placeholder="e.g., Blooming Slayer">
+            <div class="grid-2">
+                <button class="success" onclick="sendCommand('brew')">START BREW</button>
+                <button class="danger" onclick="sendCommand('stop')">STOP</button>
+                <button onclick="sendCommand('flush')">FLUSH</button>
+                <button onclick="sendCommand('steam')">STEAM MODE</button>
+                <button onclick="sendCommand('descale')">DESCALE</button>
+            </div>
+            <div class="grid-2" style="margin-top: 10px;">
+                <input type="number" id="direct-pump-val" placeholder="Pump Power %" min="0" max="100" step="1">
+                <button onclick="sendCommand('direct_pump', { power: parseFloat(document.getElementById('direct-pump-val').value) })">DIRECT PUMP</button>
             </div>
         </div>
-        <table id="step-table">
-            <thead><tr><th>Time (s)</th><th>Volume (ml)</th><th>Pressure (Bar)</th><th>Max flow (ml/s)</th><th>Action</th></tr></thead>
-            <tbody id="step-body"></tbody>
-        </table>
-        <div class="grid-2">
-            <button onclick="addStep()">+ Add Step</button>
-            <button class="success" onclick="runCustomProfile()">Run (Without Saving)</button>
+        
+        <div class="panel">
+            <h2>Extraction Graph</h2><canvas id="telemetryChart"></canvas>
         </div>
-        <button onclick="saveProfileToSlot()" style="width: 100%; margin-top: 15px;">Save Profile to Flash</button>
+        
+        <div class="panel">
+            <h2>Saved Profiles</h2>
+            <table style="margin-bottom: 0;">
+                <thead><tr><th>Slot</th><th>Name</th><th style="text-align: right;">Actions</th></tr></thead>
+                <tbody id="saved-profiles-body"></tbody>
+            </table>
+        </div>
+
+        <div class="panel" id="profile-editor">
+            <h2>Profile Editor</h2>
+            <div class="grid-2">
+                <div>
+                    <label>Target Slot</label>
+                    <select id="prof-slot">
+                        <option value="0">Slot 0</option><option value="1">Slot 1</option><option value="2">Slot 2</option>
+                        <option value="3">Slot 3</option><option value="4">Slot 4</option><option value="5">Slot 5</option>
+                        <option value="6">Slot 6</option><option value="7">Slot 7</option><option value="8">Slot 8</option><option value="9">Slot 9</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Profile Name</label><input type="text" id="prof-name" placeholder="e.g., Blooming Slayer">
+                </div>
+            </div>
+            <table id="step-table">
+                <thead><tr><th>Time (s)</th><th>Volume (ml)</th><th>Pressure (Bar)</th><th>Max flow (ml/s)</th><th>Action</th></tr></thead>
+                <tbody id="step-body"></tbody>
+            </table>
+            <div class="grid-2">
+                <button onclick="addStep()">+ Add Step</button>
+                <button class="success" onclick="runCustomProfile()">Run (Without Saving)</button>
+            </div>
+            <button onclick="saveProfileToSlot()" style="width: 100%; margin-top: 15px;">Save Profile to Flash</button>
+        </div>
     </div>
 
-    <div class="panel">
-        <h2>Machine Settings</h2>
-        <div class="grid-3">
-            <div><label>Brew Temp (°C)</label><input type="number" id="set-bt" value="92.0" step="0.5"></div>
-            <div><label>Steam Temp (°C)</label><input type="number" id="set-st" value="135.0" step="0.5"></div>
-            <div><label>Temp Offset (°C)</label><input type="number" id="set-to" value="-2.5" step="0.1"></div>
+    <div id="tab-settings" class="tab-content">
+        <div class="panel">
+            <h2>Machine Settings</h2>
+            <div class="grid-3">
+                <div><label>Brew Temp (°C)</label><input type="number" id="set-bt" value="92.0" step="0.5"></div>
+                <div><label>Steam Temp (°C)</label><input type="number" id="set-st" value="135.0" step="0.5"></div>
+                <div><label>Steam Limit (s)</label><input type="number" id="set-sl" value="120" step="1"></div>
+                <div><label>Steam Pressure (Bar)</label><input type="number" id="set-sp" value="1.5" step="0.1"></div>
+            </div>
         </div>
-        <div class="grid-3">
-            <div><label>Steam Limit (s)</label><input type="number" id="set-sl" value="120" step="1"></div>
-            <div><label>Steam Pressure (Bar)</label><input type="number" id="set-sp" value="1.5" step="0.1"></div>
-            <div><label>Flow sensor (Edges/L)</label><input type="number" id="set-fepl" value="3850.0" step="1"></div>
+
+        <div class="panel">
+            <h2>Hardware Settings</h2>
+            <div class="grid-3">
+                <div><label>Temp Offset (°C)</label><input type="number" id="set-to" value="-2.5" step="0.1"></div>
+                <div><label>Flow sensor (Edges/L)</label><input type="number" id="set-fepl" value="3850.0" step="1"></div>
+                <div><label>Temp Feed Forward</label><input type="number" id="set-tff" value="35.0" step="0.1"></div>
+                <div><label>Flow PID Penalty</label><input type="number" id="set-fpp" value="20.0" step="0.1"></div>
+            </div>
         </div>
-        <h3>PID: Temperature</h3>
-        <div class="grid-3">
-            <div><label>Kp</label><input type="number" id="set-tkp" value="2.0" step="0.1"></div>
-            <div><label>Ki</label><input type="number" id="set-tki" value="0.01" step="0.001"></div>
-            <div><label>Kd</label><input type="number" id="set-tkd" value="5.0" step="0.1"></div>
+            <div class="grid-3">
+                <div><label>Kp</label><input type="number" id="set-tkp" value="2.0" step="0.1"></div>
+                <div><label>Ki</label><input type="number" id="set-tki" value="0.01" step="0.001"></div>
+                <div><label>Kd</label><input type="number" id="set-tkd" value="5.0" step="0.1"></div>
+            </div>
+            <h3>PID: Pressure</h3>
+            <div class="grid-3">
+                <div><label>Kp</label><input type="number" id="set-pkp" value="2.0" step="0.1"></div>
+                <div><label>Ki</label><input type="number" id="set-pki" value="0.1" step="0.01"></div>
+                <div><label>Kd</label><input type="number" id="set-pkd" value="0.5" step="0.1"></div>
+            </div>
+            <h3>Wi-Fi Configuration</h3>
+            <div class="grid-2">
+                <div><label>SSID</label><input type="text" id="set-ssid" placeholder="Network Name"></div>
+                <div><label>Password</label><input type="password" id="set-pass" placeholder="Network Password"></div>
+            </div>
+            <button onclick="saveSettings()" style="width: 100%;">Save to Flash</button>
         </div>
-        <h3>PID: Pressure</h3>
-        <div class="grid-3">
-            <div><label>Kp</label><input type="number" id="set-pkp" value="2.0" step="0.1"></div>
-            <div><label>Ki</label><input type="number" id="set-pki" value="0.1" step="0.01"></div>
-            <div><label>Kd</label><input type="number" id="set-pkd" value="0.5" step="0.1"></div>
-        </div>
-        <h3>Wi-Fi Configuration</h3>
-        <div class="grid-2">
-            <div><label>SSID</label><input type="text" id="set-ssid" placeholder="Network Name"></div>
-            <div><label>Password</label><input type="password" id="set-pass" placeholder="Network Password"></div>
-        </div>
-        <button onclick="saveSettings()" style="width: 100%;">Save to Flash</button>
     </div>
 
 <script>
+    // --- TABS ---
+    function openTab(evt, tabName) {
+        const tabContents = document.getElementsByClassName("tab-content");
+        for (let i = 0; i < tabContents.length; i++) {
+            tabContents[i].style.display = "none";
+            tabContents[i].classList.remove("active");
+        }
+        const tabButtons = document.getElementsByClassName("tab-button");
+        for (let i = 0; i < tabButtons.length; i++) {
+            tabButtons[i].classList.remove("active");
+        }
+        document.getElementById(tabName).style.display = "block";
+        document.getElementById(tabName).classList.add("active");
+        if(evt) evt.currentTarget.classList.add("active");
+    }
+
     const ctx = document.getElementById('telemetryChart').getContext('2d');
     const chart = new Chart(ctx, {
         type: 'line',
@@ -161,41 +205,63 @@
 
     // --- SETTINGS ---
     function saveSettings() {
-        sendCommand('save_settings', { 
-            brew_temp: parseFloat(document.getElementById('set-bt').value), 
-            steam_temp: parseFloat(document.getElementById('set-st').value), 
-            temp_offset: parseFloat(document.getElementById('set-to').value),
-            steam_time_limit_s: parseFloat(document.getElementById('set-sl').value),
-            steam_pressure: parseFloat(document.getElementById('set-sp').value),
-            temp_kp: parseFloat(document.getElementById('set-tkp').value),
-            temp_ki: parseFloat(document.getElementById('set-tki').value),
-            temp_kd: parseFloat(document.getElementById('set-tkd').value),
-            press_kp: parseFloat(document.getElementById('set-pkp').value),
-            press_ki: parseFloat(document.getElementById('set-pki').value),
-            press_kd: parseFloat(document.getElementById('set-pkd').value),
-            flow_edges_per_liter: parseFloat(document.getElementById('set-fepl').value),
-            wifi_ssid: document.getElementById('set-ssid').value,
-            wifi_password: document.getElementById('set-pass').value
+        sendCommand('save_settings', {
+            machine: {
+                brew_temp: parseFloat(document.getElementById('set-bt').value),
+                steam_temp: parseFloat(document.getElementById('set-st').value),
+                steam_time_limit_s: parseFloat(document.getElementById('set-sl').value),
+                steam_pressure: parseFloat(document.getElementById('set-sp').value),
+            },
+            hardware: {
+                temp_offset: parseFloat(document.getElementById('set-to').value),
+                flow_edges_per_liter: parseFloat(document.getElementById('set-fepl').value),
+                temp_feed_forward: parseFloat(document.getElementById('set-tff').value),
+                flow_multiplier: parseFloat(document.getElementById('set-fpp').value),
+            },
+            temp_pid: {                kp: parseFloat(document.getElementById('set-tkp').value),
+                ki: parseFloat(document.getElementById('set-tki').value),
+                kd: parseFloat(document.getElementById('set-tkd').value),
+            },
+            press_pid: {
+                kp: parseFloat(document.getElementById('set-pkp').value),
+                ki: parseFloat(document.getElementById('set-pki').value),
+                kd: parseFloat(document.getElementById('set-pkd').value),
+            },
+            wifi: {
+                ssid: document.getElementById('set-ssid').value,
+                password: document.getElementById('set-pass').value
+            }
         });
         alert("Settings Saved!");
     }
     async function loadSettings() {
         try {
             const res = await fetch('/api/settings'); const data = await res.json();
-            document.getElementById('set-bt').value = data.brew_temp; 
-            document.getElementById('set-st').value = data.steam_temp;
-            document.getElementById('set-to').value = data.temp_offset;
-            if (data.steam_time_limit_s !== undefined) document.getElementById('set-sl').value = data.steam_time_limit_s;
-            if (data.steam_pressure !== undefined) document.getElementById('set-sp').value = data.steam_pressure;
-            if (data.temp_kp !== undefined) document.getElementById('set-tkp').value = data.temp_kp;
-            if (data.temp_ki !== undefined) document.getElementById('set-tki').value = data.temp_ki;
-            if (data.temp_kd !== undefined) document.getElementById('set-tkd').value = data.temp_kd;
-            if (data.press_kp !== undefined) document.getElementById('set-pkp').value = data.press_kp;
-            if (data.press_ki !== undefined) document.getElementById('set-pki').value = data.press_ki;
-            if (data.press_kd !== undefined) document.getElementById('set-pkd').value = data.press_kd;
-            if (data.flow_edges_per_liter !== undefined) document.getElementById('set-fepl').value = data.flow_edges_per_liter;
-            if (data.wifi_ssid !== undefined) document.getElementById('set-ssid').value = data.wifi_ssid;
-            if (data.wifi_password !== undefined) document.getElementById('set-pass').value = data.wifi_password;
+            if (data.machine) {
+                document.getElementById('set-bt').value = data.machine.brew_temp;
+                document.getElementById('set-st').value = data.machine.steam_temp;
+                if (data.machine.steam_time_limit_s !== undefined) document.getElementById('set-sl').value = data.machine.steam_time_limit_s;
+                if (data.machine.steam_pressure !== undefined) document.getElementById('set-sp').value = data.machine.steam_pressure;
+            }
+            if (data.hardware) {
+                if (data.hardware.temp_offset !== undefined) document.getElementById('set-to').value = data.hardware.temp_offset;
+                if (data.hardware.flow_edges_per_liter !== undefined) document.getElementById('set-fepl').value = data.hardware.flow_edges_per_liter;
+                if (data.hardware.temp_feed_forward !== undefined) document.getElementById('set-tff').value = data.hardware.temp_feed_forward;
+                if (data.hardware.flow_multiplier !== undefined) document.getElementById('set-fpp').value = data.hardware.flow_multiplier;
+            }            if (data.temp_pid) {
+                if (data.temp_pid.kp !== undefined) document.getElementById('set-tkp').value = data.temp_pid.kp;
+                if (data.temp_pid.ki !== undefined) document.getElementById('set-tki').value = data.temp_pid.ki;
+                if (data.temp_pid.kd !== undefined) document.getElementById('set-tkd').value = data.temp_pid.kd;
+            }
+            if (data.press_pid) {
+                if (data.press_pid.kp !== undefined) document.getElementById('set-pkp').value = data.press_pid.kp;
+                if (data.press_pid.ki !== undefined) document.getElementById('set-pki').value = data.press_pid.ki;
+                if (data.press_pid.kd !== undefined) document.getElementById('set-pkd').value = data.press_pid.kd;
+            }
+            if (data.wifi) {
+                if (data.wifi.ssid !== undefined) document.getElementById('set-ssid').value = data.wifi.ssid;
+                if (data.wifi.password !== undefined) document.getElementById('set-pass').value = data.wifi.password;
+            }
         } catch (e) {}
     }
     
@@ -243,6 +309,7 @@
     async function deleteSlot(slot) { if(confirm(`Permanently delete profile in slot ${slot}?`)) { await sendCommand('delete_profile', { slot: slot }); setTimeout(loadProfilesList, 500); } }
     async function editSlot(slot) {
         try {
+            openTab(null, 'tab-home'); // Switch to home tab where editor is
             const res = await fetch(`/api/profile/${slot}`); const p = await res.json();
             document.getElementById('prof-slot').value = slot; document.getElementById('prof-name').value = p.name;
             steps = p.steps; renderSteps(); 

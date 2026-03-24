@@ -1,9 +1,9 @@
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use std::env;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use flate2::Compression;
-use flate2::write::GzEncoder;
 
 fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -23,7 +23,7 @@ fn main() {
     // 2. Web UI Compression
     println!("cargo:rerun-if-changed=html/index.html");
     let dest_path = out.join("index.html.gz");
-    
+
     if let Ok(mut original_file) = File::open("html/index.html") {
         let mut contents = Vec::new();
         original_file.read_to_end(&mut contents).unwrap();

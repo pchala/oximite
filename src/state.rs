@@ -22,6 +22,7 @@ pub enum MachineCommand {
     Steam,
     Flush,
     Descale,
+    DirectPump(f32),
     ProfileFinished, // Sent by hardware when it finishes naturally
     SaveSettings(crate::settings::SettingsManager),
 }
@@ -35,6 +36,7 @@ impl defmt::Format for MachineCommand {
             MachineCommand::Steam => defmt::write!(fmt, "Steam"),
             MachineCommand::Flush => defmt::write!(fmt, "Flush"),
             MachineCommand::Descale => defmt::write!(fmt, "Descale"),
+            MachineCommand::DirectPump(p) => defmt::write!(fmt, "DirectPump({})", p),
             MachineCommand::ProfileFinished => defmt::write!(fmt, "ProfileFinished"),
             MachineCommand::SaveSettings(_) => defmt::write!(fmt, "SaveSettings"),
         }

@@ -11,8 +11,10 @@ use static_cell::StaticCell;
 
 use crate::control::AdcMonitor;
 use crate::flow_meter::FlowMonitor;
-use crate::settings::{BrewProfile, SettingsManager};
-use crate::state::{MachineCommand, get_state, SIG_COMMAND};
+use crate::settings::{
+    BrewProfile, HardwareSettings, MachineSettings, PidSettings, SettingsManager, WifiSettings,
+};
+use crate::state::{get_state, MachineCommand, SIG_COMMAND};
 use crate::{SystemEvent, SIG_SYSTEM_EVENT, SIG_WIFI_RECONFIG};
 
 static INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
@@ -22,20 +24,12 @@ struct ApiCommand<'a> {
     cmd: &'a str,
     profile: Option<BrewProfile>,
     slot: Option<u8>,
-    brew_temp: Option<f32>,
-    steam_temp: Option<f32>,
-    temp_offset: Option<f32>,
-    steam_time_limit_s: Option<f32>,
-    steam_pressure: Option<f32>,
-    temp_kp: Option<f32>,
-    temp_ki: Option<f32>,
-    temp_kd: Option<f32>,
-    press_kp: Option<f32>,
-    press_ki: Option<f32>,
-    press_kd: Option<f32>,
-    flow_edges_per_liter: Option<f32>,
-    wifi_ssid: Option<heapless::String<32>>,
-    wifi_password: Option<heapless::String<64>>,
+    machine: Option<MachineSettings>,
+    hardware: Option<HardwareSettings>,
+    temp_pid: Option<PidSettings>,
+    press_pid: Option<PidSettings>,
+    wifi: Option<WifiSettings>,
+    power: Option<f32>,
 }
 
 #[derive(Serialize)]
@@ -118,7 +112,9 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                     let mut resp_buf = [0u8; 2048];
                     let header = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
                     resp_buf[..header.len()].copy_from_slice(header);
-                    if let Ok(len) = serde_json_core::to_slice(&headers, &mut resp_buf[header.len()..]) {
+                    if let Ok(len) =
+                        serde_json_core::to_slice(&headers, &mut resp_buf[header.len()..])
+                    {
                         let _ = socket.write_all(&resp_buf[..header.len() + len]).await;
                     }
                 } else if request.starts_with("GET /api/profile/") {
@@ -130,7 +126,9 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                                 let mut resp_buf = [0u8; 2048];
                                 let header = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
                                 resp_buf[..header.len()].copy_from_slice(header);
-                                if let Ok(len) = serde_json_core::to_slice(&p, &mut resp_buf[header.len()..]) {
+                                if let Ok(len) =
+                                    serde_json_core::to_slice(&p, &mut resp_buf[header.len()..])
+                                {
                                     let _ = socket.write_all(&resp_buf[..header.len() + len]).await;
                                 }
                             }
@@ -149,50 +147,29 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                                 "steam" => SIG_COMMAND.signal(MachineCommand::Steam),
                                 "flush" => SIG_COMMAND.signal(MachineCommand::Flush),
                                 "descale" => SIG_COMMAND.signal(MachineCommand::Descale),
+                                "direct_pump" => {
+                                    SIG_COMMAND.signal(MachineCommand::Stop);
+                                    if let Some(p) = payload.power {
+                                        SIG_COMMAND.signal(MachineCommand::DirectPump(p));
+                                    }
+                                }
                                 "save_settings" => {
                                     let mut s = crate::settings::SettingsManager::get().await;
-                                    if let Some(v) = payload.brew_temp {
-                                        s.brew_temp = v;
+                                    if let Some(m) = payload.machine {
+                                        s.machine = m;
                                     }
-                                    if let Some(v) = payload.steam_temp {
-                                        s.steam_temp = v;
+                                    if let Some(h) = payload.hardware {
+                                        s.hardware = h;
                                     }
-                                    if let Some(v) = payload.temp_offset {
-                                        s.temp_offset = v;
+                                    if let Some(p) = payload.temp_pid {
+                                        s.temp_pid = p;
                                     }
-                                    if let Some(v) = payload.steam_time_limit_s {
-                                        s.steam_time_limit_s = v;
+                                    if let Some(p) = payload.press_pid {
+                                        s.press_pid = p;
                                     }
-                                    if let Some(v) = payload.steam_pressure {
-                                        s.steam_pressure = v;
-                                    }
-                                    if let Some(v) = payload.temp_kp {
-                                        s.temp_kp = v;
-                                    }
-                                    if let Some(v) = payload.temp_ki {
-                                        s.temp_ki = v;
-                                    }
-                                    if let Some(v) = payload.temp_kd {
-                                        s.temp_kd = v;
-                                    }
-                                    if let Some(v) = payload.press_kp {
-                                        s.press_kp = v;
-                                    }
-                                    if let Some(v) = payload.press_ki {
-                                        s.press_ki = v;
-                                    }
-                                    if let Some(v) = payload.press_kd {
-                                        s.press_kd = v;
-                                    }
-                                    if let Some(v) = payload.flow_edges_per_liter {
-                                        s.flow_edges_per_liter = v;
-                                    }
-                                    if let Some(v) = payload.wifi_ssid {
-                                        defmt::info!("API: New SSID: {}", v.as_str());
-                                        s.wifi_ssid = v;
-                                    }
-                                    if let Some(v) = payload.wifi_password {
-                                        s.wifi_password = v;
+                                    if let Some(w) = payload.wifi {
+                                        defmt::info!("API: New SSID: {}", w.ssid.as_str());
+                                        s.wifi = w;
                                     }
                                     SIG_COMMAND.signal(MachineCommand::SaveSettings(s));
                                 }
@@ -382,17 +359,17 @@ pub async fn setup_wifi(
         let settings = SettingsManager::get().await;
         let mut success = false;
 
-        if !settings.wifi_ssid.is_empty() {
+        if !settings.wifi.ssid.is_empty() {
             defmt::info!(
                 "Wi-Fi: Attempting to connect to SSID: {}",
-                settings.wifi_ssid.as_str()
+                settings.wifi.ssid.as_str()
             );
 
             for i in 0..10 {
                 match control
                     .join(
-                        settings.wifi_ssid.as_str(),
-                        cyw43::JoinOptions::new(settings.wifi_password.as_bytes()),
+                        settings.wifi.ssid.as_str(),
+                        cyw43::JoinOptions::new(settings.wifi.password.as_bytes()),
                     )
                     .await
                 {

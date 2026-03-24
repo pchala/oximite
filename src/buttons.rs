@@ -1,6 +1,6 @@
+use crate::state::{get_state, MachineCommand, MachineState, SIG_COMMAND};
 use embassy_rp::gpio::Input;
 use embassy_time::{Duration, Timer};
-use crate::state::{MachineCommand, SIG_COMMAND, MachineState, get_state};
 
 #[embassy_executor::task]
 pub async fn run_button_task(

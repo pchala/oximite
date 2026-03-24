@@ -202,15 +202,71 @@ class TestOximite(unittest.TestCase):
         }
         self.run_profile_and_wait(profile, title="07_Profile_Blooming_Espresso")
 
+    def test_12_pump_power_steps(self):
+        """Steps pump power by 5% and records sustained flow after 3s."""
+        print("\nRunning: Pump Power Steps Test...")
+        results = []
+        for pwr in range(0, 105, 5):
+            self.send_command({"cmd": "direct_pump", "power": float(pwr+0.1)})
+            
+            # Wait for flow to stabilize
+            time.sleep(3.0)
+            
+            # Get latest telemetry
+            history = self.__class__.telemetry_history
+            if history:
+                latest = history[-1]
+                flow = latest.get('fl', 0.0)
+                pressure = latest.get('p', 0.0)
+            else:
+                flow = 0.0
+                pressure = 0.0
+                
+            print(f"Power: {pwr}%, Flow: {flow:.2f} ml/s, Pressure: {pressure:.2f} bar")
+            results.append((pwr, flow, pressure))
+            
+        self.send_command({"cmd": "stop"})
+        self.wait_for_state(0, timeout=10, title="Stop after steps")
+        
+        # Plotting the steps
+        powers = [r[0] for r in results]
+        flows = [r[1] for r in results]
+        pressures = [r[2] for r in results]
+        
+        fig, ax1 = plt.subplots(figsize=(10, 6))
+        
+        color_f = 'tab:purple'
+        ax1.set_xlabel("Pump Power (%)", fontweight='bold')
+        ax1.set_ylabel("Sustained Flow (ml/s)", color=color_f, fontweight='bold')
+        l1 = ax1.plot(powers, flows, color=color_f, marker='o', label="Flow (ml/s)")
+        ax1.tick_params(axis='y', labelcolor=color_f)
+        
+        ax2 = ax1.twinx()
+        color_p = 'tab:blue'
+        ax2.set_ylabel("Sustained Pressure (Bar)", color=color_p, fontweight='bold')
+        l2 = ax2.plot(powers, pressures, color=color_p, marker='x', linestyle='--', label="Pressure (Bar)")
+        ax2.tick_params(axis='y', labelcolor=color_p)
+        
+        lines = l1 + l2
+        labels = [l.get_label() for l in lines]
+        ax1.legend(lines, labels, loc='upper left')
+        ax1.grid(True, alpha=0.3)
+        plt.title("Pump Power vs Sustained Flow/Pressure", fontweight='bold', fontsize=14)
+        
+        filepath = os.path.join("test_plots", "12_Pump_Power_Steps.png")
+        plt.savefig(filepath, dpi=150)
+        plt.close(fig)
+        print(f"Saved plot: {filepath}")
+
     # def test_08_steam_mode(self):
     #     """Tests steam mode behavior and time limit."""
     #     print("\nRunning: Steam Mode Test...")
     #     # First ensure we have known settings
     #     settings = {
-    #         "brew_temp": 92.0, "steam_temp": 135.0, "temp_offset": -2.5,
-    #         "steam_time_limit_s": 10.0, "steam_pressure": 1.5,
-    #         "temp_kp": 2.0, "temp_ki": 0.01, "temp_kd": 5.0,
-    #         "press_kp": 2.0, "press_ki": 0.1, "press_kd": 0.5
+    #         "machine": {"brew_temp": 92.0, "steam_temp": 135.0, "temp_offset": -2.5,
+    #         "steam_time_limit_s": 10.0, "steam_pressure": 1.5},
+    #         "temp_pid": {"kp": 2.0, "ki": 0.01, "kd": 5.0},
+    #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }
     #     self.send_command({"cmd": "save_settings", "settings": settings})
     #     time.sleep(0.5)
@@ -246,10 +302,10 @@ class TestOximite(unittest.TestCase):
     #     print("\nRunning: PID Settings Impact Test...")
     #     # Change temp to something high to see it move
     #     settings = {
-    #         "brew_temp": 98.0, "steam_temp": 135.0, "temp_offset": -2.5,
-    #         "steam_time_limit_s": 60.0, "steam_pressure": 1.5,
-    #         "temp_kp": 5.0, "temp_ki": 0.1, "temp_kd": 10.0,
-    #         "press_kp": 2.0, "press_ki": 0.1, "press_kd": 0.5
+    #         "machine": {"brew_temp": 98.0, "steam_temp": 135.0, "temp_offset": -2.5,
+    #         "steam_time_limit_s": 60.0, "steam_pressure": 1.5},
+    #         "temp_pid": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
+    #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }
     #     self.send_command({"cmd": "save_settings", "settings": settings})
     #     time.sleep(2.0)
@@ -259,10 +315,10 @@ class TestOximite(unittest.TestCase):
         
     #     # Restore defaults
     #     self.send_command({"cmd": "save_settings", "settings": {
-    #         "brew_temp": 92.0, "steam_temp": 135.0, "temp_offset": -2.5,
-    #         "steam_time_limit_s": 120.0, "steam_pressure": 1.5,
-    #         "temp_kp": 2.0, "temp_ki": 0.01, "temp_kd": 5.0,
-    #         "press_kp": 2.0, "press_ki": 0.1, "press_kd": 0.5
+    #         "machine": {"brew_temp": 92.0, "steam_temp": 135.0, "temp_offset": -2.5,
+    #         "steam_time_limit_s": 120.0, "steam_pressure": 1.5},
+    #         "temp_pid": {"kp": 2.0, "ki": 0.01, "kd": 5.0},
+    #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }})
     #     print("Settings restored.")
 

@@ -40,7 +40,7 @@ static mut CORE1_STACK: CoreStack<32768> = CoreStack::new();
 static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new();
 
 pub enum SystemEvent {
-    SaveSettings,
+    SaveSettings(SettingsManager),
     SaveProfile(u8),
     DeleteProfile(u8),
 }
@@ -98,7 +98,7 @@ async fn wake_up() {
     defmt::info!("Power Management: WAKING UP.");
     crate::state::set_state(MachineState::Idle);
     let s = crate::settings::SettingsManager::get().await;
-    crate::control::set_target_temp(s.brew_temp);
+    crate::control::set_target_temp(s.machine.brew_temp);
 }
 
 // ==========================================
@@ -130,11 +130,13 @@ async fn led_update_task() {
 
         if (current_state == MachineState::Brewing) && (a.target_bar > 0.0) {
             if (a.flow_limit_ml_s > 0.0) && (f.flow_rate_ml_s >= a.flow_limit_ml_s) {
-                l2 = Rgb::new(255, 128, 0); // Pulsing Orange
+                l2 = Rgb::new(255, 128, 0); // Orange
             } else if (a.pressure_bar - a.target_bar).abs() < 0.2 {
-                l2 = Rgb::new(0, 255, 0); // Solid Green
+                l2 = Rgb::new(0, 255, 0); // Green
             } else if a.pressure_bar < a.target_bar {
-                l2 = Rgb::new(0, 0, 255); // Pulsing Blue
+                l2 = Rgb::new(0, 0, 255); // Blue
+            } else {
+                l2 = Rgb::new(255, 0, 0); // Red
             }
         }
 
@@ -155,9 +157,9 @@ async fn system_events_task(
     loop {
         let event = SIG_SYSTEM_EVENT.wait().await;
         match event {
-            SystemEvent::SaveSettings => {
-                let s = SettingsManager::get().await;
-                SettingsManager::save_to_flash(&mut flash, &s).await;
+            SystemEvent::SaveSettings(old_s) => {
+                let new_s = SettingsManager::get().await;
+                SettingsManager::save_changes_to_flash(&mut flash, &old_s, &new_s).await;
             }
             SystemEvent::SaveProfile(slot) => {
                 if let Some(p) = crate::settings::get_profile_from_ram(slot).await {
@@ -217,7 +219,7 @@ async fn coordinator_task() {
                         crate::flow_meter::FlowMonitor::new().reset_volume().await;
                         crate::state::set_state(MachineState::Brewing);
                         control::SIG_PROFILE_ABORT.signal(());
-                        control::set_target_temp(SettingsManager::get().await.brew_temp);
+                        control::set_target_temp(SettingsManager::get().await.machine.brew_temp);
 
                         let p = match cmd {
                             MachineCommand::RunProfile(p) => p,
@@ -235,7 +237,7 @@ async fn coordinator_task() {
                         crate::flow_meter::FlowMonitor::new().reset_volume().await;
                         crate::state::set_state(MachineState::Steaming);
                         control::SIG_PROFILE_ABORT.signal(());
-                        control::set_target_temp(SettingsManager::get().await.steam_temp);
+                        control::set_target_temp(SettingsManager::get().await.machine.steam_temp);
                         control::SIG_HARDWARE_CMD.signal(control::HardwareCommand::Steam);
                     }
 
@@ -246,21 +248,31 @@ async fn coordinator_task() {
                         control::SIG_HARDWARE_CMD.signal(control::HardwareCommand::Descale);
                     }
 
+                    (_, MachineCommand::DirectPump(power)) => {
+                        crate::flow_meter::FlowMonitor::new().reset_volume().await;
+                        crate::state::set_state(MachineState::Brewing);
+                        control::SIG_PROFILE_ABORT.signal(());
+                        control::set_target_temp(SettingsManager::get().await.machine.brew_temp);
+                        control::SIG_HARDWARE_CMD
+                            .signal(control::HardwareCommand::DirectPump(power));
+                    }
+
                     // Global Stop - Instantly rips machine back to safe Idle
                     (_, MachineCommand::Stop) | (_, MachineCommand::ProfileFinished) => {
                         crate::state::set_state(MachineState::Idle);
                         control::SIG_PROFILE_ABORT.signal(());
-                        control::set_target_temp(SettingsManager::get().await.brew_temp);
+                        control::set_target_temp(SettingsManager::get().await.machine.brew_temp);
                         control::set_target_pressure(0.0);
+                        control::set_direct_pump(None);
                     }
 
                     // Settings processing (valid in any state)
                     (_, MachineCommand::SaveSettings(new_s)) => {
                         let old_s = SettingsManager::get().await;
-                        let wifi_changed = old_s.wifi_ssid != new_s.wifi_ssid
-                            || old_s.wifi_password != new_s.wifi_password;
+                        let wifi_changed = old_s.wifi.ssid != new_s.wifi.ssid
+                            || old_s.wifi.password != new_s.wifi.password;
                         SettingsManager::update_ram(new_s).await;
-                        SIG_SYSTEM_EVENT.signal(SystemEvent::SaveSettings);
+                        SIG_SYSTEM_EVENT.signal(SystemEvent::SaveSettings(old_s));
                         if wifi_changed {
                             SIG_WIFI_RECONFIG.signal(());
                         }
@@ -288,6 +300,9 @@ async fn hardware_task() {
     loop {
         let cmd = control::SIG_HARDWARE_CMD.wait().await;
         defmt::info!("Hardware task received command");
+
+        let mut is_descale = false;
+
         match cmd {
             control::HardwareCommand::RunProfile(p) => {
                 defmt::info!("Hardware: Starting profile '{}'", p.name.as_str());
@@ -320,6 +335,7 @@ async fn hardware_task() {
                 }
             }
             control::HardwareCommand::Descale => {
+                is_descale = true;
                 defmt::info!("Hardware: Starting descale");
                 control::SIG_PROFILE_ABORT.reset();
                 let abort = pin!(control::SIG_PROFILE_ABORT.wait());
@@ -334,6 +350,42 @@ async fn hardware_task() {
                     }
                 }
             }
+            control::HardwareCommand::DirectPump(power) => {
+                defmt::info!("Hardware: Starting direct pump {}%", power);
+                control::SIG_PROFILE_ABORT.reset();
+                let abort = pin!(control::SIG_PROFILE_ABORT.wait());
+                let run = pin!(control::execute_direct_pump(power));
+                match select(run, abort).await {
+                    Either::First(_) => {
+                        crate::state::SIG_COMMAND.signal(MachineCommand::ProfileFinished);
+                    }
+                    Either::Second(_) => {
+                        defmt::warn!("Hardware: Direct pump aborted");
+                    }
+                }
+            }
+        }
+
+        let mut s = SettingsManager::get().await;
+        let old_s = s.clone();
+
+        if is_descale {
+            s.usage.total_ml_since_descale = 0.0;
+            defmt::info!("Reset total usage volume to 0.0 after descale");
+        } else {
+            let pumped_ml = crate::flow_meter::FlowMonitor::new()
+                .get_state()
+                .await
+                .total_volume_ml;
+            s.usage.total_ml_since_descale += pumped_ml;
+            if pumped_ml > 0.0 {
+                defmt::info!("Added {} ml to total usage", pumped_ml);
+            }
+        }
+
+        if s.usage != old_s.usage {
+            SettingsManager::update_ram(s).await;
+            SIG_SYSTEM_EVENT.signal(SystemEvent::SaveSettings(old_s));
         }
     }
 }
@@ -476,12 +528,10 @@ async fn main(spawner: Spawner) {
         .spawn(control::adc_task(adc, ch_press, ch_temp))
         .unwrap();
 
+    spawner.spawn(control::pump_control_task(sm1, sm2)).unwrap();
+
     spawner
-        .spawn(control::run_unified_hardware_control(
-            sm1,
-            sm2,
-            heater_output,
-        ))
+        .spawn(control::heater_control_task(heater_output))
         .unwrap();
 
     let btn_brew = Input::new(p.PIN_6, Pull::Up);
