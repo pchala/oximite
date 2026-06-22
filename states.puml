@@ -1,0 +1,58 @@
+@startuml
+title Oximite Coordinator State Machine
+
+[*] --> Idle : Boot up (wake_up)
+
+Idle --> Sleeping : Timeout (20m) / TogglePower
+Sleeping --> Idle : Wake up (Power/Brew/Steam/Flush) \n (Command is dropped to prevent cold start)
+
+note left of Sleeping
+  SaveSettings intent does not wake
+  the machine and saves silently.
+end note
+
+Idle --> Brewing : Brew / RunProfile
+Brewing --> Idle : Finish Naturally / Stop (Any Button)
+
+Idle --> Pumping : Flush / DirectPump
+Pumping --> Idle : Stop (Any Button)
+
+Idle --> Steaming : Steam
+Steaming --> Cooling : Flush (Cooldown flush)
+Steaming --> Idle : Steam (Toggle off) / Stop (Any Button)
+Cooling --> Idle : Finish Naturally (Temp cooled) / Stop (Any Button)
+
+Idle --> Descaling : Descale
+Descaling --> Idle : Finish Naturally / Stop (Any Button)
+
+state Brewing {
+  state "Execute Steps" as Steps
+  [*] --> Steps
+  Steps : MACHINE_STATE = 1
+}
+
+state Steaming {
+  [*] --> MaintainPressure
+  MaintainPressure : MACHINE_STATE = 2
+}
+
+state Descaling {
+  [*] --> HeatTo60
+  HeatTo60 --> PumpHalf : Temp >= 55
+  PumpHalf --> Soak : Volume >= 500
+  Soak --> PumpEmpty : Timeout (10m)
+  PumpEmpty --> [*] : Flow < 0.5
+  Descaling : MACHINE_STATE = 3
+}
+
+Idle : MACHINE_STATE = 0
+Sleeping : MACHINE_STATE = 4
+Pumping : MACHINE_STATE = 5
+Cooling : MACHINE_STATE = 6
+
+note right of Idle
+  Heating up is handled implicitly in Idle.
+  Target temperature is maintained continuously.
+end note
+
+@enduml
