@@ -74,32 +74,36 @@ async fn led_update_task() {
         let a = control::AdcMonitor::new().get_state().await;
         let f = flow_meter::FlowMonitor::new().get_state().await;
 
-        // LED 1 (Temperature)
-        // Colder than set (Heating): Blue
-        // In Range (Ready): Solid White.
-        // Hotter than set (Over-temp): Red.
-        let l1 = if a.temp_c < a.target_temp - 1.0 {
-            Rgb::new(0, 0, 255) // Blue
+        let temp_color = if a.temp_c < a.target_temp - 1.0 {
+            Rgb::new(0, 0, 255) // Blue  — heating
         } else if a.temp_c > a.target_temp + 1.0 {
-            Rgb::new(255, 0, 0) // Red
+            Rgb::new(255, 0, 0) // Red   — over-temp
         } else {
-            Rgb::new(0, 255, 0) // Green
+            Rgb::new(0, 255, 0) // Green — at target
         };
 
-        // LED 2 (Pressure & Flow)
-        let mut l2 = Rgb::off();
-
-        if (current_state == MachineState::Brewing) && (a.target_bar > 0.0) {
-            if (a.flow_limit_ml_s > 0.0) && (f.flow_rate_ml_s >= a.flow_limit_ml_s) {
-                l2 = Rgb::new(255, 128, 0); // Orange
-            } else if (a.pressure_bar - a.target_bar).abs() < 0.2 {
-                l2 = Rgb::new(0, 255, 0); // Green
-            } else if a.pressure_bar < a.target_bar {
-                l2 = Rgb::new(0, 0, 255); // Blue
-            } else {
-                l2 = Rgb::new(255, 0, 0); // Red
+        let (l1, l2) = if current_state == MachineState::Sleeping {
+            // Sleep indicator: magenta on LED1, LED2 off
+            (Rgb::new(255, 0, 255), Rgb::off())
+        } else if current_state == MachineState::Steaming {
+            // LED1 off, LED2 shows steam temperature progress
+            (Rgb::off(), temp_color)
+        } else {
+            // LED1 shows brew temperature, LED2 shows pressure/flow
+            let mut pressure_color = Rgb::off();
+            if current_state == MachineState::Brewing && a.target_bar > 0.0 {
+                if a.flow_limit_ml_s > 0.0 && f.flow_rate_ml_s >= a.flow_limit_ml_s {
+                    pressure_color = Rgb::new(255, 128, 0); // Orange — flow limit
+                } else if (a.pressure_bar - a.target_bar).abs() < 0.2 {
+                    pressure_color = Rgb::new(0, 255, 0); // Green  — on target
+                } else if a.pressure_bar < a.target_bar {
+                    pressure_color = Rgb::new(0, 0, 255); // Blue   — building
+                } else {
+                    pressure_color = Rgb::new(255, 0, 0); // Red    — over pressure
+                }
             }
-        }
+            (temp_color, pressure_color)
+        };
 
         leds::set_leds([l1, l2]).await;
 
@@ -202,7 +206,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
 
         // Descale
         (MachineState::Idle, MachineCommand::Descale) => {
-            transition_state(MachineState::Descaling, None).await;
+            transition_state(MachineState::Descaling, Some(control::TargetTempMode::Descale)).await;
             control::SIG_HARDWARE_CMD.signal(control::HardwareCommand::Descale);
         }
 
@@ -320,13 +324,38 @@ async fn run_cancellable<F: core::future::Future>(
     valve.set_low();
 }
 
+// Separated from the hardware loop so the loop stays readable.
+// pumped_ml must be captured synchronously before any await.
+async fn record_operation(is_descale: bool, pumped_ml: f32) {
+    let mut s = SettingsManager::get().await;
+    let old_s = s.clone();
+
+    if is_descale {
+        s.usage.ml_at_last_descale = s.usage.total_ml_all_time;
+        defmt::info!(
+            "Stored ml_at_last_descale = {} after descale",
+            s.usage.ml_at_last_descale
+        );
+    } else {
+        s.usage.total_ml_all_time += pumped_ml;
+        if pumped_ml > 0.0 {
+            defmt::info!("Added {} ml to total usage", pumped_ml);
+        }
+    }
+
+    if s.usage != old_s.usage {
+        SettingsManager::update_ram(s).await;
+        SIG_SYSTEM_EVENT.signal(SystemEvent::SaveSettings(old_s));
+    }
+}
+
 #[embassy_executor::task]
 async fn hardware_task(mut valve: Output<'static>) {
     loop {
         let cmd = control::SIG_HARDWARE_CMD.wait().await;
         defmt::info!("Hardware task received command");
 
-        let mut is_descale = false;
+        let is_descale = matches!(cmd, control::HardwareCommand::Descale);
 
         match cmd {
             control::HardwareCommand::RunProfile(p) => {
@@ -338,7 +367,6 @@ async fn hardware_task(mut valve: Output<'static>) {
                 run_cancellable(&mut valve, false, "Steam", control::execute_steam()).await;
             }
             control::HardwareCommand::Descale => {
-                is_descale = true;
                 defmt::info!("Hardware: Starting descale");
                 run_cancellable(&mut valve, true, "Descale", control::execute_descale()).await;
             }
@@ -364,30 +392,14 @@ async fn hardware_task(mut valve: Output<'static>) {
             }
         }
 
-        let mut s = SettingsManager::get().await;
-        let old_s = s.clone();
+        // Capture volume synchronously — no await, no yield — before the coordinator
+        // can process ProfileFinished and call transition_state() → reset_volume().
+        let pumped_ml = crate::flow_meter::FLOW_WATCH
+            .try_get()
+            .unwrap_or_default()
+            .total_volume_ml;
 
-        if is_descale {
-            s.usage.ml_at_last_descale = s.usage.total_ml_all_time;
-            defmt::info!(
-                "Stored ml_at_last_descale = {} after descale",
-                s.usage.ml_at_last_descale
-            );
-        } else {
-            let pumped_ml = crate::flow_meter::FlowMonitor::new()
-                .get_state()
-                .await
-                .total_volume_ml;
-            s.usage.total_ml_all_time += pumped_ml;
-            if pumped_ml > 0.0 {
-                defmt::info!("Added {} ml to total usage", pumped_ml);
-            }
-        }
-
-        if s.usage != old_s.usage {
-            SettingsManager::update_ram(s).await;
-            SIG_SYSTEM_EVENT.signal(SystemEvent::SaveSettings(old_s));
-        }
+        record_operation(is_descale, pumped_ml).await;
     }
 }
 

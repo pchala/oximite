@@ -47,8 +47,8 @@
                 <div class="stat-box"><span class="stat-label">Volume</span><span id="val-vol">0.0</span> ml</div>
                 <div class="stat-box"><span class="stat-label">Time</span><span id="val-time">0.0</span> s</div>
                 <div class="stat-box" style="padding: 10px; display: flex; flex-direction: column; justify-content: center;">
-                    <div style="margin-bottom: 4px; line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Since Descale</span><span id="val-descale-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">ml</span></div>
-                    <div style="line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Total</span><span id="val-total-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">ml</span></div>
+                    <div style="margin-bottom: 4px; line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Since Descale</span><span id="val-descale-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">L</span></div>
+                    <div style="line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Total</span><span id="val-total-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">L</span></div>
                 </div>
             </div>
             <div class="grid-2">
@@ -292,10 +292,10 @@
                 let sinceDescale = totalAllTime - atLastDescale;
                 
                 const descaleEl = document.getElementById('val-descale-ml');
-                if (descaleEl) descaleEl.innerText = sinceDescale.toFixed(1);
+                if (descaleEl) descaleEl.innerText = (sinceDescale / 1000).toFixed(1);
                 
                 const totalEl = document.getElementById('val-total-ml');
-                if (totalEl) totalEl.innerText = totalAllTime.toFixed(1);
+                if (totalEl) totalEl.innerText = (totalAllTime / 1000).toFixed(1);
             }
         } catch (e) {}
     }
