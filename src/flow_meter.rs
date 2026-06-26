@@ -10,7 +10,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 
 pub static SIG_RESET_VOLUME: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-pub static SIG_RESET_ACK: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 pub const CLOCK_FREQ_HZ: f32 = 125_000_000.0;
 pub const CYCLES_PER_LOOP: f32 = 2.0;
@@ -19,6 +18,7 @@ pub const CYCLES_PER_LOOP: f32 = 2.0;
 pub struct FlowState {
     pub flow_rate_ml_s: f32,
     pub total_volume_ml: f32,
+    pub shot_volume_ml: f32,
 }
 
 pub static FLOW_WATCH: Watch<CriticalSectionRawMutex, FlowState, 4> = Watch::new();
@@ -31,11 +31,8 @@ impl FlowMonitor {
     pub async fn get_state(&self) -> FlowState {
         FLOW_WATCH.try_get().unwrap_or_default()
     }
-    pub async fn reset_volume(&self) {
-        SIG_RESET_ACK.reset();
-        SIG_RESET_VOLUME.reset();
+    pub fn reset_shot_volume(&self) {
         SIG_RESET_VOLUME.signal(());
-        SIG_RESET_ACK.wait().await;
     }
 }
 
@@ -80,33 +77,25 @@ pub fn setup_flow_sm(
 #[embassy_executor::task]
 pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
     let mut total_edges = 0u32;
-    // Calibration constant (edges per liter) loaded from settings.
-    let mut edges_per_liter = crate::settings::SettingsManager::get()
-        .await
-        .hardware
-        .flow_edges_per_liter;
-    if edges_per_liter <= 0.0 {
-        edges_per_liter = 5200.0; // Fallback to avoid division by zero
-    }
+    let mut edges_at_start = 0u32;
 
-    let mut ml_per_edge: f32 = 1000.0 / edges_per_liter;
-    let mut flow_numerator: f32 = (CLOCK_FREQ_HZ / CYCLES_PER_LOOP) * ml_per_edge;
-
-    let mut settings_ticker = embassy_time::Ticker::every(Duration::from_secs(5));
+    let s = crate::settings::SettingsManager::get().await;
+    let edges_per_liter = if s.hardware.flow_edges_per_liter > 0.0 {
+        s.hardware.flow_edges_per_liter
+    } else {
+        5200.0 // Fallback to avoid division by zero
+    };
+    let ml_per_edge: f32 = 1000.0 / edges_per_liter;
+    let flow_numerator: f32 = (CLOCK_FREQ_HZ / CYCLES_PER_LOOP) * ml_per_edge;
 
     loop {
-        let timeout = Duration::from_millis(200);
-
         match with_timeout(
-            timeout,
-            select(
-                select(sm.rx().wait_pull(), SIG_RESET_VOLUME.wait()),
-                settings_ticker.next(),
-            ),
+            Duration::from_millis(200),
+            select(sm.rx().wait_pull(), SIG_RESET_VOLUME.wait()),
         )
         .await
         {
-            Ok(Either::First(Either::First(val))) => {
+            Ok(Either::First(val)) => {
                 let mut current_ticks = val;
                 total_edges += 1;
 
@@ -124,6 +113,7 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
                 if current_ticks > 0 {
                     let raw_flow_ml_s = flow_numerator / (current_ticks as f32);
                     let vol_ml = (total_edges as f32) * ml_per_edge;
+                    let shot_ml = (total_edges.wrapping_sub(edges_at_start) as f32) * ml_per_edge;
 
                     let mut state = FLOW_WATCH.try_get().unwrap_or_default();
 
@@ -136,37 +126,18 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
                     }
 
                     state.total_volume_ml = vol_ml;
+                    state.shot_volume_ml = shot_ml;
                     FLOW_WATCH.sender().send(state);
                 } else {
                     defmt::warn!("PIO return 0 for flow");
                 }
-
-                // Prevent CPU starvation in case of severe EMI on the flow meter pin
-                embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
-            }
-            Ok(Either::First(Either::Second(_))) => {
-                total_edges = 0;
-                let mut state = FLOW_WATCH.try_get().unwrap_or_default();
-                state.total_volume_ml = 0.0;
-                state.flow_rate_ml_s = 0.0;
-                FLOW_WATCH.sender().send(state);
-                SIG_RESET_ACK.signal(());
             }
             Ok(Either::Second(_)) => {
-                // Periodically update calibration if it changed
-                let new_edges_per_liter = crate::settings::SettingsManager::get()
-                    .await
-                    .hardware
-                    .flow_edges_per_liter;
-                if new_edges_per_liter > 0.0 && new_edges_per_liter != edges_per_liter {
-                    edges_per_liter = new_edges_per_liter;
-                    ml_per_edge = 1000.0 / edges_per_liter;
-                    flow_numerator = (CLOCK_FREQ_HZ / CYCLES_PER_LOOP) * ml_per_edge;
-                    defmt::info!(
-                        "Flow meter calibration updated: {} edges/L",
-                        edges_per_liter
-                    );
-                }
+                edges_at_start = total_edges;
+                let mut state = FLOW_WATCH.try_get().unwrap_or_default();
+                state.shot_volume_ml = 0.0;
+                state.flow_rate_ml_s = 0.0;
+                FLOW_WATCH.sender().send(state);
             }
             Err(_) => {
                 let mut state = FLOW_WATCH.try_get().unwrap_or_default();

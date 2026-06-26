@@ -22,7 +22,11 @@ impl<'a> Debouncer<'a> {
         Self {
             input,
             command,
-            state: if is_pressed { InternalState::Pressed } else { InternalState::Released },
+            state: if is_pressed {
+                InternalState::Pressed
+            } else {
+                InternalState::Released
+            },
             integrator: if is_pressed { max } else { 0 },
             max,
         }

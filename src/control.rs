@@ -577,7 +577,7 @@ pub async fn execute_profile(profile: BrewProfile) {
                     if crate::flow_meter::FlowMonitor::new()
                         .get_state()
                         .await
-                        .total_volume_ml
+                        .shot_volume_ml
                         >= volume
                     {
                         defmt::info!("Step {} volume limit reached", i);

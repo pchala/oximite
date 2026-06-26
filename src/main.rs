@@ -142,7 +142,7 @@ async fn system_events_task(
 // CENTRAL STATE DICTATOR (The Coordinator)
 // ==========================================
 async fn transition_state(new_state: MachineState, target_mode: Option<control::TargetTempMode>) {
-    crate::flow_meter::FlowMonitor::new().reset_volume().await;
+    crate::flow_meter::FlowMonitor::new().reset_shot_volume();
     crate::state::set_state(new_state);
     control::SIG_PROFILE_ABORT.signal(());
     if let Some(m) = target_mode {
@@ -206,7 +206,11 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
 
         // Descale
         (MachineState::Idle, MachineCommand::Descale) => {
-            transition_state(MachineState::Descaling, Some(control::TargetTempMode::Descale)).await;
+            transition_state(
+                MachineState::Descaling,
+                Some(control::TargetTempMode::Descale),
+            )
+            .await;
             control::SIG_HARDWARE_CMD.signal(control::HardwareCommand::Descale);
         }
 
@@ -392,12 +396,12 @@ async fn hardware_task(mut valve: Output<'static>) {
             }
         }
 
-        // Capture volume synchronously — no await, no yield — before the coordinator
-        // can process ProfileFinished and call transition_state() → reset_volume().
+        // Capture shot volume synchronously — no await, no yield — before the coordinator
+        // can process a new command and call transition_state() → reset_shot_volume().
         let pumped_ml = crate::flow_meter::FLOW_WATCH
             .try_get()
             .unwrap_or_default()
-            .total_volume_ml;
+            .shot_volume_ml;
 
         record_operation(is_descale, pumped_ml).await;
     }
