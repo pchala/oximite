@@ -1,5 +1,6 @@
 use core::str::from_utf8;
 use embassy_executor::Spawner;
+use embassy_futures::select::{select, Either};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_rp::gpio::Output;
@@ -372,13 +373,20 @@ pub async fn dhcp_server_task(stack: &'static embassy_net::Stack<'static>) {
             let mut msg_type = 0;
 
             let mut opt_ptr = 240;
-            while opt_ptr < n - 2 {
+            while opt_ptr < n {
                 let code = buf[opt_ptr];
                 if code == 255 {
                     break;
                 }
+                if code == 0 {
+                    opt_ptr += 1;
+                    continue;
+                }
+                if opt_ptr + 1 >= n {
+                    break;
+                }
                 let len = buf[opt_ptr + 1] as usize;
-                if code == 53 && len == 1 {
+                if code == 53 && len == 1 && opt_ptr + 2 < n {
                     msg_type = buf[opt_ptr + 2];
                 }
                 opt_ptr += 2 + len;
@@ -433,6 +441,7 @@ pub async fn setup_wifi(
     spawner: Spawner,
     pwr: Output<'static>,
     spi: cyw43_pio::PioSpi<'static, PIO1, 0, DMA_CH0>,
+    force_ap: bool,
 ) {
     defmt::info!("Wifi: setup_wifi started");
     // Firmware moved to reserved flash addresses to reduce binary size
@@ -467,62 +476,12 @@ pub async fn setup_wifi(
     spawner.spawn(wifi_server_task(stack)).unwrap();
     spawner.spawn(tcp_telemetry_task(stack)).unwrap();
 
-    let mut cold_start = true;
+    let settings = SettingsManager::get().await;
+    let is_ap = force_ap || settings.wifi.ssid.is_empty();
 
-    loop {
-        let settings = SettingsManager::get().await;
-        let mut success = false;
-
-        if !settings.wifi.ssid.is_empty() {
-            defmt::info!(
-                "Wi-Fi: Attempting to connect to SSID: {}",
-                settings.wifi.ssid.as_str()
-            );
-
-            for i in 0..10 {
-                match control
-                    .join(
-                        settings.wifi.ssid.as_str(),
-                        cyw43::JoinOptions::new(settings.wifi.password.as_bytes()),
-                    )
-                    .await
-                {
-                    Ok(_) => {
-                        defmt::info!("Wi-Fi: Successfully joined network, waiting for IP...");
-                        // Wait for DHCP
-                        for _ in 0..200 {
-                            // 20 seconds timeout
-                            if let Some(config) = stack.config_v4() {
-                                if !config.address.address().is_unspecified() {
-                                    defmt::info!(
-                                        "Wi-Fi: Connected! IP: {}",
-                                        config.address.address()
-                                    );
-                                    success = true;
-                                    break;
-                                }
-                            }
-                            Timer::after(Duration::from_millis(100)).await;
-                        }
-                        if success {
-                            break;
-                        } else {
-                            defmt::warn!("Wi-Fi: DHCP timeout (no IP assigned)");
-                            let _ = control.leave().await;
-                        }
-                    }
-                    Err(_e) => {
-                        defmt::warn!("Wi-Fi: Join failed (attempt {}/10)", i + 1);
-                        Timer::after(Duration::from_secs(2)).await;
-                    }
-                }
-            }
-        } else {
-            defmt::info!("Wi-Fi: No SSID configured.");
-        }
-
-        if !success && cold_start {
-            defmt::info!("Wi-Fi: Cold start failed. Entering AP mode 'Oximite-Setup'...");
+    let wifi_logic = async {
+        if is_ap {
+            defmt::info!("Wi-Fi: Booting strictly in AP Mode");
             stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
                 address: embassy_net::Ipv4Cidr::new(
                     embassy_net::Ipv4Address::new(192, 168, 4, 1),
@@ -531,47 +490,51 @@ pub async fn setup_wifi(
                 gateway: None,
                 dns_servers: Default::default(),
             }));
-
             let _ = spawner.spawn(dhcp_server_task(stack));
             control.start_ap_wpa2("Oximite-Setup", "password", 6).await;
-            defmt::info!("Wi-Fi: AP Mode active at 192.168.4.1. Waiting for reconfiguration...");
 
-            loop {
-                if let Some(()) = SIG_WIFI_RECONFIG.try_take() {
-                    break;
-                }
-                Timer::after(Duration::from_millis(500)).await;
-            }
-
-            defmt::info!("Wi-Fi: Reconfiguration signal received. Rebooting to apply changes...");
-            Timer::after(Duration::from_secs(2)).await; // Ensure settings are saved to flash
-            cortex_m::peripheral::SCB::sys_reset();
-        } else if !success {
-            defmt::info!("Wi-Fi: Reconnection failed. Retrying in 10s...");
-            for _ in 0..20 {
-                if let Some(()) = SIG_WIFI_RECONFIG.try_take() {
-                    defmt::info!("Wi-Fi: Reconfiguration requested. Rebooting...");
-                    Timer::after(Duration::from_secs(2)).await;
-                    cortex_m::peripheral::SCB::sys_reset();
-                }
-                Timer::after(Duration::from_millis(500)).await;
-            }
+            core::future::pending::<()>().await;
         } else {
-            cold_start = false;
-            defmt::info!("Wi-Fi: Connected and Stable.");
-            loop {
-                if let Some(()) = SIG_WIFI_RECONFIG.try_take() {
-                    defmt::info!("Wi-Fi: Reconfiguration requested. Rebooting...");
-                    Timer::after(Duration::from_secs(2)).await;
-                    cortex_m::peripheral::SCB::sys_reset();
-                }
+            defmt::info!("Wi-Fi: Booting in Client Mode");
 
-                if !stack.is_link_up() {
-                    defmt::warn!("Wi-Fi: Link down! Reconnecting...");
-                    break;
+            loop {
+                defmt::info!(
+                    "Wi-Fi: Attempting to connect to SSID: {}",
+                    settings.wifi.ssid.as_str()
+                );
+                match control
+                    .join(
+                        settings.wifi.ssid.as_str(),
+                        cyw43::JoinOptions::new(settings.wifi.password.as_bytes()),
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        defmt::info!("Wi-Fi: Connected to SSID");
+                        loop {
+                            if !stack.is_link_up() {
+                                break;
+                            }
+                            Timer::after(Duration::from_millis(500)).await;
+                        }
+                    }
+                    Err(_) => {
+                        defmt::warn!("Wi-Fi: Join failed, retrying in 5s...");
+                        Timer::after(Duration::from_secs(5)).await;
+                    }
                 }
-                Timer::after(Duration::from_millis(500)).await;
             }
+        }
+    };
+
+    match select(SIG_WIFI_RECONFIG.wait(), wifi_logic).await {
+        Either::First(_) => {
+            defmt::info!("Wi-Fi: Reconfiguration requested. Rebooting...");
+            Timer::after(Duration::from_secs(2)).await;
+            cortex_m::peripheral::SCB::sys_reset();
+        }
+        Either::Second(_) => {
+            defmt::error!("Wi-Fi: Logic task exited unexpectedly!");
         }
     }
 }

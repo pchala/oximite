@@ -429,6 +429,16 @@ async fn main(spawner: Spawner) {
     SettingsManager::load_from_flash(&mut flash).await;
     crate::settings::load_all_profiles_from_flash(&mut flash).await;
 
+    // Safe-boot fallback: if the 'flush' button (PIN 8) is held during boot, force AP mode.
+    let mut force_ap = false;
+    {
+        let btn_flush = Input::new(unsafe { embassy_rp::Peripherals::steal().PIN_8 }, Pull::Up);
+        if btn_flush.is_low() {
+            defmt::warn!("Hardware override: Forcing AP mode!");
+            force_ap = true;
+        }
+    }
+
     let embassy_rp::pio::Pio {
         common: mut common1,
         sm0: sm1_0,
@@ -461,7 +471,9 @@ async fn main(spawner: Spawner) {
             let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
             executor.run(|spawner| {
                 defmt::info!("Core 1: Spawning wifi_init_task");
-                spawner.spawn(wifi_init_task(spawner, pwr, spi)).unwrap();
+                spawner
+                    .spawn(wifi_init_task(spawner, pwr, spi, force_ap))
+                    .unwrap();
             })
         },
     );
@@ -526,7 +538,8 @@ async fn wifi_init_task(
     spawner: Spawner,
     pwr: Output<'static>,
     spi: cyw43_pio::PioSpi<'static, PIO1, 0, embassy_rp::peripherals::DMA_CH0>,
+    force_ap: bool,
 ) {
     defmt::info!("Wifi: init task started");
-    wifi_task::setup_wifi(spawner, pwr, spi).await;
+    wifi_task::setup_wifi(spawner, pwr, spi, force_ap).await;
 }
