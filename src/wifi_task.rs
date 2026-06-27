@@ -1,6 +1,5 @@
 use core::str::from_utf8;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_rp::gpio::Output;
@@ -16,7 +15,7 @@ use crate::settings::{
     BrewProfile, HardwareSettings, MachineSettings, PidSettings, SettingsManager, WifiSettings,
 };
 use crate::state::{get_state, MachineCommand, MachineState, SIG_COMMAND};
-use crate::{SystemEvent, SIG_SYSTEM_EVENT, SIG_WIFI_RECONFIG};
+use crate::{FlashUpdate, SIG_FLASH_UPDATE};
 
 static INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 
@@ -99,13 +98,13 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
         "save_profile" => {
             if let (Some(slot), Some(p)) = (payload.slot, payload.profile) {
                 crate::settings::save_profile_to_ram(slot, p).await;
-                SIG_SYSTEM_EVENT.signal(SystemEvent::SaveProfile(slot));
+                SIG_FLASH_UPDATE.signal(FlashUpdate::SaveProfile(slot));
             }
         }
         "delete_profile" => {
             if let Some(slot) = payload.slot {
                 crate::settings::delete_profile_from_ram(slot).await;
-                SIG_SYSTEM_EVENT.signal(SystemEvent::DeleteProfile(slot));
+                SIG_FLASH_UPDATE.signal(FlashUpdate::DeleteProfile(slot));
             }
         }
         _ => {
@@ -479,62 +478,50 @@ pub async fn setup_wifi(
     let settings = SettingsManager::get().await;
     let is_ap = force_ap || settings.wifi.ssid.is_empty();
 
-    let wifi_logic = async {
-        if is_ap {
-            defmt::info!("Wi-Fi: Booting strictly in AP Mode");
-            stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
-                address: embassy_net::Ipv4Cidr::new(
-                    embassy_net::Ipv4Address::new(192, 168, 4, 1),
-                    24,
-                ),
-                gateway: None,
-                dns_servers: Default::default(),
-            }));
-            let _ = spawner.spawn(dhcp_server_task(stack));
-            control.start_ap_wpa2("Oximite-Setup", "password", 6).await;
+    if is_ap {
+        defmt::info!("Wi-Fi: Booting strictly in AP Mode");
+        stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
+            address: embassy_net::Ipv4Cidr::new(
+                embassy_net::Ipv4Address::new(192, 168, 4, 1),
+                24,
+            ),
+            gateway: None,
+            dns_servers: Default::default(),
+        }));
+        let _ = spawner.spawn(dhcp_server_task(stack));
+        control.start_ap_wpa2("Oximite-Setup", "password", 6).await;
 
-            core::future::pending::<()>().await;
-        } else {
-            defmt::info!("Wi-Fi: Booting in Client Mode");
+        core::future::pending::<()>().await;
+    } else {
+        defmt::info!("Wi-Fi: Booting in Client Mode");
 
-            loop {
-                defmt::info!(
-                    "Wi-Fi: Attempting to connect to SSID: {}",
-                    settings.wifi.ssid.as_str()
-                );
-                match control
-                    .join(
-                        settings.wifi.ssid.as_str(),
-                        cyw43::JoinOptions::new(settings.wifi.password.as_bytes()),
-                    )
-                    .await
-                {
-                    Ok(_) => {
-                        defmt::info!("Wi-Fi: Connected to SSID");
-                        loop {
-                            if !stack.is_link_up() {
-                                break;
-                            }
-                            Timer::after(Duration::from_millis(500)).await;
+        loop {
+            defmt::info!(
+                "Wi-Fi: Attempting to connect to SSID: {}",
+                settings.wifi.ssid.as_str()
+            );
+            match control
+                .join(
+                    settings.wifi.ssid.as_str(),
+                    cyw43::JoinOptions::new(settings.wifi.password.as_bytes()),
+                )
+                .await
+            {
+                Ok(_) => {
+                    defmt::info!("Wi-Fi: Connected to SSID");
+                    loop {
+                        if !stack.is_link_up() {
+                            break;
                         }
+                        Timer::after(Duration::from_millis(500)).await;
                     }
-                    Err(_) => {
-                        defmt::warn!("Wi-Fi: Join failed, retrying in 5s...");
-                        Timer::after(Duration::from_secs(5)).await;
-                    }
+                }
+                Err(_) => {
+                    defmt::warn!("Wi-Fi: Join failed, retrying in 5s...");
+                    Timer::after(Duration::from_secs(5)).await;
                 }
             }
         }
-    };
-
-    match select(SIG_WIFI_RECONFIG.wait(), wifi_logic).await {
-        Either::First(_) => {
-            defmt::info!("Wi-Fi: Reconfiguration requested. Rebooting...");
-            Timer::after(Duration::from_secs(2)).await;
-            cortex_m::peripheral::SCB::sys_reset();
-        }
-        Either::Second(_) => {
-            defmt::error!("Wi-Fi: Logic task exited unexpectedly!");
-        }
     }
+    defmt::error!("Wi-Fi: Logic task exited unexpectedly!");
 }

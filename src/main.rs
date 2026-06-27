@@ -32,14 +32,13 @@ use crate::state::{MachineCommand, MachineState, MACHINE_STATE, SIG_COMMAND};
 static mut CORE1_STACK: CoreStack<32768> = CoreStack::new();
 static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new();
 
-pub enum SystemEvent {
+pub enum FlashUpdate {
     SaveSettings(SettingsManager),
     SaveProfile(u8),
     DeleteProfile(u8),
 }
 
-pub static SIG_SYSTEM_EVENT: Signal<CriticalSectionRawMutex, SystemEvent> = Signal::new();
-pub static SIG_WIFI_RECONFIG: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+pub static SIG_FLASH_UPDATE: Signal<CriticalSectionRawMutex, FlashUpdate> = Signal::new();
 
 bind_interrupts!(pub struct Irqs {
     PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO0>;
@@ -116,22 +115,22 @@ async fn led_update_task() {
 // BACKGROUND FLASH EVENT HANDLER
 // ==========================================
 #[embassy_executor::task]
-async fn system_events_task(
+async fn flash_update_task(
     mut flash: Flash<'static, embassy_rp::peripherals::FLASH, embassy_rp::flash::Async, 2097152>,
 ) {
     loop {
-        let event = SIG_SYSTEM_EVENT.wait().await;
+        let event = SIG_FLASH_UPDATE.wait().await;
         match event {
-            SystemEvent::SaveSettings(old_s) => {
+            FlashUpdate::SaveSettings(old_s) => {
                 let new_s = SettingsManager::get().await;
                 SettingsManager::save_changes_to_flash(&mut flash, &old_s, &new_s).await;
             }
-            SystemEvent::SaveProfile(slot) => {
+            FlashUpdate::SaveProfile(slot) => {
                 if let Some(p) = crate::settings::get_profile_from_ram(slot).await {
                     let _ = crate::settings::save_profile_to_flash(&mut flash, slot, &p).await;
                 }
             }
-            SystemEvent::DeleteProfile(slot) => {
+            FlashUpdate::DeleteProfile(slot) => {
                 let _ = crate::settings::delete_profile_from_flash(&mut flash, slot).await;
             }
         }
@@ -236,13 +235,8 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
         // Settings (valid in any state)
         (_, MachineCommand::SaveSettings(new_s)) => {
             let old_s = SettingsManager::get().await;
-            let wifi_changed =
-                old_s.wifi.ssid != new_s.wifi.ssid || old_s.wifi.password != new_s.wifi.password;
             SettingsManager::update_ram(new_s).await;
-            SIG_SYSTEM_EVENT.signal(SystemEvent::SaveSettings(old_s));
-            if wifi_changed {
-                SIG_WIFI_RECONFIG.signal(());
-            }
+            SIG_FLASH_UPDATE.signal(FlashUpdate::SaveSettings(old_s));
         }
 
         (state, cmd) => {
@@ -349,7 +343,7 @@ async fn record_operation(is_descale: bool, pumped_ml: f32) {
 
     if s.usage != old_s.usage {
         SettingsManager::update_ram(s).await;
-        SIG_SYSTEM_EVENT.signal(SystemEvent::SaveSettings(old_s));
+        SIG_FLASH_UPDATE.signal(FlashUpdate::SaveSettings(old_s));
     }
 }
 
@@ -528,7 +522,7 @@ async fn main(spawner: Spawner) {
 
     // Spawn the decoupled architectural tasks
     spawner.spawn(led_update_task()).unwrap();
-    spawner.spawn(system_events_task(flash)).unwrap();
+    spawner.spawn(flash_update_task(flash)).unwrap();
     spawner.spawn(coordinator_task()).unwrap();
     spawner.spawn(hardware_task(valve_output)).unwrap();
 }
