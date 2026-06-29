@@ -70,7 +70,7 @@ pub struct AdcState {
 
 impl AdcState {
     /// Returns `(display_temp, display_target_temp)` with the boiler offset
-    /// subtracted for non-steam modes, where the sensor sits above the group head.
+    /// subtracted for non-steam modes.
     pub fn display_temps(&self, offset: f32, is_steaming: bool) -> (f32, f32) {
         if is_steaming {
             (self.temp_c, self.target_temp)
@@ -650,22 +650,46 @@ pub async fn execute_cooldown_flush() {
 }
 
 pub async fn execute_descale() {
+    const DESCALE_VOLUME_ML: f32 = 200.0;
+    const DESCALE_SOAK_SECS: u64 = 2 * 60;
+    const FLOW_START_GRACE_SECS: u64 = 1;
+    const FLOW_STALL_THRESHOLD_ML_S: f32 = 0.5;
+
     set_target_temp(TargetTempMode::Descale).await;
 
     loop {
+        // --- Pump 200 ml ---
+        let flow = crate::flow_meter::FlowMonitor::new();
+        flow.reset_shot_volume();
         set_direct_pump(Some(PUMP_POWER));
-        Timer::after(Duration::from_millis(500)).await;
-        set_direct_pump(Some(0.0f32));
-        // until flow stops
-        if crate::flow_meter::FlowMonitor::new()
-            .get_state()
-            .await
-            .flow_rate_ml_s
-            < 0.5
-        {
+
+        // Allow time for flow to establish before checking for an empty tank.
+        Timer::after(Duration::from_secs(FLOW_START_GRACE_SECS)).await;
+
+        let tank_empty = loop {
+            Timer::after(Duration::from_millis(200)).await;
+            let state = flow.get_state().await;
+
+            if state.flow_rate_ml_s < FLOW_STALL_THRESHOLD_ML_S {
+                // Flow stopped while pump is running — tank is empty.
+                defmt::info!("Descale: no flow detected, tank empty.");
+                break true;
+            }
+            if state.shot_volume_ml >= DESCALE_VOLUME_ML {
+                defmt::info!("Descale: {}ml dispensed.", DESCALE_VOLUME_ML);
+                break false;
+            }
+        };
+
+        set_direct_pump(None);
+
+        if tank_empty {
             break;
         }
-        Timer::after(Duration::from_secs(1)).await;
+
+        // --- Soak ---
+        defmt::info!("Descale: soaking for {} s...", DESCALE_SOAK_SECS);
+        Timer::after(Duration::from_secs(DESCALE_SOAK_SECS)).await;
     }
 
     set_direct_pump(None);
