@@ -653,7 +653,7 @@ pub async fn execute_descale() {
     set_target_temp(TargetTempMode::Descale).await;
 
     loop {
-        set_direct_pump(Some(30.0f32));
+        set_direct_pump(Some(PUMP_POWER));
         Timer::after(Duration::from_millis(500)).await;
         set_direct_pump(Some(0.0f32));
         // until flow stops
