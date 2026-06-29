@@ -79,7 +79,7 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
     let mut total_edges = 0u32;
     let mut edges_at_start = 0u32;
 
-    let s = crate::settings::SettingsManager::get().await;
+    let s = crate::settings::Settings::get().await;
     let edges_per_liter = if s.hardware.flow_edges_per_liter > 0.0 {
         s.hardware.flow_edges_per_liter
     } else {

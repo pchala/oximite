@@ -12,7 +12,7 @@ use static_cell::StaticCell;
 use crate::control::AdcMonitor;
 use crate::flow_meter::FlowMonitor;
 use crate::settings::{
-    BrewProfile, HardwareSettings, MachineSettings, PidSettings, SettingsManager, WifiSettings,
+    BrewProfile, HardwareSettings, MachineSettings, PidSettings, Settings, WifiSettings,
 };
 use crate::state::{get_state, MachineCommand, MachineState, SIG_COMMAND};
 use crate::{FlashUpdate, SIG_FLASH_UPDATE};
@@ -49,6 +49,9 @@ struct ProfileHeader<'a> {
     name: &'a str,
 }
 
+const JSON_OK_HEADER: &str =
+    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+
 async fn handle_api_command(payload: ApiCommand<'_>) {
     match payload.cmd {
         "power" => SIG_COMMAND.signal(MachineCommand::TogglePower),
@@ -64,7 +67,7 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
             }
         }
         "save_settings" => {
-            let mut s = crate::settings::SettingsManager::get().await;
+            let mut s = Settings::get().await;
             if let Some(m) = payload.machine {
                 s.machine = m;
             }
@@ -117,16 +120,10 @@ async fn get_telemetry_json() -> heapless::String<256> {
     let a = AdcMonitor::new().get_state().await;
     let f = FlowMonitor::new().get_state().await;
     let st_val = get_state();
-    let s = crate::settings::SettingsManager::get().await;
+    let s = Settings::get().await;
 
-    let mut disp_t = a.temp_c;
-    let mut disp_tt = a.target_temp;
-    if st_val != MachineState::Steaming {
-        disp_t -= s.hardware.temp_offset;
-        if disp_tt > 0.0 {
-            disp_tt -= s.hardware.temp_offset;
-        }
-    }
+    let (disp_t, disp_tt) =
+        a.display_temps(s.hardware.temp_offset, st_val == MachineState::Steaming);
 
     let data = TelemetryData {
         t: disp_t,
@@ -159,15 +156,10 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
             continue;
         }
 
-        // let remote_endpoint = socket.remote_endpoint();
-        // defmt::info!("HTTP: Accepted connection from {}", remote_endpoint);
-
         let mut buf = [0u8; 4096];
         if let Ok(n) = socket.read(&mut buf).await {
             if n > 0 {
                 let request = from_utf8(&buf[..n]).unwrap_or("");
-                // let first_line = request.lines().next().unwrap_or("");
-                // defmt::info!("HTTP Request: {}", first_line);
 
                 if request.starts_with("GET / ") || request.starts_with("GET /index.html") {
                     let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Encoding: gzip\r\nConnection: close\r\n\r\n";
@@ -177,15 +169,15 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                     let json_str = get_telemetry_json().await;
                     if !json_str.is_empty() {
                         let mut resp = heapless::String::<512>::new();
-                        let _ = resp.push_str("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n");
+                        let _ = resp.push_str(JSON_OK_HEADER);
                         let _ = resp.push_str(json_str.as_str());
                         let _ = socket.write_all(resp.as_bytes()).await;
                     }
                 } else if request.starts_with("GET /api/settings") {
-                    let s = crate::settings::SettingsManager::get().await;
+                    let s = Settings::get().await;
                     if let Ok(json_str) = serde_json_core::to_string::<_, 1024>(&s) {
                         let mut resp = heapless::String::<2048>::new();
-                        let _ = resp.push_str("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n");
+                        let _ = resp.push_str(JSON_OK_HEADER);
                         let _ = resp.push_str(json_str.as_str());
                         let _ = socket.write_all(resp.as_bytes()).await;
                     }
@@ -200,26 +192,25 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                     }
 
                     let mut resp_buf = [0u8; 2048];
-                    let header = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
-                    resp_buf[..header.len()].copy_from_slice(header);
-                    if let Ok(len) =
-                        serde_json_core::to_slice(&headers, &mut resp_buf[header.len()..])
+                    let hdr = JSON_OK_HEADER.as_bytes();
+                    resp_buf[..hdr.len()].copy_from_slice(hdr);
+                    if let Ok(len) = serde_json_core::to_slice(&headers, &mut resp_buf[hdr.len()..])
                     {
-                        let _ = socket.write_all(&resp_buf[..header.len() + len]).await;
+                        let _ = socket.write_all(&resp_buf[..hdr.len() + len]).await;
                     }
                 } else if request.starts_with("GET /api/profile/") {
                     if let Some(s_idx) = request.find("/api/profile/") {
-                        let sub = &request[s_idx + 13..];
+                        let sub = &request[s_idx + "/api/profile/".len()..];
                         let end = sub.find(' ').unwrap_or(sub.len());
                         if let Ok(slot) = sub[..end].parse::<u8>() {
                             if let Some(p) = crate::settings::get_profile_from_ram(slot).await {
                                 let mut resp_buf = [0u8; 2048];
-                                let header = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
-                                resp_buf[..header.len()].copy_from_slice(header);
+                                let hdr = JSON_OK_HEADER.as_bytes();
+                                resp_buf[..hdr.len()].copy_from_slice(hdr);
                                 if let Ok(len) =
-                                    serde_json_core::to_slice(&p, &mut resp_buf[header.len()..])
+                                    serde_json_core::to_slice(&p, &mut resp_buf[hdr.len()..])
                                 {
-                                    let _ = socket.write_all(&resp_buf[..header.len() + len]).await;
+                                    let _ = socket.write_all(&resp_buf[..hdr.len() + len]).await;
                                 }
                             }
                         }
@@ -227,7 +218,6 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                 } else if request.starts_with("POST /api/cmd") {
                     if let Some(body_start) = request.find("\r\n\r\n") {
                         let json_body = &request[(body_start + 4)..];
-                        defmt::info!("API POST Body: {}", json_body);
                         if let Ok((payload, _)) = serde_json_core::from_str::<ApiCommand>(json_body)
                         {
                             defmt::info!("API Command Received: {}", payload.cmd);
@@ -475,16 +465,13 @@ pub async fn setup_wifi(
     spawner.spawn(wifi_server_task(stack)).unwrap();
     spawner.spawn(tcp_telemetry_task(stack)).unwrap();
 
-    let settings = SettingsManager::get().await;
+    let settings = Settings::get().await;
     let is_ap = force_ap || settings.wifi.ssid.is_empty();
 
     if is_ap {
         defmt::info!("Wi-Fi: Booting strictly in AP Mode");
         stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
-            address: embassy_net::Ipv4Cidr::new(
-                embassy_net::Ipv4Address::new(192, 168, 4, 1),
-                24,
-            ),
+            address: embassy_net::Ipv4Cidr::new(embassy_net::Ipv4Address::new(192, 168, 4, 1), 24),
             gateway: None,
             dns_servers: Default::default(),
         }));

@@ -26,7 +26,7 @@ pub enum MachineCommand {
     Descale,
     DirectPump(f32),
     ProfileFinished, // Sent by hardware when it finishes naturally
-    SaveSettings(crate::settings::SettingsManager),
+    SaveSettings(crate::settings::Settings),
     TogglePower,
 }
 

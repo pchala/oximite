@@ -10,7 +10,7 @@ use embassy_time::{Duration, Instant, Timer};
 use fixed::FixedU32;
 use pio::pio_asm;
 
-use crate::settings::{BrewProfile, SettingsManager};
+use crate::settings::{BrewProfile, Settings};
 
 pub static SIG_TARGET_PRESSURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static SIG_FLOW_LIMIT: Signal<CriticalSectionRawMutex, f32> = Signal::new();
@@ -43,7 +43,7 @@ pub enum TargetTempMode {
 }
 
 pub async fn set_target_temp(mode: TargetTempMode) {
-    let s = crate::settings::SettingsManager::get().await;
+    let s = crate::settings::Settings::get().await;
     let temp = match mode {
         TargetTempMode::Brew => s.machine.brew_temp + s.hardware.temp_offset,
         TargetTempMode::Steam => s.machine.steam_temp,
@@ -56,6 +56,9 @@ pub fn set_direct_pump(power: Option<f32>) {
     SIG_DIRECT_PUMP.signal(power);
 }
 
+/// Pump power used for flush and cooldown operations (%).
+pub const PUMP_POWER: f32 = 80.0;
+
 #[derive(Clone, Copy, Default)]
 pub struct AdcState {
     pub pressure_bar: f32,
@@ -63,6 +66,24 @@ pub struct AdcState {
     pub target_bar: f32,
     pub target_temp: f32,
     pub flow_limit_ml_s: f32,
+}
+
+impl AdcState {
+    /// Returns `(display_temp, display_target_temp)` with the boiler offset
+    /// subtracted for non-steam modes, where the sensor sits above the group head.
+    pub fn display_temps(&self, offset: f32, is_steaming: bool) -> (f32, f32) {
+        if is_steaming {
+            (self.temp_c, self.target_temp)
+        } else {
+            let t = self.temp_c - offset;
+            let tt = if self.target_temp > 0.0 {
+                self.target_temp - offset
+            } else {
+                0.0
+            };
+            (t, tt)
+        }
+    }
 }
 
 pub static ADC_WATCH: Watch<CriticalSectionRawMutex, AdcState, 4> = Watch::new();
@@ -391,7 +412,7 @@ pub async fn ac_sync_control_task(
     let mut ac_ema = 10_000.0;
 
     // Load initial settings
-    let initial_s = SettingsManager::get().await;
+    let initial_s = Settings::get().await;
     let mut press_pid = PidController::new(
         initial_s.press_pid.kp,
         initial_s.press_pid.ki,
@@ -448,7 +469,7 @@ pub async fn ac_sync_control_task(
         let p_ema = state.pressure_bar;
         let t_ema = state.temp_c;
 
-        let s = SettingsManager::get().await;
+        let s = Settings::get().await;
 
         // --- Command & Signal Processing ---
         if let Some(tp) = SIG_TARGET_PRESSURE.try_take() {
@@ -605,16 +626,16 @@ pub async fn execute_profile(profile: BrewProfile) {
 }
 
 pub async fn execute_steam() {
-    let s = SettingsManager::get().await;
+    let s = Settings::get().await;
     set_target_temp(TargetTempMode::Steam).await;
     Timer::after(Duration::from_secs(s.machine.steam_time_limit_s as u64)).await;
     set_target_temp(TargetTempMode::Brew).await;
 }
 
 pub async fn execute_cooldown_flush() {
-    let s = SettingsManager::get().await;
+    let s = Settings::get().await;
     set_target_temp(TargetTempMode::Brew).await;
-    set_direct_pump(Some(80.0));
+    set_direct_pump(Some(PUMP_POWER));
 
     let monitor = AdcMonitor::new();
     loop {

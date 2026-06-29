@@ -26,14 +26,14 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _, rp2040_boot2 as _};
 
 use crate::leds::Rgb;
-use crate::settings::SettingsManager;
+use crate::settings::{Settings, SettingsStore};
 use crate::state::{MachineCommand, MachineState, MACHINE_STATE, SIG_COMMAND};
 
 static mut CORE1_STACK: CoreStack<32768> = CoreStack::new();
 static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new();
 
 pub enum FlashUpdate {
-    SaveSettings(SettingsManager),
+    SaveSettings(Settings),
     SaveProfile(u8),
     DeleteProfile(u8),
 }
@@ -122,8 +122,8 @@ async fn flash_update_task(
         let event = SIG_FLASH_UPDATE.wait().await;
         match event {
             FlashUpdate::SaveSettings(old_s) => {
-                let new_s = SettingsManager::get().await;
-                SettingsManager::save_changes_to_flash(&mut flash, &old_s, &new_s).await;
+                let new_s = Settings::get().await;
+                SettingsStore::save_changed(&mut flash, &old_s, &new_s).await;
             }
             FlashUpdate::SaveProfile(slot) => {
                 if let Some(p) = crate::settings::get_profile_from_ram(slot).await {
@@ -174,7 +174,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
         // Brew
         (MachineState::Idle, MachineCommand::Brew) => {
             transition_state(MachineState::Brewing, Some(control::TargetTempMode::Brew)).await;
-            let p = SettingsManager::get_default_profile().await;
+            let p = Settings::get_default_profile().await;
             control::SIG_HARDWARE_CMD.signal(control::HardwareCommand::RunProfile(p));
         }
         (MachineState::Idle, MachineCommand::RunProfile(p)) => {
@@ -185,7 +185,8 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
         // Flush
         (MachineState::Idle, MachineCommand::Flush) => {
             transition_state(MachineState::Pumping, Some(control::TargetTempMode::Brew)).await;
-            control::SIG_HARDWARE_CMD.signal(control::HardwareCommand::DirectPump(80.0));
+            control::SIG_HARDWARE_CMD
+                .signal(control::HardwareCommand::DirectPump(control::PUMP_POWER));
         }
         (MachineState::Steaming, MachineCommand::Flush) => {
             transition_state(MachineState::Cooling, Some(control::TargetTempMode::Brew)).await;
@@ -234,8 +235,8 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
 
         // Settings (valid in any state)
         (_, MachineCommand::SaveSettings(new_s)) => {
-            let old_s = SettingsManager::get().await;
-            SettingsManager::update_ram(new_s).await;
+            let old_s = Settings::get().await;
+            Settings::update_ram(new_s).await;
             SIG_FLASH_UPDATE.signal(FlashUpdate::SaveSettings(old_s));
         }
 
@@ -325,7 +326,7 @@ async fn run_cancellable<F: core::future::Future>(
 // Separated from the hardware loop so the loop stays readable.
 // pumped_ml must be captured synchronously before any await.
 async fn record_operation(is_descale: bool, pumped_ml: f32) {
-    let mut s = SettingsManager::get().await;
+    let mut s = Settings::get().await;
     let old_s = s.clone();
 
     if is_descale {
@@ -342,7 +343,7 @@ async fn record_operation(is_descale: bool, pumped_ml: f32) {
     }
 
     if s.usage != old_s.usage {
-        SettingsManager::update_ram(s).await;
+        Settings::update_ram(s).await;
         SIG_FLASH_UPDATE.signal(FlashUpdate::SaveSettings(old_s));
     }
 }
@@ -420,7 +421,7 @@ async fn main(spawner: Spawner) {
     }
     let mut flash: Flash<'static, _, embassy_rp::flash::Async, 2097152> =
         Flash::new(p.FLASH, p.DMA_CH1);
-    SettingsManager::load_from_flash(&mut flash).await;
+    SettingsStore::load(&mut flash).await;
     crate::settings::load_all_profiles_from_flash(&mut flash).await;
 
     // Safe-boot fallback: if the 'flush' button (PIN 8) is held during boot, force AP mode.
