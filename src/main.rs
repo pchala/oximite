@@ -366,7 +366,7 @@ async fn hardware_task(mut valve: Output<'static>) {
             }
             control::HardwareCommand::Descale => {
                 defmt::info!("Hardware: Starting descale");
-                run_cancellable(&mut valve, true, "Descale", control::execute_descale()).await;
+                run_cancellable(&mut valve, false, "Descale", control::execute_descale()).await;
             }
             control::HardwareCommand::CooldownFlush => {
                 defmt::info!("Hardware: Starting cooldown flush");
