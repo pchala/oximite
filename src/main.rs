@@ -434,15 +434,28 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    // Extract PIO1 and WiFi peripherals to move into core1's closure.
-    // Initializing PIO1 inside spawn_core1 ensures PIO1_IRQ_0 is enabled
-    // in core1's NVIC, so WiFi interrupts are handled by core1, not core0.
-    let pio1_peri = p.PIO1;
-    let pin23 = p.PIN_23;
-    let pin24 = p.PIN_24;
-    let pin25 = p.PIN_25;
-    let pin29 = p.PIN_29;
-    let dma_ch0 = p.DMA_CH0;
+    let embassy_rp::pio::Pio {
+        common: mut common1,
+        sm0: sm1_0,
+        irq0: irq1_0,
+        ..
+    } = embassy_rp::pio::Pio::new(p.PIO1, Irqs);
+
+    let (pwr, spi) = {
+        let pwr = Output::new(p.PIN_23, Level::Low);
+        let cs = Output::new(p.PIN_25, Level::High);
+        let spi = cyw43_pio::PioSpi::new(
+            &mut common1,
+            sm1_0,
+            cyw43_pio::DEFAULT_CLOCK_DIVIDER,
+            irq1_0,
+            cs,
+            p.PIN_24,
+            p.PIN_29,
+            p.DMA_CH0,
+        );
+        (pwr, spi)
+    };
 
     defmt::info!("Spawning Core 1...");
     spawn_core1(
@@ -450,27 +463,6 @@ async fn main(spawner: Spawner) {
         unsafe { &mut *addr_of_mut!(CORE1_STACK) },
         move || {
             defmt::info!("Core 1: Starting...");
-            // PIO1 init happens here on core1 — enables PIO1_IRQ_0 in core1's NVIC.
-            let embassy_rp::pio::Pio {
-                common: mut common1,
-                sm0: sm1_0,
-                irq0: irq1_0,
-                ..
-            } = embassy_rp::pio::Pio::new(pio1_peri, Irqs);
-
-            let pwr = Output::new(pin23, Level::Low);
-            let cs = Output::new(pin25, Level::High);
-            let spi = cyw43_pio::PioSpi::new(
-                &mut common1,
-                sm1_0,
-                cyw43_pio::DEFAULT_CLOCK_DIVIDER,
-                irq1_0,
-                cs,
-                pin24,
-                pin29,
-                dma_ch0,
-            );
-
             let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
             executor.run(|spawner| {
                 defmt::info!("Core 1: Spawning wifi_init_task");
