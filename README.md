@@ -2,13 +2,13 @@
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/J5E121FXSB)
 
-**oximite** is a high-performance, asynchronous Rust firmware for the [Pimoroni Pico Plus 2 W](https://shop.pimoroni.com/products/pimoroni-pico-plus-2-w), designed to retrofit standard espresso machines (such as the Gaggia Classic or Rancilio Silvia) with advanced digital controls.
+**oximite** is a high-performance, asynchronous Rust firmware for the RP2350, designed to retrofit standard espresso machines (such as the Gaggia Classic or Rancilio Silvia) with advanced digital controls.
 
 By replacing the factory internals with oximite, machines gain capabilities typically found in commercial or prosumer equipment, including real-time pressure profiling, PID temperature control, volumetric dosing, and a web-based user interface natively hosted on the Pico Plus 2 W.
 
 Support the continued development of this open-source project by [leaving a tip on Ko-fi](https://ko-fi.com/J5E121FXSB). Contributions help accelerate the implementation of new features.
 
-> **Hardware kindly sponsored and provided by [Pimoroni](https://pimoroni.com). Thank you! 🎉**
+>[Pico Plus 2 W](https://shop.pimoroni.com/products/pimoroni-pico-plus-2-w) kindly provided by [Pimoroni](https://pimoroni.com). Thank you!
 
 ## Features
 
@@ -33,27 +33,27 @@ The firmware is written in Rust and utilizes the `embassy-rp` asynchronous frame
 | **GP0** | PIO0 (SM2) | Output | **Triac Control:** Phase-angle firing for pump/heater modulation. |
 | **GP2** | Standard GPIO | Output | **Heater Relay:** Solid State Relay (SSR) control for the boiler. |
 | **GP3** | Standard GPIO | Output | **3-Way Valve:** Solid State Relay (SSR) control for the brew group solenoid. |
-| **GP9** | PIO0 (SM3) | Output | **WS2812 RGB LED:** Status indication via addressable LEDs. |
-| **GP10** | PIO0 (SM1) | Input | **Zero-Cross:** Syncs Triac firing with 50/60Hz AC mains. |
 | **GP5** | GPIO (Pull-Up) | Input | **Power Button:** Physical button to wake/sleep the machine. |
 | **GP6** | GPIO (Pull-Up) | Input | **Brew Button:** Physical button to start/stop brewing. |
 | **GP7** | GPIO (Pull-Up) | Input | **Steam Button:** Physical button to toggle steam mode. |
 | **GP8** | GPIO (Pull-Up) | Input | **Flush Button:** Physical button for quick grouphead flush. |
+| **GP9** | PIO0 (SM3) | Output | **WS2812 RGB LED:** Status indication via addressable LEDs. |
+| **GP10** | PIO0 (SM1) | Input | **Zero-Cross:** Syncs Triac firing with 50/60Hz AC mains. |
 | **GP15** | PIO0 (SM0) | Input | **Flow Meter:** Reads pulses from a Hall-effect water flow sensor. |
 | **GP23** | WL_ON | Output | *Internal:* CYW43 Wi-Fi chip power control. |
 | **GP24** | WL_D / PIO1 | In/Out | *Internal:* CYW43 Wi-Fi SPI Data. |
 | **GP25** | WL_CS | Output | *Internal:* CYW43 Wi-Fi Chip Select. |
 | **GP26** | GPIO (HiZ) | — | *Unused:* Held high-impedance; shares PCB net with A0 (GP40). |
 | **GP27** | GPIO (HiZ) | — | *Unused:* Held high-impedance; shares PCB net with A1 (GP41). |
+| **GP29** | WL_CLK / PIO1 | Output | *Internal:* CYW43 Wi-Fi SPI Clock. |
 | **GP40** | ADC (A0) | Analog In | **Pressure Sensor:** Reads analog voltage from the pressure transducer. |
 | **GP41** | ADC (A1) | Analog In | **Temp Sensor:** Reads analog voltage from the thermistor/thermocouple. |
-| **GP29** | WL_CLK / PIO1 | Output | *Internal:* CYW43 Wi-Fi SPI Clock. |
 
 ## Getting Started
 
 ### 1. Build & Flash
 
-Ensure the Rust `thumbv8m.main-none-eabihf` target is installed. The RP2350 bootrom handles flash initialisation natively — no BOOT2 stage is required.
+Ensure the Rust `thumbv8m.main-none-eabihf` target is installed.
 
 ```bash
 cargo run --release
