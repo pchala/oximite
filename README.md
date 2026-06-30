@@ -6,9 +6,9 @@
 
 By replacing the factory internals with oximite, machines gain capabilities typically found in commercial or prosumer equipment, including real-time pressure profiling, PID temperature control, volumetric dosing, and a web-based user interface natively hosted on the Pico Plus 2 W.
 
-> **Hardware kindly sponsored and provided by [Pimoroni](https://pimoroni.com). Thank you! 🎉**
-
 Support the continued development of this open-source project by [leaving a tip on Ko-fi](https://ko-fi.com/J5E121FXSB). Contributions help accelerate the implementation of new features.
+
+> **Hardware kindly sponsored and provided by [Pimoroni](https://pimoroni.com). Thank you! 🎉**
 
 ## Features
 
@@ -35,6 +35,7 @@ The firmware is written in Rust and utilizes the `embassy-rp` asynchronous frame
 | **GP3** | Standard GPIO | Output | **3-Way Valve:** Solid State Relay (SSR) control for the brew group solenoid. |
 | **GP9** | PIO0 (SM3) | Output | **WS2812 RGB LED:** Status indication via addressable LEDs. |
 | **GP10** | PIO0 (SM1) | Input | **Zero-Cross:** Syncs Triac firing with 50/60Hz AC mains. |
+| **GP5** | GPIO (Pull-Up) | Input | **Power Button:** Physical button to wake/sleep the machine. |
 | **GP6** | GPIO (Pull-Up) | Input | **Brew Button:** Physical button to start/stop brewing. |
 | **GP7** | GPIO (Pull-Up) | Input | **Steam Button:** Physical button to toggle steam mode. |
 | **GP8** | GPIO (Pull-Up) | Input | **Flush Button:** Physical button for quick grouphead flush. |
@@ -42,15 +43,17 @@ The firmware is written in Rust and utilizes the `embassy-rp` asynchronous frame
 | **GP23** | WL_ON | Output | *Internal:* CYW43 Wi-Fi chip power control. |
 | **GP24** | WL_D / PIO1 | In/Out | *Internal:* CYW43 Wi-Fi SPI Data. |
 | **GP25** | WL_CS | Output | *Internal:* CYW43 Wi-Fi Chip Select. |
-| **GP26** | ADC Channel 0 | Analog In | **Pressure Sensor:** Reads analog voltage from the pressure transducer. |
-| **GP27** | ADC Channel 1 | Analog In | **Temp Sensor:** Reads analog voltage from the thermistor/thermocouple. |
+| **GP26** | GPIO (HiZ) | — | *Unused:* Held high-impedance; shares PCB net with A0 (GP40). |
+| **GP27** | GPIO (HiZ) | — | *Unused:* Held high-impedance; shares PCB net with A1 (GP41). |
+| **GP40** | ADC (A0) | Analog In | **Pressure Sensor:** Reads analog voltage from the pressure transducer. |
+| **GP41** | ADC (A1) | Analog In | **Temp Sensor:** Reads analog voltage from the thermistor/thermocouple. |
 | **GP29** | WL_CLK / PIO1 | Output | *Internal:* CYW43 Wi-Fi SPI Clock. |
 
 ## Getting Started
 
 ### 1. Build & Flash
 
-Ensure the Rust `thumbv6m-none-eabi` target is installed. The firmware is standalone and includes the `BOOT2` stage.
+Ensure the Rust `thumbv8m.main-none-eabihf` target is installed. The RP2350 bootrom handles flash initialisation natively — no BOOT2 stage is required.
 
 ```bash
 cargo run --release
