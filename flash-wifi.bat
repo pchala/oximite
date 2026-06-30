@@ -1,6 +1,6 @@
 @echo off
 echo Flashing Wi-Fi firmware...
-probe-rs download --chip RP2040 --binary-format bin --base-address 0x101B0000 cyw43-firmware/43439A0.bin
+probe-rs download --chip RP2350 --binary-format bin --base-address 0x10FB0000 cyw43-firmware/43439A0.bin
 echo Flashing CLM blob...
-probe-rs download --chip RP2040 --binary-format bin --base-address 0x101EF000 cyw43-firmware/43439A0_clm.bin
+probe-rs download --chip RP2350 --binary-format bin --base-address 0x10FEF000 cyw43-firmware/43439A0_clm.bin
 echo Done!

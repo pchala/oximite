@@ -5,7 +5,7 @@ use sequential_storage::cache::NoCache;
 use sequential_storage::map::{fetch_item, remove_item, store_item};
 use serde::{Deserialize, Serialize};
 
-const FS_RANGE: core::ops::Range<u32> = (2097152 - 65536)..2097152;
+const FS_RANGE: core::ops::Range<u32> = (16777216 - 65536)..16777216;
 const MAX_PROFILES: u8 = 10;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -184,7 +184,7 @@ pub struct SettingsStore;
 
 impl SettingsStore {
     /// Reads all settings sections from flash and populates the RAM cache.
-    pub async fn load<T: Instance>(flash: &mut Flash<'_, T, Async, 2097152>) {
+    pub async fn load<T: Instance>(flash: &mut Flash<'_, T, Async, 16777216>) {
         let mut scratch = [0u8; 1024];
         let mut s = Settings::default();
         let mut loaded = false;
@@ -224,7 +224,7 @@ impl SettingsStore {
 
     /// Writes only sections that differ between `old` and `new` to flash.
     pub async fn save_changed<T: Instance>(
-        flash: &mut Flash<'_, T, Async, 2097152>,
+        flash: &mut Flash<'_, T, Async, 16777216>,
         old: &Settings,
         new: &Settings,
     ) {
@@ -322,7 +322,7 @@ pub async fn get_all_profiles_from_ram() -> heapless::Vec<(u8, BrewProfile), 10>
     list
 }
 
-pub async fn load_all_profiles_from_flash<T: Instance>(flash: &mut Flash<'_, T, Async, 2097152>) {
+pub async fn load_all_profiles_from_flash<T: Instance>(flash: &mut Flash<'_, T, Async, 16777216>) {
     let mut scratch = [0u8; 512];
     let mut cache = PROFILES_CACHE.lock().await;
 
@@ -353,7 +353,7 @@ pub async fn delete_profile_from_ram(slot: u8) {
 }
 
 pub async fn save_profile_to_flash<T: Instance>(
-    flash: &mut Flash<'_, T, Async, 2097152>,
+    flash: &mut Flash<'_, T, Async, 16777216>,
     slot: u8,
     profile: &BrewProfile,
 ) -> Result<(), ()> {
@@ -381,7 +381,7 @@ pub async fn save_profile_to_flash<T: Instance>(
 }
 
 pub async fn delete_profile_from_flash<T: Instance>(
-    flash: &mut Flash<'_, T, Async, 2097152>,
+    flash: &mut Flash<'_, T, Async, 16777216>,
     slot: u8,
 ) -> Result<(), ()> {
     if slot >= MAX_PROFILES {

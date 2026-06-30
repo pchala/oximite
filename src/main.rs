@@ -23,7 +23,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _, rp2040_boot2 as _};
+use {defmt_rtt as _, panic_probe as _};
 
 use crate::leds::Rgb;
 use crate::settings::{Settings, SettingsStore};
@@ -116,7 +116,7 @@ async fn led_update_task() {
 // ==========================================
 #[embassy_executor::task]
 async fn flash_update_task(
-    mut flash: Flash<'static, embassy_rp::peripherals::FLASH, embassy_rp::flash::Async, 2097152>,
+    mut flash: Flash<'static, embassy_rp::peripherals::FLASH, embassy_rp::flash::Async, 16777216>,
 ) {
     loop {
         let event = SIG_FLASH_UPDATE.wait().await;
@@ -418,8 +418,15 @@ async fn main(spawner: Spawner) {
             };
         }
         init_pins_low!(p_steal; PIN_1, PIN_4, PIN_11, PIN_12, PIN_13, PIN_14, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_22, PIN_28);
+        // GP26-27 share the A0-A1 analog nets — keep as HiZ so they don't load the ADC inputs
+        macro_rules! init_pins_hiz {
+            ($p:expr; $($pin:ident),*) => {
+                $(let _ = Input::new($p.$pin, Pull::None);)*
+            };
+        }
+        init_pins_hiz!(p_steal; PIN_26, PIN_27);
     }
-    let mut flash: Flash<'static, _, embassy_rp::flash::Async, 2097152> =
+    let mut flash: Flash<'static, _, embassy_rp::flash::Async, 16777216> =
         Flash::new(p.FLASH, p.DMA_CH1);
     SettingsStore::load(&mut flash).await;
     crate::settings::load_all_profiles_from_flash(&mut flash).await;
@@ -506,8 +513,10 @@ async fn main(spawner: Spawner) {
     leds::setup_ws2812_sm(&mut common0, &mut sm3, led_pin);
     spawner.spawn(leds::run_led_task(sm3)).unwrap();
 
-    let ch_press = embassy_rp::adc::Channel::new_pin(p.PIN_26, Pull::None);
-    let ch_temp = embassy_rp::adc::Channel::new_pin(p.PIN_27, Pull::None);
+    // A0 (GP40) = pressure sensor, A1 (GP41) = temperature sensor.
+    // GP26-28 are already held HiZ above — they share the same PCB nets as A0-A2.
+    let ch_press = embassy_rp::adc::Channel::new_pin(p.PIN_40, Pull::None);
+    let ch_temp = embassy_rp::adc::Channel::new_pin(p.PIN_41, Pull::None);
     let heater_output = Output::new(p.PIN_2, Level::Low);
     let valve_output = Output::new(p.PIN_3, Level::Low);
 

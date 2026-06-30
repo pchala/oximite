@@ -54,7 +54,7 @@ pub fn setup_ws2812_sm<P: Instance, const SM: usize>(
     let mut cfg = Config::default();
     cfg.use_program(&loaded, &[&pin]);
     cfg.set_out_pins(&[&pin]);
-    cfg.clock_divider = FixedU32::from_num(15.625);
+    cfg.clock_divider = FixedU32::from_num(150_000_000.0 / 8_000_000.0); // 18.75 → 8 MHz PIO clock for WS2812 timing
     cfg.shift_out.direction = ShiftDirection::Left;
     cfg.shift_out.auto_fill = false;
     cfg.fifo_join = FifoJoin::TxOnly;

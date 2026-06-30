@@ -324,7 +324,7 @@ pub fn setup_trigger_sm(
     cfg.use_program(&loaded, &[]);
     cfg.set_in_pins(&[zc_pin]);
     cfg.set_jmp_pin(zc_pin);
-    cfg.clock_divider = FixedU32::from_num(125_000_000.0 / 2_000_000.0);
+    cfg.clock_divider = FixedU32::from_num(150_000_000.0 / 2_000_000.0);
     sm.set_config(&cfg);
     sm.set_pin_dirs(Direction::In, &[zc_pin]);
     sm.set_enable(true);
@@ -354,7 +354,7 @@ pub fn setup_triac_sm(
     cfg.set_set_pins(&[triac_pin]);
     cfg.set_out_pins(&[triac_pin]);
     cfg.set_in_pins(&[zc_pin]);
-    cfg.clock_divider = FixedU32::from_num(125_000_000.0 / 1_000_000.0);
+    cfg.clock_divider = FixedU32::from_num(150_000_000.0 / 1_000_000.0);
     sm.set_config(&cfg);
     sm.set_pin_dirs(Direction::Out, &[triac_pin]);
     sm.set_enable(true);
@@ -372,8 +372,18 @@ pub async fn adc_task(
     let mut ticker = embassy_time::Ticker::every(Duration::from_hz(500));
 
     loop {
-        let raw_p = adc.read(&mut ch_p).await.unwrap_or(0) as f32;
-        let raw_t = adc.read(&mut ch_t).await.unwrap_or(0) as f32;
+        // Sample each channel 4 times; discard the first 3 to allow the ADC sample-and-hold
+        // capacitor to fully charge through the 1k series resistor on the analog lines.
+        let mut raw_p = 0u16;
+        for _ in 0..4 {
+            raw_p = adc.read(&mut ch_p).await.unwrap_or(0);
+        }
+        let mut raw_t = 0u16;
+        for _ in 0..4 {
+            raw_t = adc.read(&mut ch_t).await.unwrap_or(0);
+        }
+        let raw_p = raw_p as f32;
+        let raw_t = raw_t as f32;
 
         if !initialized {
             p_ema = raw_p;
