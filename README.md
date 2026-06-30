@@ -2,9 +2,11 @@
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/J5E121FXSB)
 
-**oximite** is a high-performance, asynchronous Rust firmware for the Raspberry Pi Pico W, designed to retrofit standard espresso machines (such as the Gaggia Classic or Rancilio Silvia) with advanced digital controls.
+**oximite** is a high-performance, asynchronous Rust firmware for the [Pimoroni Pico Plus 2 W](https://shop.pimoroni.com/products/pimoroni-pico-plus-2-w), designed to retrofit standard espresso machines (such as the Gaggia Classic or Rancilio Silvia) with advanced digital controls.
 
-By replacing the factory internals with oximite, machines gain capabilities typically found in commercial or prosumer equipment, including real-time pressure profiling, PID temperature control, volumetric dosing, and a web-based user interface natively hosted on the Pico W.
+By replacing the factory internals with oximite, machines gain capabilities typically found in commercial or prosumer equipment, including real-time pressure profiling, PID temperature control, volumetric dosing, and a web-based user interface natively hosted on the Pico Plus 2 W.
+
+> **Hardware kindly sponsored and provided by [Pimoroni](https://pimoroni.com). Thank you! 🎉**
 
 Support the continued development of this open-source project by [leaving a tip on Ko-fi](https://ko-fi.com/J5E121FXSB). Contributions help accelerate the implementation of new features.
 
@@ -19,7 +21,7 @@ Support the continued development of this open-source project by [leaving a tip 
 
 ## Architecture
 
-The firmware is written in Rust and utilizes the `embassy-rp` asynchronous framework to distribute workloads across the RP2040's dual cores:
+The firmware is written in Rust and utilizes the `embassy-rp` asynchronous framework to distribute workloads across the RP2350's dual cores:
 
 *   **Core 0 (I/O & Control):** Handles hard-real-time I/O tasks. It runs PIO state machines for zero-cross detection, triac firing, flow meter pulse counting, hardware ADC sampling, and acts as the main state coordinator.
 *   **Core 1 (Networking):** Dedicated to the CYW43 Wi-Fi driver, the TCP/IP networking stack, and serving the embedded HTTP Web Server.
