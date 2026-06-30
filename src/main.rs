@@ -457,12 +457,26 @@ async fn main(spawner: Spawner) {
         (pwr, spi)
     };
 
+    let vtor = unsafe { (*cortex_m::peripheral::SCB::PTR).vtor.read() };
+
+    // Move PIO1_IRQ_0 and DMA_IRQ_0 from core0 to core1
+    cortex_m::peripheral::NVIC::mask(embassy_rp::interrupt::Interrupt::PIO1_IRQ_0);
+    cortex_m::peripheral::NVIC::mask(embassy_rp::interrupt::Interrupt::DMA_IRQ_0);
+
     defmt::info!("Spawning Core 1...");
     spawn_core1(
         p.CORE1,
         unsafe { &mut *addr_of_mut!(CORE1_STACK) },
         move || {
+            unsafe {
+                (*cortex_m::peripheral::SCB::PTR).vtor.write(vtor);
+                cortex_m::asm::dsb();
+                cortex_m::asm::isb();
+                cortex_m::peripheral::NVIC::unmask(embassy_rp::interrupt::Interrupt::PIO1_IRQ_0);
+                cortex_m::peripheral::NVIC::unmask(embassy_rp::interrupt::Interrupt::DMA_IRQ_0);
+            }
             defmt::info!("Core 1: Starting...");
+
             let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
             executor.run(|spawner| {
                 defmt::info!("Core 1: Spawning wifi_init_task");
