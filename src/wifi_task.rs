@@ -496,11 +496,21 @@ pub async fn setup_wifi(
             {
                 Ok(_) => {
                     defmt::info!("Wi-Fi: Connected to SSID");
-                    loop {
-                        if !stack.is_link_up() {
+                    let mut link_up = false;
+                    for _ in 0..50 {
+                        if stack.is_link_up() {
+                            link_up = true;
                             break;
                         }
-                        Timer::after(Duration::from_millis(500)).await;
+                        Timer::after(Duration::from_millis(100)).await;
+                    }
+                    if link_up {
+                        loop {
+                            if !stack.is_link_up() {
+                                break;
+                            }
+                            Timer::after(Duration::from_millis(500)).await;
+                        }
                     }
                 }
                 Err(_) => {
