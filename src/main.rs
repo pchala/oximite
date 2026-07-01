@@ -26,20 +26,19 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _, rp2040_boot2 as _};
 
 use crate::leds::Rgb;
-use crate::settings::SettingsManager;
+use crate::settings::{Settings, SettingsStore};
 use crate::state::{MachineCommand, MachineState, MACHINE_STATE, SIG_COMMAND};
 
 static mut CORE1_STACK: CoreStack<32768> = CoreStack::new();
 static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new();
 
-pub enum SystemEvent {
-    SaveSettings(SettingsManager),
+pub enum FlashUpdate {
+    SaveSettings(Settings),
     SaveProfile(u8),
     DeleteProfile(u8),
 }
 
-pub static SIG_SYSTEM_EVENT: Signal<CriticalSectionRawMutex, SystemEvent> = Signal::new();
-pub static SIG_WIFI_RECONFIG: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+pub static SIG_FLASH_UPDATE: Signal<CriticalSectionRawMutex, FlashUpdate> = Signal::new();
 
 bind_interrupts!(pub struct Irqs {
     PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO0>;
@@ -74,32 +73,36 @@ async fn led_update_task() {
         let a = control::AdcMonitor::new().get_state().await;
         let f = flow_meter::FlowMonitor::new().get_state().await;
 
-        // LED 1 (Temperature)
-        // Colder than set (Heating): Blue
-        // In Range (Ready): Solid White.
-        // Hotter than set (Over-temp): Red.
-        let l1 = if a.temp_c < a.target_temp - 1.0 {
-            Rgb::new(0, 0, 255) // Blue
+        let temp_color = if a.temp_c < a.target_temp - 1.0 {
+            Rgb::new(0, 0, 255) // Blue  — heating
         } else if a.temp_c > a.target_temp + 1.0 {
-            Rgb::new(255, 0, 0) // Red
+            Rgb::new(255, 0, 0) // Red   — over-temp
         } else {
-            Rgb::new(0, 255, 0) // Green
+            Rgb::new(0, 255, 0) // Green — at target
         };
 
-        // LED 2 (Pressure & Flow)
-        let mut l2 = Rgb::off();
-
-        if (current_state == MachineState::Brewing) && (a.target_bar > 0.0) {
-            if (a.flow_limit_ml_s > 0.0) && (f.flow_rate_ml_s >= a.flow_limit_ml_s) {
-                l2 = Rgb::new(255, 128, 0); // Orange
-            } else if (a.pressure_bar - a.target_bar).abs() < 0.2 {
-                l2 = Rgb::new(0, 255, 0); // Green
-            } else if a.pressure_bar < a.target_bar {
-                l2 = Rgb::new(0, 0, 255); // Blue
-            } else {
-                l2 = Rgb::new(255, 0, 0); // Red
+        let (l1, l2) = if current_state == MachineState::Sleeping {
+            // Sleep indicator: magenta on LED1, LED2 off
+            (Rgb::new(255, 0, 255), Rgb::off())
+        } else if current_state == MachineState::Steaming {
+            // LED1 off, LED2 shows steam temperature progress
+            (Rgb::off(), temp_color)
+        } else {
+            // LED1 shows brew temperature, LED2 shows pressure/flow
+            let mut pressure_color = Rgb::off();
+            if current_state == MachineState::Brewing && a.target_bar > 0.0 {
+                if a.flow_limit_ml_s > 0.0 && f.flow_rate_ml_s >= a.flow_limit_ml_s {
+                    pressure_color = Rgb::new(255, 128, 0); // Orange — flow limit
+                } else if (a.pressure_bar - a.target_bar).abs() < 0.2 {
+                    pressure_color = Rgb::new(0, 255, 0); // Green  — on target
+                } else if a.pressure_bar < a.target_bar {
+                    pressure_color = Rgb::new(0, 0, 255); // Blue   — building
+                } else {
+                    pressure_color = Rgb::new(255, 0, 0); // Red    — over pressure
+                }
             }
-        }
+            (temp_color, pressure_color)
+        };
 
         leds::set_leds([l1, l2]).await;
 
@@ -112,22 +115,22 @@ async fn led_update_task() {
 // BACKGROUND FLASH EVENT HANDLER
 // ==========================================
 #[embassy_executor::task]
-async fn system_events_task(
+async fn flash_update_task(
     mut flash: Flash<'static, embassy_rp::peripherals::FLASH, embassy_rp::flash::Async, 2097152>,
 ) {
     loop {
-        let event = SIG_SYSTEM_EVENT.wait().await;
+        let event = SIG_FLASH_UPDATE.wait().await;
         match event {
-            SystemEvent::SaveSettings(old_s) => {
-                let new_s = SettingsManager::get().await;
-                SettingsManager::save_changes_to_flash(&mut flash, &old_s, &new_s).await;
+            FlashUpdate::SaveSettings(old_s) => {
+                let new_s = Settings::get().await;
+                SettingsStore::save_changed(&mut flash, &old_s, &new_s).await;
             }
-            SystemEvent::SaveProfile(slot) => {
+            FlashUpdate::SaveProfile(slot) => {
                 if let Some(p) = crate::settings::get_profile_from_ram(slot).await {
                     let _ = crate::settings::save_profile_to_flash(&mut flash, slot, &p).await;
                 }
             }
-            SystemEvent::DeleteProfile(slot) => {
+            FlashUpdate::DeleteProfile(slot) => {
                 let _ = crate::settings::delete_profile_from_flash(&mut flash, slot).await;
             }
         }
@@ -138,7 +141,7 @@ async fn system_events_task(
 // CENTRAL STATE DICTATOR (The Coordinator)
 // ==========================================
 async fn transition_state(new_state: MachineState, target_mode: Option<control::TargetTempMode>) {
-    crate::flow_meter::FlowMonitor::new().reset_volume().await;
+    crate::flow_meter::FlowMonitor::new().reset_shot_volume();
     crate::state::set_state(new_state);
     control::SIG_PROFILE_ABORT.signal(());
     if let Some(m) = target_mode {
@@ -171,7 +174,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
         // Brew
         (MachineState::Idle, MachineCommand::Brew) => {
             transition_state(MachineState::Brewing, Some(control::TargetTempMode::Brew)).await;
-            let p = SettingsManager::get_default_profile().await;
+            let p = Settings::get_default_profile().await;
             control::SIG_HARDWARE_CMD.signal(control::HardwareCommand::RunProfile(p));
         }
         (MachineState::Idle, MachineCommand::RunProfile(p)) => {
@@ -182,7 +185,8 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
         // Flush
         (MachineState::Idle, MachineCommand::Flush) => {
             transition_state(MachineState::Pumping, Some(control::TargetTempMode::Brew)).await;
-            control::SIG_HARDWARE_CMD.signal(control::HardwareCommand::DirectPump(80.0));
+            control::SIG_HARDWARE_CMD
+                .signal(control::HardwareCommand::DirectPump(control::PUMP_POWER));
         }
         (MachineState::Steaming, MachineCommand::Flush) => {
             transition_state(MachineState::Cooling, Some(control::TargetTempMode::Brew)).await;
@@ -202,7 +206,11 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
 
         // Descale
         (MachineState::Idle, MachineCommand::Descale) => {
-            transition_state(MachineState::Descaling, None).await;
+            transition_state(
+                MachineState::Descaling,
+                Some(control::TargetTempMode::Descale),
+            )
+            .await;
             control::SIG_HARDWARE_CMD.signal(control::HardwareCommand::Descale);
         }
 
@@ -227,14 +235,9 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
 
         // Settings (valid in any state)
         (_, MachineCommand::SaveSettings(new_s)) => {
-            let old_s = SettingsManager::get().await;
-            let wifi_changed =
-                old_s.wifi.ssid != new_s.wifi.ssid || old_s.wifi.password != new_s.wifi.password;
-            SettingsManager::update_ram(new_s).await;
-            SIG_SYSTEM_EVENT.signal(SystemEvent::SaveSettings(old_s));
-            if wifi_changed {
-                SIG_WIFI_RECONFIG.signal(());
-            }
+            let old_s = Settings::get().await;
+            Settings::update_ram(new_s).await;
+            SIG_FLASH_UPDATE.signal(FlashUpdate::SaveSettings(old_s));
         }
 
         (state, cmd) => {
@@ -320,13 +323,38 @@ async fn run_cancellable<F: core::future::Future>(
     valve.set_low();
 }
 
+// Separated from the hardware loop so the loop stays readable.
+// pumped_ml must be captured synchronously before any await.
+async fn record_operation(is_descale: bool, pumped_ml: f32) {
+    let mut s = Settings::get().await;
+    let old_s = s.clone();
+
+    if is_descale {
+        s.usage.ml_at_last_descale = s.usage.total_ml_all_time;
+        defmt::info!(
+            "Stored ml_at_last_descale = {} after descale",
+            s.usage.ml_at_last_descale
+        );
+    } else {
+        s.usage.total_ml_all_time += pumped_ml;
+        if pumped_ml > 0.0 {
+            defmt::info!("Added {} ml to total usage", pumped_ml);
+        }
+    }
+
+    if s.usage != old_s.usage {
+        Settings::update_ram(s).await;
+        SIG_FLASH_UPDATE.signal(FlashUpdate::SaveSettings(old_s));
+    }
+}
+
 #[embassy_executor::task]
 async fn hardware_task(mut valve: Output<'static>) {
     loop {
         let cmd = control::SIG_HARDWARE_CMD.wait().await;
         defmt::info!("Hardware task received command");
 
-        let mut is_descale = false;
+        let is_descale = matches!(cmd, control::HardwareCommand::Descale);
 
         match cmd {
             control::HardwareCommand::RunProfile(p) => {
@@ -338,9 +366,8 @@ async fn hardware_task(mut valve: Output<'static>) {
                 run_cancellable(&mut valve, false, "Steam", control::execute_steam()).await;
             }
             control::HardwareCommand::Descale => {
-                is_descale = true;
                 defmt::info!("Hardware: Starting descale");
-                run_cancellable(&mut valve, true, "Descale", control::execute_descale()).await;
+                run_cancellable(&mut valve, false, "Descale", control::execute_descale()).await;
             }
             control::HardwareCommand::CooldownFlush => {
                 defmt::info!("Hardware: Starting cooldown flush");
@@ -364,30 +391,14 @@ async fn hardware_task(mut valve: Output<'static>) {
             }
         }
 
-        let mut s = SettingsManager::get().await;
-        let old_s = s.clone();
+        // Capture shot volume synchronously — no await, no yield — before the coordinator
+        // can process a new command and call transition_state() → reset_shot_volume().
+        let pumped_ml = crate::flow_meter::FLOW_WATCH
+            .try_get()
+            .unwrap_or_default()
+            .shot_volume_ml;
 
-        if is_descale {
-            s.usage.ml_at_last_descale = s.usage.total_ml_all_time;
-            defmt::info!(
-                "Stored ml_at_last_descale = {} after descale",
-                s.usage.ml_at_last_descale
-            );
-        } else {
-            let pumped_ml = crate::flow_meter::FlowMonitor::new()
-                .get_state()
-                .await
-                .total_volume_ml;
-            s.usage.total_ml_all_time += pumped_ml;
-            if pumped_ml > 0.0 {
-                defmt::info!("Added {} ml to total usage", pumped_ml);
-            }
-        }
-
-        if s.usage != old_s.usage {
-            SettingsManager::update_ram(s).await;
-            SIG_SYSTEM_EVENT.signal(SystemEvent::SaveSettings(old_s));
-        }
+        record_operation(is_descale, pumped_ml).await;
     }
 }
 
@@ -410,8 +421,18 @@ async fn main(spawner: Spawner) {
     }
     let mut flash: Flash<'static, _, embassy_rp::flash::Async, 2097152> =
         Flash::new(p.FLASH, p.DMA_CH1);
-    SettingsManager::load_from_flash(&mut flash).await;
+    SettingsStore::load(&mut flash).await;
     crate::settings::load_all_profiles_from_flash(&mut flash).await;
+
+    // Safe-boot fallback: if the 'flush' button (PIN 8) is held during boot, force AP mode.
+    let mut force_ap = false;
+    {
+        let btn_flush = Input::new(unsafe { embassy_rp::Peripherals::steal().PIN_8 }, Pull::Up);
+        if btn_flush.is_low() {
+            defmt::warn!("Hardware override: Forcing AP mode!");
+            force_ap = true;
+        }
+    }
 
     let embassy_rp::pio::Pio {
         common: mut common1,
@@ -436,16 +457,32 @@ async fn main(spawner: Spawner) {
         (pwr, spi)
     };
 
+    let vtor = unsafe { (*cortex_m::peripheral::SCB::PTR).vtor.read() };
+
+    // Move PIO1_IRQ_0 and DMA_IRQ_0 from core0 to core1
+    cortex_m::peripheral::NVIC::mask(embassy_rp::interrupt::Interrupt::PIO1_IRQ_0);
+    cortex_m::peripheral::NVIC::mask(embassy_rp::interrupt::Interrupt::DMA_IRQ_0);
+
     defmt::info!("Spawning Core 1...");
     spawn_core1(
         p.CORE1,
         unsafe { &mut *addr_of_mut!(CORE1_STACK) },
         move || {
+            unsafe {
+                (*cortex_m::peripheral::SCB::PTR).vtor.write(vtor);
+                cortex_m::asm::dsb();
+                cortex_m::asm::isb();
+                cortex_m::peripheral::NVIC::unmask(embassy_rp::interrupt::Interrupt::PIO1_IRQ_0);
+                cortex_m::peripheral::NVIC::unmask(embassy_rp::interrupt::Interrupt::DMA_IRQ_0);
+            }
             defmt::info!("Core 1: Starting...");
+
             let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
             executor.run(|spawner| {
                 defmt::info!("Core 1: Spawning wifi_init_task");
-                spawner.spawn(wifi_init_task(spawner, pwr, spi)).unwrap();
+                spawner
+                    .spawn(wifi_init_task(spawner, pwr, spi, force_ap))
+                    .unwrap();
             })
         },
     );
@@ -500,7 +537,7 @@ async fn main(spawner: Spawner) {
 
     // Spawn the decoupled architectural tasks
     spawner.spawn(led_update_task()).unwrap();
-    spawner.spawn(system_events_task(flash)).unwrap();
+    spawner.spawn(flash_update_task(flash)).unwrap();
     spawner.spawn(coordinator_task()).unwrap();
     spawner.spawn(hardware_task(valve_output)).unwrap();
 }
@@ -510,7 +547,8 @@ async fn wifi_init_task(
     spawner: Spawner,
     pwr: Output<'static>,
     spi: cyw43_pio::PioSpi<'static, PIO1, 0, embassy_rp::peripherals::DMA_CH0>,
+    force_ap: bool,
 ) {
     defmt::info!("Wifi: init task started");
-    wifi_task::setup_wifi(spawner, pwr, spi).await;
+    wifi_task::setup_wifi(spawner, pwr, spi, force_ap).await;
 }

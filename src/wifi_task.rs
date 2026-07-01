@@ -12,10 +12,10 @@ use static_cell::StaticCell;
 use crate::control::AdcMonitor;
 use crate::flow_meter::FlowMonitor;
 use crate::settings::{
-    BrewProfile, HardwareSettings, MachineSettings, PidSettings, SettingsManager, WifiSettings,
+    BrewProfile, HardwareSettings, MachineSettings, PidSettings, Settings, WifiSettings,
 };
 use crate::state::{get_state, MachineCommand, MachineState, SIG_COMMAND};
-use crate::{SystemEvent, SIG_SYSTEM_EVENT, SIG_WIFI_RECONFIG};
+use crate::{FlashUpdate, SIG_FLASH_UPDATE};
 
 static INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 
@@ -49,6 +49,9 @@ struct ProfileHeader<'a> {
     name: &'a str,
 }
 
+const JSON_OK_HEADER: &str =
+    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+
 async fn handle_api_command(payload: ApiCommand<'_>) {
     match payload.cmd {
         "power" => SIG_COMMAND.signal(MachineCommand::TogglePower),
@@ -64,7 +67,7 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
             }
         }
         "save_settings" => {
-            let mut s = crate::settings::SettingsManager::get().await;
+            let mut s = Settings::get().await;
             if let Some(m) = payload.machine {
                 s.machine = m;
             }
@@ -98,13 +101,13 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
         "save_profile" => {
             if let (Some(slot), Some(p)) = (payload.slot, payload.profile) {
                 crate::settings::save_profile_to_ram(slot, p).await;
-                SIG_SYSTEM_EVENT.signal(SystemEvent::SaveProfile(slot));
+                SIG_FLASH_UPDATE.signal(FlashUpdate::SaveProfile(slot));
             }
         }
         "delete_profile" => {
             if let Some(slot) = payload.slot {
                 crate::settings::delete_profile_from_ram(slot).await;
-                SIG_SYSTEM_EVENT.signal(SystemEvent::DeleteProfile(slot));
+                SIG_FLASH_UPDATE.signal(FlashUpdate::DeleteProfile(slot));
             }
         }
         _ => {
@@ -117,16 +120,10 @@ async fn get_telemetry_json() -> heapless::String<256> {
     let a = AdcMonitor::new().get_state().await;
     let f = FlowMonitor::new().get_state().await;
     let st_val = get_state();
-    let s = crate::settings::SettingsManager::get().await;
+    let s = Settings::get().await;
 
-    let mut disp_t = a.temp_c;
-    let mut disp_tt = a.target_temp;
-    if st_val != MachineState::Steaming {
-        disp_t -= s.hardware.temp_offset;
-        if disp_tt > 0.0 {
-            disp_tt -= s.hardware.temp_offset;
-        }
-    }
+    let (disp_t, disp_tt) =
+        a.display_temps(s.hardware.temp_offset, st_val == MachineState::Steaming);
 
     let data = TelemetryData {
         t: disp_t,
@@ -134,7 +131,7 @@ async fn get_telemetry_json() -> heapless::String<256> {
         p: a.pressure_bar,
         tp: a.target_bar,
         fl: f.flow_rate_ml_s,
-        vol: f.total_volume_ml,
+        vol: f.shot_volume_ml,
         st: st_val as u32,
     };
 
@@ -159,15 +156,10 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
             continue;
         }
 
-        // let remote_endpoint = socket.remote_endpoint();
-        // defmt::info!("HTTP: Accepted connection from {}", remote_endpoint);
-
         let mut buf = [0u8; 4096];
         if let Ok(n) = socket.read(&mut buf).await {
             if n > 0 {
                 let request = from_utf8(&buf[..n]).unwrap_or("");
-                // let first_line = request.lines().next().unwrap_or("");
-                // defmt::info!("HTTP Request: {}", first_line);
 
                 if request.starts_with("GET / ") || request.starts_with("GET /index.html") {
                     let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Encoding: gzip\r\nConnection: close\r\n\r\n";
@@ -177,15 +169,15 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                     let json_str = get_telemetry_json().await;
                     if !json_str.is_empty() {
                         let mut resp = heapless::String::<512>::new();
-                        let _ = resp.push_str("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n");
+                        let _ = resp.push_str(JSON_OK_HEADER);
                         let _ = resp.push_str(json_str.as_str());
                         let _ = socket.write_all(resp.as_bytes()).await;
                     }
                 } else if request.starts_with("GET /api/settings") {
-                    let s = crate::settings::SettingsManager::get().await;
+                    let s = Settings::get().await;
                     if let Ok(json_str) = serde_json_core::to_string::<_, 1024>(&s) {
                         let mut resp = heapless::String::<2048>::new();
-                        let _ = resp.push_str("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n");
+                        let _ = resp.push_str(JSON_OK_HEADER);
                         let _ = resp.push_str(json_str.as_str());
                         let _ = socket.write_all(resp.as_bytes()).await;
                     }
@@ -200,26 +192,25 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                     }
 
                     let mut resp_buf = [0u8; 2048];
-                    let header = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
-                    resp_buf[..header.len()].copy_from_slice(header);
-                    if let Ok(len) =
-                        serde_json_core::to_slice(&headers, &mut resp_buf[header.len()..])
+                    let hdr = JSON_OK_HEADER.as_bytes();
+                    resp_buf[..hdr.len()].copy_from_slice(hdr);
+                    if let Ok(len) = serde_json_core::to_slice(&headers, &mut resp_buf[hdr.len()..])
                     {
-                        let _ = socket.write_all(&resp_buf[..header.len() + len]).await;
+                        let _ = socket.write_all(&resp_buf[..hdr.len() + len]).await;
                     }
                 } else if request.starts_with("GET /api/profile/") {
                     if let Some(s_idx) = request.find("/api/profile/") {
-                        let sub = &request[s_idx + 13..];
+                        let sub = &request[s_idx + "/api/profile/".len()..];
                         let end = sub.find(' ').unwrap_or(sub.len());
                         if let Ok(slot) = sub[..end].parse::<u8>() {
                             if let Some(p) = crate::settings::get_profile_from_ram(slot).await {
                                 let mut resp_buf = [0u8; 2048];
-                                let header = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
-                                resp_buf[..header.len()].copy_from_slice(header);
+                                let hdr = JSON_OK_HEADER.as_bytes();
+                                resp_buf[..hdr.len()].copy_from_slice(hdr);
                                 if let Ok(len) =
-                                    serde_json_core::to_slice(&p, &mut resp_buf[header.len()..])
+                                    serde_json_core::to_slice(&p, &mut resp_buf[hdr.len()..])
                                 {
-                                    let _ = socket.write_all(&resp_buf[..header.len() + len]).await;
+                                    let _ = socket.write_all(&resp_buf[..hdr.len() + len]).await;
                                 }
                             }
                         }
@@ -227,7 +218,6 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                 } else if request.starts_with("POST /api/cmd") {
                     if let Some(body_start) = request.find("\r\n\r\n") {
                         let json_body = &request[(body_start + 4)..];
-                        defmt::info!("API POST Body: {}", json_body);
                         if let Ok((payload, _)) = serde_json_core::from_str::<ApiCommand>(json_body)
                         {
                             defmt::info!("API Command Received: {}", payload.cmd);
@@ -372,13 +362,20 @@ pub async fn dhcp_server_task(stack: &'static embassy_net::Stack<'static>) {
             let mut msg_type = 0;
 
             let mut opt_ptr = 240;
-            while opt_ptr < n - 2 {
+            while opt_ptr < n {
                 let code = buf[opt_ptr];
                 if code == 255 {
                     break;
                 }
+                if code == 0 {
+                    opt_ptr += 1;
+                    continue;
+                }
+                if opt_ptr + 1 >= n {
+                    break;
+                }
                 let len = buf[opt_ptr + 1] as usize;
-                if code == 53 && len == 1 {
+                if code == 53 && len == 1 && opt_ptr + 2 < n {
                     msg_type = buf[opt_ptr + 2];
                 }
                 opt_ptr += 2 + len;
@@ -433,6 +430,7 @@ pub async fn setup_wifi(
     spawner: Spawner,
     pwr: Output<'static>,
     spi: cyw43_pio::PioSpi<'static, PIO1, 0, DMA_CH0>,
+    force_ap: bool,
 ) {
     defmt::info!("Wifi: setup_wifi started");
     // Firmware moved to reserved flash addresses to reduce binary size
@@ -467,111 +465,60 @@ pub async fn setup_wifi(
     spawner.spawn(wifi_server_task(stack)).unwrap();
     spawner.spawn(tcp_telemetry_task(stack)).unwrap();
 
-    let mut cold_start = true;
+    let settings = Settings::get().await;
+    let is_ap = force_ap || settings.wifi.ssid.is_empty();
 
-    loop {
-        let settings = SettingsManager::get().await;
-        let mut success = false;
+    if is_ap {
+        defmt::info!("Wi-Fi: Booting strictly in AP Mode");
+        stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
+            address: embassy_net::Ipv4Cidr::new(embassy_net::Ipv4Address::new(192, 168, 4, 1), 24),
+            gateway: None,
+            dns_servers: Default::default(),
+        }));
+        let _ = spawner.spawn(dhcp_server_task(stack));
+        control.start_ap_wpa2("Oximite-Setup", "password", 6).await;
 
-        if !settings.wifi.ssid.is_empty() {
+        core::future::pending::<()>().await;
+    } else {
+        defmt::info!("Wi-Fi: Booting in Client Mode");
+
+        loop {
             defmt::info!(
                 "Wi-Fi: Attempting to connect to SSID: {}",
                 settings.wifi.ssid.as_str()
             );
-
-            for i in 0..10 {
-                match control
-                    .join(
-                        settings.wifi.ssid.as_str(),
-                        cyw43::JoinOptions::new(settings.wifi.password.as_bytes()),
-                    )
-                    .await
-                {
-                    Ok(_) => {
-                        defmt::info!("Wi-Fi: Successfully joined network, waiting for IP...");
-                        // Wait for DHCP
-                        for _ in 0..200 {
-                            // 20 seconds timeout
-                            if let Some(config) = stack.config_v4() {
-                                if !config.address.address().is_unspecified() {
-                                    defmt::info!(
-                                        "Wi-Fi: Connected! IP: {}",
-                                        config.address.address()
-                                    );
-                                    success = true;
-                                    break;
-                                }
-                            }
-                            Timer::after(Duration::from_millis(100)).await;
-                        }
-                        if success {
+            match control
+                .join(
+                    settings.wifi.ssid.as_str(),
+                    cyw43::JoinOptions::new(settings.wifi.password.as_bytes()),
+                )
+                .await
+            {
+                Ok(_) => {
+                    defmt::info!("Wi-Fi: Connected to SSID");
+                    let mut link_up = false;
+                    for _ in 0..50 {
+                        if stack.is_link_up() {
+                            link_up = true;
                             break;
-                        } else {
-                            defmt::warn!("Wi-Fi: DHCP timeout (no IP assigned)");
-                            let _ = control.leave().await;
+                        }
+                        Timer::after(Duration::from_millis(100)).await;
+                    }
+                    if link_up {
+                        loop {
+                            if !stack.is_link_up() {
+                                break;
+                            }
+                            Timer::after(Duration::from_millis(500)).await;
                         }
                     }
-                    Err(_e) => {
-                        defmt::warn!("Wi-Fi: Join failed (attempt {}/10)", i + 1);
-                        Timer::after(Duration::from_secs(2)).await;
-                    }
                 }
-            }
-        } else {
-            defmt::info!("Wi-Fi: No SSID configured.");
-        }
-
-        if !success && cold_start {
-            defmt::info!("Wi-Fi: Cold start failed. Entering AP mode 'Oximite-Setup'...");
-            stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
-                address: embassy_net::Ipv4Cidr::new(
-                    embassy_net::Ipv4Address::new(192, 168, 4, 1),
-                    24,
-                ),
-                gateway: None,
-                dns_servers: Default::default(),
-            }));
-
-            let _ = spawner.spawn(dhcp_server_task(stack));
-            control.start_ap_wpa2("Oximite-Setup", "password", 6).await;
-            defmt::info!("Wi-Fi: AP Mode active at 192.168.4.1. Waiting for reconfiguration...");
-
-            loop {
-                if let Some(()) = SIG_WIFI_RECONFIG.try_take() {
-                    break;
+                Err(_) => {
+                    defmt::warn!("Wi-Fi: Join failed, retrying in 5s...");
+                    Timer::after(Duration::from_secs(5)).await;
                 }
-                Timer::after(Duration::from_millis(500)).await;
-            }
-
-            defmt::info!("Wi-Fi: Reconfiguration signal received. Rebooting to apply changes...");
-            Timer::after(Duration::from_secs(2)).await; // Ensure settings are saved to flash
-            cortex_m::peripheral::SCB::sys_reset();
-        } else if !success {
-            defmt::info!("Wi-Fi: Reconnection failed. Retrying in 10s...");
-            for _ in 0..20 {
-                if let Some(()) = SIG_WIFI_RECONFIG.try_take() {
-                    defmt::info!("Wi-Fi: Reconfiguration requested. Rebooting...");
-                    Timer::after(Duration::from_secs(2)).await;
-                    cortex_m::peripheral::SCB::sys_reset();
-                }
-                Timer::after(Duration::from_millis(500)).await;
-            }
-        } else {
-            cold_start = false;
-            defmt::info!("Wi-Fi: Connected and Stable.");
-            loop {
-                if let Some(()) = SIG_WIFI_RECONFIG.try_take() {
-                    defmt::info!("Wi-Fi: Reconfiguration requested. Rebooting...");
-                    Timer::after(Duration::from_secs(2)).await;
-                    cortex_m::peripheral::SCB::sys_reset();
-                }
-
-                if !stack.is_link_up() {
-                    defmt::warn!("Wi-Fi: Link down! Reconnecting...");
-                    break;
-                }
-                Timer::after(Duration::from_millis(500)).await;
             }
         }
     }
+    defmt::error!("Wi-Fi: Logic task exited unexpectedly!");
 }

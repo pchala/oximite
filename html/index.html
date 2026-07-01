@@ -46,18 +46,13 @@
                 <div class="stat-box"><span class="stat-label">Flow Rate</span><span id="val-fl">0.0</span> ml/s</div>
                 <div class="stat-box"><span class="stat-label">Volume</span><span id="val-vol">0.0</span> ml</div>
                 <div class="stat-box"><span class="stat-label">Time</span><span id="val-time">0.0</span> s</div>
-                <div class="stat-box" style="padding: 10px; display: flex; flex-direction: column; justify-content: center;">
-                    <div style="margin-bottom: 4px; line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Since Descale</span><span id="val-descale-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">ml</span></div>
-                    <div style="line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Total</span><span id="val-total-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">ml</span></div>
-                </div>
             </div>
-            <div class="grid-2">
-                <button class="success" onclick="sendCommand('brew')">START BREW</button>
-                <button class="danger" onclick="sendCommand('stop')">STOP</button>
-                <button onclick="sendCommand('flush')">FLUSH</button>
-                <button onclick="sendCommand('steam')">STEAM MODE</button>
-                <button onclick="sendCommand('descale')">DESCALE</button>
+            <div class="grid-3" style="margin-bottom: 10px;">
+                <button onclick="sendCommand('steam')" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">STEAM</button>
+                <button onclick="sendCommand('flush')" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">FLUSH</button>
+                <button class="success" onclick="sendCommand('brew')" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">BREW</button>
             </div>
+            <button class="danger" onclick="sendCommand('stop')" style="width: 100%; padding: 15px; font-size: 1.2em;">STOP</button>
             <div class="grid-2" style="margin-top: 10px;">
                 <input type="number" id="direct-pump-val" placeholder="Pump Power %" min="0" max="100" step="1">
                 <button onclick="sendCommand('direct_pump', { power: parseFloat(document.getElementById('direct-pump-val').value) })">DIRECT PUMP</button>
@@ -65,11 +60,10 @@
         </div>
         
         <div class="panel">
-            <h2>Extraction Graph</h2><canvas id="telemetryChart"></canvas>
+            <canvas id="telemetryChart"></canvas>
         </div>
         
         <div class="panel">
-            <h2>Saved Profiles</h2>
             <table style="margin-bottom: 0;">
                 <thead><tr><th>Slot</th><th>Name</th><th style="text-align: right;">Actions</th></tr></thead>
                 <tbody id="saved-profiles-body"></tbody>
@@ -77,7 +71,6 @@
         </div>
 
         <div class="panel" id="profile-editor">
-            <h2>Profile Editor</h2>
             <div class="grid-2">
                 <div>
                     <label>Target Slot</label>
@@ -105,26 +98,28 @@
 
     <div id="tab-settings" class="tab-content">
         <div class="panel">
-            <h2>Machine Settings</h2>
-            <div class="grid-3">
+            
+            <h3>Temperature & Steam</h3>
+            <div class="grid-2">
                 <div><label>Brew Temp (°C)</label><input type="number" id="set-bt" value="92.0" step="0.5"></div>
                 <div><label>Steam Temp (°C)</label><input type="number" id="set-st" value="135.0" step="0.5"></div>
                 <div><label>Steam Limit (s)</label><input type="number" id="set-sl" value="120" step="1"></div>
                 <div><label>Steam Pressure (Bar)</label><input type="number" id="set-sp" value="1.5" step="0.1"></div>
             </div>
-        </div>
 
-        <div class="panel">
-            <h2>Hardware Settings</h2>
-            <div class="grid-3">
-                <div><label>Temp Offset (°C)</label><input type="number" id="set-to" value="-2.5" step="0.1"></div>
-                <div><label>Flow sensor (Edges/L)</label><input type="number" id="set-fepl" value="3850.0" step="1"></div>
+            <h3>Advanced Tuning</h3>
+            <div class="grid-2">
                 <div><label>Temp Feed Forward</label><input type="number" id="set-tff" value="35.0" step="0.1"></div>
                 <div><label>Flow PID Penalty</label><input type="number" id="set-fpp" value="20.0" step="0.1"></div>
             </div>
+
+            <h3>Sensor Calibration</h3>
+            <div class="grid-2">
+                <div><label>Temp Offset (°C)</label><input type="number" id="set-to" value="-2.5" step="0.1"></div>
+                <div><label>Flow sensor (Edges/L)</label><input type="number" id="set-fepl" value="3850.0" step="1"></div>
+            </div>
         </div>
         <div class="panel">
-            <h2>PID Settings</h2>
             <h3>PID: Temperature</h3>
             <div class="grid-3">
                 <div><label>Kp</label><input type="number" id="set-tkp" value="2.0" step="0.1"></div>
@@ -140,7 +135,16 @@
         </div>
 
         <div class="panel">
-            <h2>Network & Saving</h2>
+            <div class="grid-2">
+                <div class="stat-box" style="padding: 10px; display: flex; flex-direction: column; justify-content: center;">
+                    <div style="margin-bottom: 4px; line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Since Descale</span><span id="val-descale-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">L</span></div>
+                    <div style="line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Total</span><span id="val-total-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">L</span></div>
+                </div>
+                <button onclick="sendCommand('descale')">DESCALE</button>
+            </div>
+        </div>
+
+        <div class="panel">
             <h3>Wi-Fi Configuration</h3>
             <div class="grid-2">
                 <div><label>SSID</label><input type="text" id="set-ssid" placeholder="Network Name"></div>
@@ -292,10 +296,10 @@
                 let sinceDescale = totalAllTime - atLastDescale;
                 
                 const descaleEl = document.getElementById('val-descale-ml');
-                if (descaleEl) descaleEl.innerText = sinceDescale.toFixed(1);
+                if (descaleEl) descaleEl.innerText = (sinceDescale / 1000).toFixed(1);
                 
                 const totalEl = document.getElementById('val-total-ml');
-                if (totalEl) totalEl.innerText = totalAllTime.toFixed(1);
+                if (totalEl) totalEl.innerText = (totalAllTime / 1000).toFixed(1);
             }
         } catch (e) {}
     }

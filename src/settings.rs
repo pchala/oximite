@@ -57,8 +57,12 @@ pub struct UsageSettings {
     pub ml_at_last_descale: f32,
 }
 
+// ==========================================
+// DATA - Pure settings values
+// ==========================================
+
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
-pub struct SettingsManager {
+pub struct Settings {
     pub machine: MachineSettings,
     pub hardware: HardwareSettings,
     pub temp_pid: PidSettings,
@@ -67,78 +71,53 @@ pub struct SettingsManager {
     pub usage: UsageSettings,
 }
 
-impl Default for SettingsManager {
+/// Single source of truth for defaults — used by both `Default` and the static cache.
+const DEFAULT_SETTINGS: Settings = Settings {
+    machine: MachineSettings {
+        brew_temp: 92.0,
+        steam_temp: 135.0,
+        steam_time_limit_s: 120.0,
+        steam_pressure: 1.5,
+    },
+    hardware: HardwareSettings {
+        temp_offset: 8.0,
+        flow_edges_per_liter: 5200.0,
+        temp_feed_forward: 35.0,
+        flow_multiplier: 20.0,
+    },
+    temp_pid: PidSettings {
+        kp: 2.0,
+        ki: 0.01,
+        kd: 5.0,
+    },
+    press_pid: PidSettings {
+        kp: 2.0,
+        ki: 0.1,
+        kd: 0.5,
+    },
+    wifi: WifiSettings {
+        ssid: heapless::String::new(),
+        password: heapless::String::new(),
+    },
+    usage: UsageSettings {
+        total_ml_all_time: 0.0,
+        ml_at_last_descale: 0.0,
+    },
+};
+
+impl Default for Settings {
     fn default() -> Self {
-        Self {
-            machine: MachineSettings {
-                brew_temp: 92.0,
-                steam_temp: 135.0,
-                steam_time_limit_s: 120.0,
-                steam_pressure: 1.5,
-            },
-            hardware: HardwareSettings {
-                temp_offset: 8.0,
-                flow_edges_per_liter: 5200.0,
-                temp_feed_forward: 35.0,
-                flow_multiplier: 20.0,
-            },
-            temp_pid: PidSettings {
-                kp: 2.0,
-                ki: 0.01,
-                kd: 5.0,
-            },
-            press_pid: PidSettings {
-                kp: 2.0,
-                ki: 0.1,
-                kd: 0.5,
-            },
-            wifi: WifiSettings {
-                ssid: heapless::String::try_from("").unwrap(),
-                password: heapless::String::try_from("").unwrap(),
-            },
-            usage: UsageSettings {
-                total_ml_all_time: 0.0,
-                ml_at_last_descale: 0.0,
-            },
-        }
+        DEFAULT_SETTINGS
     }
 }
 
-static CURRENT_SETTINGS: Mutex<CriticalSectionRawMutex, SettingsManager> =
-    Mutex::new(SettingsManager {
-        machine: MachineSettings {
-            brew_temp: 92.0,
-            steam_temp: 135.0,
-            steam_time_limit_s: 120.0,
-            steam_pressure: 1.5,
-        },
-        hardware: HardwareSettings {
-            temp_offset: 8.0,
-            flow_edges_per_liter: 5200.0,
-            temp_feed_forward: 35.0,
-            flow_multiplier: 20.0,
-        },
-        temp_pid: PidSettings {
-            kp: 2.0,
-            ki: 0.01,
-            kd: 5.0,
-        },
-        press_pid: PidSettings {
-            kp: 2.0,
-            ki: 0.1,
-            kd: 0.5,
-        },
-        wifi: WifiSettings {
-            ssid: heapless::String::new(),
-            password: heapless::String::new(),
-        },
-        usage: UsageSettings {
-            total_ml_all_time: 0.0,
-            ml_at_last_descale: 0.0,
-        },
-    });
+// ==========================================
+// RAM CACHE - Live settings state
+// ==========================================
 
-impl SettingsManager {
+static CURRENT_SETTINGS: Mutex<CriticalSectionRawMutex, Settings> = Mutex::new(DEFAULT_SETTINGS);
+
+impl Settings {
     pub async fn get() -> Self {
         CURRENT_SETTINGS.lock().await.clone()
     }
@@ -147,209 +126,10 @@ impl SettingsManager {
         *CURRENT_SETTINGS.lock().await = new_settings;
     }
 
-    pub async fn load_from_flash<T: Instance>(flash: &mut Flash<'_, T, Async, 2097152>) {
-        let mut scratch = [0u8; 1024];
-        let mut loaded_settings = Self::default();
-        let mut anything_loaded = false;
-
-        if let Ok(Some(item_bytes)) = fetch_item(
-            flash,
-            FS_RANGE,
-            &mut NoCache::new(),
-            &mut scratch,
-            b"sys_machine",
-        )
-        .await
-        {
-            if let Ok((machine, _)) = serde_json_core::from_slice::<MachineSettings>(item_bytes) {
-                loaded_settings.machine = machine;
-                anything_loaded = true;
-            }
-        }
-        if let Ok(Some(item_bytes)) = fetch_item(
-            flash,
-            FS_RANGE,
-            &mut NoCache::new(),
-            &mut scratch,
-            b"sys_hardware",
-        )
-        .await
-        {
-            if let Ok((hardware, _)) = serde_json_core::from_slice::<HardwareSettings>(item_bytes) {
-                loaded_settings.hardware = hardware;
-                anything_loaded = true;
-            }
-        }
-        if let Ok(Some(item_bytes)) = fetch_item(
-            flash,
-            FS_RANGE,
-            &mut NoCache::new(),
-            &mut scratch,
-            b"sys_temp_pid",
-        )
-        .await
-        {
-            if let Ok((temp_pid, _)) = serde_json_core::from_slice::<PidSettings>(item_bytes) {
-                loaded_settings.temp_pid = temp_pid;
-                anything_loaded = true;
-            }
-        }
-        if let Ok(Some(item_bytes)) = fetch_item(
-            flash,
-            FS_RANGE,
-            &mut NoCache::new(),
-            &mut scratch,
-            b"sys_press_pid",
-        )
-        .await
-        {
-            if let Ok((press_pid, _)) = serde_json_core::from_slice::<PidSettings>(item_bytes) {
-                loaded_settings.press_pid = press_pid;
-                anything_loaded = true;
-            }
-        }
-        if let Ok(Some(item_bytes)) = fetch_item(
-            flash,
-            FS_RANGE,
-            &mut NoCache::new(),
-            &mut scratch,
-            b"sys_wifi",
-        )
-        .await
-        {
-            if let Ok((wifi, _)) = serde_json_core::from_slice::<WifiSettings>(item_bytes) {
-                loaded_settings.wifi = wifi;
-                anything_loaded = true;
-            }
-        }
-        if let Ok(Some(item_bytes)) = fetch_item(
-            flash,
-            FS_RANGE,
-            &mut NoCache::new(),
-            &mut scratch,
-            b"sys_usage",
-        )
-        .await
-        {
-            if let Ok((usage, _)) = serde_json_core::from_slice::<UsageSettings>(item_bytes) {
-                loaded_settings.usage = usage;
-                anything_loaded = true;
-            }
-        }
-
-        if anything_loaded {
-            defmt::info!("Settings loaded from FS.");
-        } else {
-            defmt::info!("No settings found in flash. Using defaults.");
-        }
-        Self::update_ram(loaded_settings).await;
-    }
-
-    pub async fn save_changes_to_flash<T: Instance>(
-        flash: &mut Flash<'_, T, Async, 2097152>,
-        old_settings: &Self,
-        new_settings: &Self,
-    ) {
-        let mut scratch = [0u8; 1024];
-        let mut data = [0u8; 1024];
-        let mut saved_anything = false;
-
-        if old_settings.machine != new_settings.machine {
-            if let Ok(len) = serde_json_core::to_slice(&new_settings.machine, &mut data) {
-                let _ = store_item(
-                    flash,
-                    FS_RANGE,
-                    &mut NoCache::new(),
-                    &mut scratch,
-                    b"sys_machine",
-                    &&data[..len],
-                )
-                .await;
-                saved_anything = true;
-            }
-        }
-        if old_settings.hardware != new_settings.hardware {
-            if let Ok(len) = serde_json_core::to_slice(&new_settings.hardware, &mut data) {
-                let _ = store_item(
-                    flash,
-                    FS_RANGE,
-                    &mut NoCache::new(),
-                    &mut scratch,
-                    b"sys_hardware",
-                    &&data[..len],
-                )
-                .await;
-                saved_anything = true;
-            }
-        }
-        if old_settings.temp_pid != new_settings.temp_pid {
-            if let Ok(len) = serde_json_core::to_slice(&new_settings.temp_pid, &mut data) {
-                let _ = store_item(
-                    flash,
-                    FS_RANGE,
-                    &mut NoCache::new(),
-                    &mut scratch,
-                    b"sys_temp_pid",
-                    &&data[..len],
-                )
-                .await;
-                saved_anything = true;
-            }
-        }
-        if old_settings.press_pid != new_settings.press_pid {
-            if let Ok(len) = serde_json_core::to_slice(&new_settings.press_pid, &mut data) {
-                let _ = store_item(
-                    flash,
-                    FS_RANGE,
-                    &mut NoCache::new(),
-                    &mut scratch,
-                    b"sys_press_pid",
-                    &&data[..len],
-                )
-                .await;
-                saved_anything = true;
-            }
-        }
-        if old_settings.wifi != new_settings.wifi {
-            if let Ok(len) = serde_json_core::to_slice(&new_settings.wifi, &mut data) {
-                let _ = store_item(
-                    flash,
-                    FS_RANGE,
-                    &mut NoCache::new(),
-                    &mut scratch,
-                    b"sys_wifi",
-                    &&data[..len],
-                )
-                .await;
-                saved_anything = true;
-            }
-        }
-        if old_settings.usage != new_settings.usage {
-            if let Ok(len) = serde_json_core::to_slice(&new_settings.usage, &mut data) {
-                let _ = store_item(
-                    flash,
-                    FS_RANGE,
-                    &mut NoCache::new(),
-                    &mut scratch,
-                    b"sys_usage",
-                    &&data[..len],
-                )
-                .await;
-                saved_anything = true;
-            }
-        }
-        if saved_anything {
-            defmt::info!("Settings changes saved to FS.");
-        }
-    }
-
     pub async fn get_default_profile() -> BrewProfile {
-        // Try to load Slot 0 first. If it exists, this is our default!
         if let Some(profile) = get_profile_from_ram(0).await {
             return profile;
         }
-
-        // Fallback: If Slot 0 is empty, return a safe standard profile
         let mut p = BrewProfile {
             name: heapless::String::try_from("Standard").unwrap(),
             steps: heapless::Vec::new(),
@@ -365,11 +145,164 @@ impl SettingsManager {
 }
 
 // ==========================================
+// FLASH PERSISTENCE - Load/save settings
+// ==========================================
+
+/// Fetches one settings section from flash, returning `None` if absent or corrupt.
+macro_rules! load_section {
+    ($flash:expr, $scratch:expr, $key:expr, $type:ty) => {{
+        match fetch_item($flash, FS_RANGE, &mut NoCache::new(), $scratch, $key).await {
+            Ok(Some(bytes)) => serde_json_core::from_slice::<$type>(bytes)
+                .ok()
+                .map(|(v, _)| v),
+            _ => None,
+        }
+    }};
+}
+
+/// Serialises and stores a section only when the value has changed.
+macro_rules! save_if_changed {
+    ($flash:expr, $scratch:expr, $buf:expr, $old:expr, $new:expr, $key:expr, $changed:ident) => {
+        if $old != $new {
+            if let Ok(len) = serde_json_core::to_slice($new, &mut $buf) {
+                let _ = store_item(
+                    $flash,
+                    FS_RANGE,
+                    &mut NoCache::new(),
+                    $scratch,
+                    $key,
+                    &&$buf[..len],
+                )
+                .await;
+                $changed = true;
+            }
+        }
+    };
+}
+
+pub struct SettingsStore;
+
+impl SettingsStore {
+    /// Reads all settings sections from flash and populates the RAM cache.
+    pub async fn load<T: Instance>(flash: &mut Flash<'_, T, Async, 2097152>) {
+        let mut scratch = [0u8; 1024];
+        let mut s = Settings::default();
+        let mut loaded = false;
+
+        if let Some(v) = load_section!(flash, &mut scratch, b"sys_machine", MachineSettings) {
+            s.machine = v;
+            loaded = true;
+        }
+        if let Some(v) = load_section!(flash, &mut scratch, b"sys_hardware", HardwareSettings) {
+            s.hardware = v;
+            loaded = true;
+        }
+        if let Some(v) = load_section!(flash, &mut scratch, b"sys_temp_pid", PidSettings) {
+            s.temp_pid = v;
+            loaded = true;
+        }
+        if let Some(v) = load_section!(flash, &mut scratch, b"sys_press_pid", PidSettings) {
+            s.press_pid = v;
+            loaded = true;
+        }
+        if let Some(v) = load_section!(flash, &mut scratch, b"sys_wifi", WifiSettings) {
+            s.wifi = v;
+            loaded = true;
+        }
+        if let Some(v) = load_section!(flash, &mut scratch, b"sys_usage", UsageSettings) {
+            s.usage = v;
+            loaded = true;
+        }
+
+        if loaded {
+            defmt::info!("Settings loaded from flash.");
+        } else {
+            defmt::info!("No settings in flash. Using defaults.");
+        }
+        Settings::update_ram(s).await;
+    }
+
+    /// Writes only sections that differ between `old` and `new` to flash.
+    pub async fn save_changed<T: Instance>(
+        flash: &mut Flash<'_, T, Async, 2097152>,
+        old: &Settings,
+        new: &Settings,
+    ) {
+        let mut scratch = [0u8; 1024];
+        let mut buf = [0u8; 1024];
+        let mut saved = false;
+
+        save_if_changed!(
+            flash,
+            &mut scratch,
+            buf,
+            &old.machine,
+            &new.machine,
+            b"sys_machine",
+            saved
+        );
+        save_if_changed!(
+            flash,
+            &mut scratch,
+            buf,
+            &old.hardware,
+            &new.hardware,
+            b"sys_hardware",
+            saved
+        );
+        save_if_changed!(
+            flash,
+            &mut scratch,
+            buf,
+            &old.temp_pid,
+            &new.temp_pid,
+            b"sys_temp_pid",
+            saved
+        );
+        save_if_changed!(
+            flash,
+            &mut scratch,
+            buf,
+            &old.press_pid,
+            &new.press_pid,
+            b"sys_press_pid",
+            saved
+        );
+        save_if_changed!(
+            flash,
+            &mut scratch,
+            buf,
+            &old.wifi,
+            &new.wifi,
+            b"sys_wifi",
+            saved
+        );
+        save_if_changed!(
+            flash,
+            &mut scratch,
+            buf,
+            &old.usage,
+            &new.usage,
+            b"sys_usage",
+            saved
+        );
+
+        if saved {
+            defmt::info!("Settings changes saved to flash.");
+        }
+    }
+}
+
+// ==========================================
 // PROFILE RAM CACHE & FLASH MANAGEMENT
 // ==========================================
 
 static PROFILES_CACHE: Mutex<CriticalSectionRawMutex, [Option<BrewProfile>; 10]> =
     Mutex::new([None, None, None, None, None, None, None, None, None, None]);
+
+fn profile_key(slot: u8) -> [u8; 6] {
+    [b'p', b'r', b'o', b'f', b'_', b'0' + slot]
+}
 
 pub async fn get_profile_from_ram(slot: u8) -> Option<BrewProfile> {
     if slot >= MAX_PROFILES {
@@ -394,7 +327,7 @@ pub async fn load_all_profiles_from_flash<T: Instance>(flash: &mut Flash<'_, T, 
     let mut cache = PROFILES_CACHE.lock().await;
 
     for slot in 0..MAX_PROFILES {
-        let key = [b'p', b'r', b'o', b'f', b'_', b'0' + slot];
+        let key = profile_key(slot);
         let fetch_result: Result<Option<&[u8]>, _> =
             fetch_item(flash, FS_RANGE, &mut NoCache::new(), &mut scratch, &key).await;
 
@@ -427,7 +360,7 @@ pub async fn save_profile_to_flash<T: Instance>(
     if slot >= MAX_PROFILES {
         return Err(());
     }
-    let key = [b'p', b'r', b'o', b'f', b'_', b'0' + slot];
+    let key = profile_key(slot);
     let mut scratch = [0u8; 512];
     let mut data = [0u8; 1024];
 
@@ -454,7 +387,7 @@ pub async fn delete_profile_from_flash<T: Instance>(
     if slot >= MAX_PROFILES {
         return Err(());
     }
-    let key = [b'p', b'r', b'o', b'f', b'_', b'0' + slot];
+    let key = profile_key(slot);
     let mut scratch = [0u8; 512];
     remove_item(flash, FS_RANGE, &mut NoCache::new(), &mut scratch, &key)
         .await
