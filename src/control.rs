@@ -26,6 +26,7 @@ pub enum HardwareCommand {
     Descale,
     DirectPump(f32),
     CooldownFlush,
+    HotWater,
 }
 pub static SIG_HARDWARE_CMD: Signal<CriticalSectionRawMutex, HardwareCommand> = Signal::new();
 
@@ -360,6 +361,25 @@ pub fn setup_triac_sm(
     sm.set_enable(true);
 }
 
+/// Samples `total` conversions from `ch`, discarding the leading `total - keep`
+/// (letting the sample-and-hold cap settle) and returning the average of the rest.
+async fn sample_avg(
+    adc: &mut Adc<'static, Async>,
+    ch: &mut Channel<'static>,
+    total: usize,
+    keep: usize,
+) -> f32 {
+    let discard = total - keep;
+    let mut sum: u32 = 0;
+    for i in 0..total {
+        let v = adc.read(ch).await.unwrap_or(0) as u32;
+        if i >= discard {
+            sum += v;
+        }
+    }
+    sum as f32 / keep as f32
+}
+
 #[embassy_executor::task]
 pub async fn adc_task(
     mut adc: Adc<'static, Async>,
@@ -372,25 +392,18 @@ pub async fn adc_task(
     let mut ticker = embassy_time::Ticker::every(Duration::from_hz(500));
 
     loop {
-        // Sample each channel 4 times; discard the first 3 to allow the ADC sample-and-hold
-        // capacitor to fully charge through the 1k series resistor on the analog lines.
-        let mut raw_p = 0u16;
-        for _ in 0..4 {
-            raw_p = adc.read(&mut ch_p).await.unwrap_or(0);
-        }
-        let mut raw_t = 0u16;
-        for _ in 0..4 {
-            raw_t = adc.read(&mut ch_t).await.unwrap_or(0);
-        }
-        let raw_p = raw_p as f32;
-        let raw_t = raw_t as f32;
+        // Sample each channel `total` times; discard the first `total - keep` to allow the ADC
+        // sample-and-hold capacitor to fully charge through the 1k series resistor on the analog
+        // lines, then average the last `keep` samples to knock down noise before the EMA filter.
+        let raw_p = sample_avg(&mut adc, &mut ch_p, 10, 5).await;
+        let raw_t = sample_avg(&mut adc, &mut ch_t, 10, 5).await;
 
         if !initialized {
             p_ema = raw_p;
             t_ema = raw_t;
             initialized = true;
         } else {
-            const ALPHA_P: f32 = 0.05; // 4.0 Hz Cutoff (Attenuates 50Hz pump ripple)
+            const ALPHA_P: f32 = 0.01; // ~0.8 Hz cutoff (rejects ~200ms beat from unsynced ADC/pump sampling)
             const ALPHA_T: f32 = 0.2; // ~20.0 Hz Cutoff
             p_ema = p_ema + ALPHA_P * (raw_p - p_ema);
             t_ema = t_ema + ALPHA_T * (raw_t - t_ema);
@@ -644,7 +657,9 @@ pub async fn execute_steam() {
 
 pub async fn execute_cooldown_flush() {
     let s = Settings::get().await;
-    set_target_temp(TargetTempMode::Brew).await;
+    // Drop the target to 0 (heater off) instead of brew temp — the heater
+    // fighting the incoming cold water only slows the cooldown down.
+    set_target_temp(TargetTempMode::Off).await;
     set_direct_pump(Some(PUMP_POWER));
 
     let monitor = AdcMonitor::new();

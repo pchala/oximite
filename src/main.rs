@@ -84,8 +84,9 @@ async fn led_update_task() {
         let (l1, l2) = if current_state == MachineState::Sleeping {
             // Sleep indicator: magenta on LED1, LED2 off
             (Rgb::new(255, 0, 255), Rgb::off())
-        } else if current_state == MachineState::Steaming {
-            // LED1 off, LED2 shows steam temperature progress
+        } else if current_state == MachineState::Steaming || current_state == MachineState::HotWater
+        {
+            // LED1 off, LED2 shows steam/hot-water temperature progress
             (Rgb::off(), temp_color)
         } else {
             // LED1 shows brew temperature, LED2 shows pressure/flow
@@ -204,6 +205,16 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
             stop_to_idle().await;
         }
 
+        // Hot water: while steaming (wand already open by the user), Brew
+        // drops the target back to brew temp and forces the pump on so hot
+        // water — not steam — comes out of the wand. Valve stays closed.
+        // A dedicated HotWater state ensures any button press stops it
+        // cleanly (see the stop arm below) rather than restarting/cycling.
+        (MachineState::Steaming, MachineCommand::Brew) => {
+            transition_state(MachineState::HotWater, Some(control::TargetTempMode::Brew)).await;
+            control::SIG_HARDWARE_CMD.signal(control::HardwareCommand::HotWater);
+        }
+
         // Descale
         (MachineState::Idle, MachineCommand::Descale) => {
             transition_state(
@@ -225,7 +236,8 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
             MachineState::Brewing
             | MachineState::Pumping
             | MachineState::Cooling
-            | MachineState::Descaling,
+            | MachineState::Descaling
+            | MachineState::HotWater,
             MachineCommand::Brew | MachineCommand::Steam | MachineCommand::Flush,
         )
         | (_, MachineCommand::Stop)
@@ -386,6 +398,16 @@ async fn hardware_task(mut valve: Output<'static>) {
                     true,
                     "Direct pump",
                     control::execute_direct_pump(power),
+                )
+                .await;
+            }
+            control::HardwareCommand::HotWater => {
+                defmt::info!("Hardware: Starting hot water");
+                run_cancellable(
+                    &mut valve,
+                    false,
+                    "Hot water",
+                    control::execute_direct_pump(control::PUMP_POWER),
                 )
                 .await;
             }

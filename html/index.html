@@ -208,7 +208,7 @@
             document.getElementById('val-p').innerText = data.p.toFixed(1);
             document.getElementById('val-fl').innerText = data.fl.toFixed(1); 
             document.getElementById('val-vol').innerText = data.vol.toFixed(1);
-            document.getElementById('machine-state').innerText = ["IDLE", "BREWING", "STEAMING", "DESCALING", "SLEEPING", "PUMPING"][data.st] || "UNKNOWN";
+            document.getElementById('machine-state').innerText = ["IDLE", "BREWING", "STEAMING", "DESCALING", "SLEEPING", "PUMPING", "COOLING", "HOT WATER"][data.st] || "UNKNOWN";
             
             if (data.st === 1 || data.st === 5) {
                 if (lastState !== 1 && lastState !== 5) brewStartTime = Date.now();

@@ -14,6 +14,7 @@ pub enum MachineState {
     Sleeping = 4,
     Pumping = 5,
     Cooling = 6,
+    HotWater = 7,
 }
 
 #[derive(Clone)]
@@ -61,6 +62,7 @@ pub fn get_state() -> MachineState {
         4 => MachineState::Sleeping,
         5 => MachineState::Pumping,
         6 => MachineState::Cooling,
+        7 => MachineState::HotWater,
         _ => MachineState::Idle,
     }
 }
