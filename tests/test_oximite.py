@@ -274,9 +274,9 @@ class TestOximite(unittest.TestCase):
         profile = {
             "name": "Stas Style",
             "steps": [
-                {"time_s": 3.0, "pressure": 4.0},
+                {"time_s": 3.0, "pressure": 30.0},
                 {"time_s": 2.0, "pressure": 0.0},
-                {"time_s": 23.0, "pressure": 9.0},
+                {"volume": 115.0, "pressure": 9.0},
             ],
         }
         self.run_profile_and_wait(profile, title="Default_Style")
