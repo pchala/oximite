@@ -544,7 +544,7 @@ pub async fn ac_sync_control_task(
         let p_ema = state.pressure_bar;
         let t_ema = state.temp_c;
 
-        let s = Settings::get().await;
+        let s = crate::settings::ControlSettings::current();
 
         // --- Command & Signal Processing ---
         if let Some(tp) = SIG_TARGET_PRESSURE.try_take() {

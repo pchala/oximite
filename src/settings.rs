@@ -2,6 +2,7 @@ use embassy_rp::flash::{Async, Flash, Instance};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
+use embassy_sync::watch::Watch;
 use sequential_storage::cache::NoCache;
 use sequential_storage::map::{fetch_item, remove_item, store_item};
 use serde::{Deserialize, Serialize};
@@ -31,7 +32,7 @@ pub struct MachineSettings {
     pub steam_pressure: f32,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct HardwareSettings {
     pub temp_offset: f32,
     pub flow_edges_per_liter: f32,
@@ -39,7 +40,7 @@ pub struct HardwareSettings {
     pub flow_multiplier: f32,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct PidSettings {
     pub kp: f32,
     pub ki: f32,
@@ -113,6 +114,42 @@ impl Default for Settings {
 }
 
 // ==========================================
+// CONTROL SETTINGS - Cheap hot-path snapshot
+// ==========================================
+
+/// Subset of `Settings` actually needed by the hard-real-time AC-sync control
+/// loop (`control::ac_sync_control_task`, ~100Hz). Kept `Copy` and published
+/// via `Watch` so the hot loop can grab the latest values with a plain copy —
+/// no mutex lock/await and no cloning of unrelated fields (profile name,
+/// Wi-Fi credentials, usage counters) on every tick.
+#[derive(Clone, Copy, PartialEq)]
+pub struct ControlSettings {
+    pub hardware: HardwareSettings,
+    pub temp_pid: PidSettings,
+    pub press_pid: PidSettings,
+}
+
+impl Default for ControlSettings {
+    fn default() -> Self {
+        Self {
+            hardware: DEFAULT_SETTINGS.hardware,
+            temp_pid: DEFAULT_SETTINGS.temp_pid,
+            press_pid: DEFAULT_SETTINGS.press_pid,
+        }
+    }
+}
+
+pub static CONTROL_SETTINGS: Watch<CriticalSectionRawMutex, ControlSettings, 2> = Watch::new();
+
+impl ControlSettings {
+    /// Latest control-relevant settings. Cheap enough to call every tick of a
+    /// hot loop — republished by `Settings::update_ram` whenever settings change.
+    pub fn current() -> Self {
+        CONTROL_SETTINGS.try_get().unwrap_or_default()
+    }
+}
+
+// ==========================================
 // RAM CACHE - Live settings state
 // ==========================================
 
@@ -124,6 +161,11 @@ impl Settings {
     }
 
     pub async fn update_ram(new_settings: Self) {
+        CONTROL_SETTINGS.sender().send(ControlSettings {
+            hardware: new_settings.hardware,
+            temp_pid: new_settings.temp_pid,
+            press_pid: new_settings.press_pid,
+        });
         *CURRENT_SETTINGS.lock().await = new_settings;
     }
 
