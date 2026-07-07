@@ -779,29 +779,29 @@ pub async fn execute_direct_pump(power: f32) {
 // HARDWARE EXECUTOR TASK
 // ==========================================
 
-/// Whether the solenoid valve should be open (pressurizing the group head)
-/// or closed while a hardware operation runs.
+/// Whether a hardware operation needs the solenoid valve open (pressurizing
+/// the group head) while it runs. Operations that don't need it just leave
+/// it alone — it's already closed by the invariant that `SolenoidGuard`
+/// always closes it again on drop, and it starts closed at boot.
 #[derive(Clone, Copy)]
 enum Solenoid {
     Open,
     Closed,
 }
 
-/// RAII guard for the solenoid valve: sets it to `state` when created and
+/// RAII guard for the solenoid valve: opens it when created and
 /// unconditionally closes it again when dropped. This is the Rust
 /// equivalent of a context manager — every exit path (natural finish,
-/// abort, or a future early return/panic) releases the valve without
-/// relying on a manual `set_low()` at the end of the function.
+/// abort, or a future early return/panic) closes the valve without relying
+/// on a manual `set_low()` at the end of the function. Only constructed for
+/// operations that actually open the valve (see `Solenoid`).
 struct SolenoidGuard<'a> {
     valve: &'a mut Output<'static>,
 }
 
 impl<'a> SolenoidGuard<'a> {
-    fn new(valve: &'a mut Output<'static>, state: Solenoid) -> Self {
-        match state {
-            Solenoid::Open => valve.set_high(),
-            Solenoid::Closed => valve.set_low(),
-        }
+    fn open(valve: &'a mut Output<'static>) -> Self {
+        valve.set_high();
         Self { valve }
     }
 }
@@ -812,31 +812,48 @@ impl Drop for SolenoidGuard<'_> {
     }
 }
 
-async fn run_cancellable<F: core::future::Future>(
-    valve: &mut Output<'static>,
-    solenoid: Solenoid,
-    action_name: &'static str,
-    fut: F,
-) {
-    let _solenoid = SolenoidGuard::new(valve, solenoid);
-    let abort = core::pin::pin!(SIG_PROFILE_ABORT.wait());
-    let run = core::pin::pin!(fut);
-    match select(run, abort).await {
-        Either::First(_) => {
-            defmt::info!("Hardware: {} finished naturally", action_name);
-            // A Stop (or a new transition) racing the last instant of this
-            // operation may have signaled abort just as `run` won the race
-            // above — discard it now so it can't spuriously cancel the
-            // *next* operation (see coordinator::transition_state/stop_to_idle,
-            // which only signal abort while a busy operation is in flight).
-            SIG_PROFILE_ABORT.reset();
-            SIG_COMMAND.signal(MachineCommand::ProfileFinished);
-        }
-        Either::Second(_) => {
-            defmt::warn!("Hardware: {} aborted", action_name);
-        }
+/// Owns the single solenoid valve GPIO and drives cancellable hardware
+/// operations through it. Since there is exactly one valve in the system,
+/// bundling it here means call sites just say `executor.run_cancellable(...)`
+/// instead of threading `&mut valve` through every call.
+struct HardwareExecutor {
+    valve: Output<'static>,
+}
+
+impl HardwareExecutor {
+    fn new(valve: Output<'static>) -> Self {
+        Self { valve }
     }
-    // `_solenoid` drops here, closing the valve regardless of which branch ran.
+
+    async fn run_cancellable<F: core::future::Future>(
+        &mut self,
+        solenoid: Solenoid,
+        action_name: &'static str,
+        fut: F,
+    ) {
+        // Closed operations never touch the valve — it's already closed.
+        let _solenoid =
+            matches!(solenoid, Solenoid::Open).then(|| SolenoidGuard::open(&mut self.valve));
+        let abort = core::pin::pin!(SIG_PROFILE_ABORT.wait());
+        let run = core::pin::pin!(fut);
+        match select(run, abort).await {
+            Either::First(_) => {
+                defmt::info!("Hardware: {} finished naturally", action_name);
+                // A Stop (or a new transition) racing the last instant of this
+                // operation may have signaled abort just as `run` won the race
+                // above — discard it now so it can't spuriously cancel the
+                // *next* operation (see coordinator::transition_state/stop_to_idle,
+                // which only signal abort while a busy operation is in flight).
+                SIG_PROFILE_ABORT.reset();
+                SIG_COMMAND.signal(MachineCommand::ProfileFinished);
+            }
+            Either::Second(_) => {
+                defmt::warn!("Hardware: {} aborted", action_name);
+            }
+        }
+        // `_solenoid` drops here (if it was Open), closing the valve regardless
+        // of which branch ran.
+    }
 }
 
 // Separated from the hardware loop so the loop stays readable.
@@ -865,7 +882,8 @@ async fn record_operation(is_descale: bool, pumped_ml: f32) {
 }
 
 #[embassy_executor::task]
-pub async fn hardware_task(mut valve: Output<'static>) {
+pub async fn hardware_task(valve: Output<'static>) {
+    let mut executor = HardwareExecutor::new(valve);
     loop {
         let cmd = SIG_HARDWARE_CMD.wait().await;
         defmt::info!("Hardware task received command");
@@ -875,45 +893,43 @@ pub async fn hardware_task(mut valve: Output<'static>) {
         match cmd {
             HardwareCommand::RunProfile(p) => {
                 defmt::info!("Hardware: Starting profile '{}'", p.name.as_str());
-                run_cancellable(&mut valve, Solenoid::Open, "Profile", execute_profile(p)).await;
+                executor
+                    .run_cancellable(Solenoid::Open, "Profile", execute_profile(p))
+                    .await;
             }
             HardwareCommand::Steam => {
                 defmt::info!("Hardware: Starting steam");
-                run_cancellable(&mut valve, Solenoid::Closed, "Steam", execute_steam()).await;
+                executor
+                    .run_cancellable(Solenoid::Closed, "Steam", execute_steam())
+                    .await;
             }
             HardwareCommand::Descale => {
                 defmt::info!("Hardware: Starting descale");
-                run_cancellable(&mut valve, Solenoid::Closed, "Descale", execute_descale()).await;
+                executor
+                    .run_cancellable(Solenoid::Closed, "Descale", execute_descale())
+                    .await;
             }
             HardwareCommand::CooldownFlush => {
                 defmt::info!("Hardware: Starting cooldown flush");
-                run_cancellable(
-                    &mut valve,
-                    Solenoid::Closed,
-                    "Cooldown flush",
-                    execute_cooldown_flush(),
-                )
-                .await;
+                executor
+                    .run_cancellable(Solenoid::Closed, "Cooldown flush", execute_cooldown_flush())
+                    .await;
             }
             HardwareCommand::DirectPump(power) => {
                 defmt::info!("Hardware: Starting direct pump {}%", power);
-                run_cancellable(
-                    &mut valve,
-                    Solenoid::Open,
-                    "Direct pump",
-                    execute_direct_pump(power),
-                )
-                .await;
+                executor
+                    .run_cancellable(Solenoid::Open, "Direct pump", execute_direct_pump(power))
+                    .await;
             }
             HardwareCommand::HotWater => {
                 defmt::info!("Hardware: Starting hot water");
-                run_cancellable(
-                    &mut valve,
-                    Solenoid::Closed,
-                    "Hot water",
-                    execute_direct_pump(PUMP_POWER),
-                )
-                .await;
+                executor
+                    .run_cancellable(
+                        Solenoid::Closed,
+                        "Hot water",
+                        execute_direct_pump(PUMP_POWER),
+                    )
+                    .await;
             }
         }
 
