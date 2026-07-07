@@ -171,7 +171,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
         // Direct pump (dev/diagnostic, valid from any state)
         (_, MachineCommand::DirectPump(power)) => {
             start(
-                MachineState::Brewing,
+                MachineState::Pumping,
                 TargetTempMode::Brew,
                 HardwareCommand::DirectPump(power),
             )
