@@ -12,10 +12,10 @@ use static_cell::StaticCell;
 use crate::control::AdcMonitor;
 use crate::flow_meter::FlowMonitor;
 use crate::settings::{
-    BrewProfile, HardwareSettings, MachineSettings, PidSettings, Settings, WifiSettings,
+    BrewProfile, FlashUpdate, HardwareSettings, MachineSettings, PidSettings, Settings,
+    WifiSettings, SIG_FLASH_UPDATE,
 };
 use crate::state::{get_state, MachineCommand, MachineState, SIG_COMMAND};
-use crate::{FlashUpdate, SIG_FLASH_UPDATE};
 
 static INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 

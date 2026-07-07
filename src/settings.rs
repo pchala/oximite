@@ -1,6 +1,7 @@
 use embassy_rp::flash::{Async, Flash, Instance};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_sync::signal::Signal;
 use sequential_storage::cache::NoCache;
 use sequential_storage::map::{fetch_item, remove_item, store_item};
 use serde::{Deserialize, Serialize};
@@ -392,4 +393,38 @@ pub async fn delete_profile_from_flash<T: Instance>(
     remove_item(flash, FS_RANGE, &mut NoCache::new(), &mut scratch, &key)
         .await
         .map_err(|_| ())
+}
+
+// ==========================================
+// BACKGROUND FLASH EVENT HANDLER
+// ==========================================
+pub enum FlashUpdate {
+    SaveSettings(Settings),
+    SaveProfile(u8),
+    DeleteProfile(u8),
+}
+
+pub static SIG_FLASH_UPDATE: Signal<CriticalSectionRawMutex, FlashUpdate> = Signal::new();
+
+#[embassy_executor::task]
+pub async fn flash_update_task(
+    mut flash: Flash<'static, embassy_rp::peripherals::FLASH, Async, 16777216>,
+) {
+    loop {
+        let event = SIG_FLASH_UPDATE.wait().await;
+        match event {
+            FlashUpdate::SaveSettings(old_s) => {
+                let new_s = Settings::get().await;
+                SettingsStore::save_changed(&mut flash, &old_s, &new_s).await;
+            }
+            FlashUpdate::SaveProfile(slot) => {
+                if let Some(p) = get_profile_from_ram(slot).await {
+                    let _ = save_profile_to_flash(&mut flash, slot, &p).await;
+                }
+            }
+            FlashUpdate::DeleteProfile(slot) => {
+                let _ = delete_profile_from_flash(&mut flash, slot).await;
+            }
+        }
+    }
 }

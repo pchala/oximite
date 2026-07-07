@@ -10,7 +10,8 @@ use embassy_time::{Duration, Instant, Timer};
 use fixed::FixedU32;
 use pio::pio_asm;
 
-use crate::settings::{BrewProfile, Settings};
+use crate::settings::{BrewProfile, FlashUpdate, Settings, SIG_FLASH_UPDATE};
+use crate::state::{MachineCommand, SIG_COMMAND};
 
 pub static SIG_TARGET_PRESSURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static SIG_FLOW_LIMIT: Signal<CriticalSectionRawMutex, f32> = Signal::new();
@@ -59,6 +60,57 @@ pub fn set_direct_pump(power: Option<f32>) {
 
 /// Pump power used for flush and cooldown operations (%).
 pub const PUMP_POWER: f32 = 80.0;
+
+/// How the pump should be driven: an open-loop power percentage, or a
+/// pressure-PID target in bar. These are mutually exclusive in
+/// `ac_sync_control_task` — setting one implicitly overrides the other.
+pub enum PumpMode {
+    DirectPump(f32),
+    Pressure(f32),
+}
+
+impl PumpMode {
+    fn apply(&self) {
+        match *self {
+            PumpMode::DirectPump(power) => {
+                set_target_pressure(0.0);
+                set_direct_pump(Some(power));
+            }
+            PumpMode::Pressure(bar) => {
+                set_direct_pump(None);
+                set_target_pressure(bar);
+            }
+        }
+    }
+}
+
+/// RAII guard for the pump: applies `mode` when created/changed, and always
+/// returns the pump to idle (no direct pump, no pressure target) when
+/// dropped — including when the enclosing future is cancelled mid-await (as
+/// `run_cancellable` does on abort). This guarantees an aborted operation
+/// can't leave the pump engaged, without every `execute_*` function having
+/// to remember a manual reset at each exit point.
+pub struct PumpGuard;
+
+impl PumpGuard {
+    pub fn engage(mode: PumpMode) -> Self {
+        mode.apply();
+        Self
+    }
+
+    /// Switches an already-engaged pump to a new mode (e.g. between profile
+    /// steps) without affecting the drop-time reset.
+    pub fn set_mode(&mut self, mode: PumpMode) {
+        mode.apply();
+    }
+}
+
+impl Drop for PumpGuard {
+    fn drop(&mut self) {
+        set_direct_pump(None);
+        set_target_pressure(0.0);
+    }
+}
 
 #[derive(Clone, Copy, Default)]
 pub struct AdcState {
@@ -574,6 +626,7 @@ pub async fn ac_sync_control_task(
 
 pub async fn execute_profile(profile: BrewProfile) {
     defmt::info!("Executing profile: {}", profile.name.as_str());
+    let mut pump = PumpGuard::engage(PumpMode::Pressure(0.0));
 
     for (i, step) in profile.steps.iter().enumerate() {
         let mut time_s = step.time_s.unwrap_or(120.0);
@@ -600,11 +653,9 @@ pub async fn execute_profile(profile: BrewProfile) {
 
         set_flow_limit(flow);
         if pressure > 10.0 {
-            set_target_pressure(0.0);
-            set_direct_pump(Some(pressure));
+            pump.set_mode(PumpMode::DirectPump(pressure));
         } else {
-            set_direct_pump(None);
-            set_target_pressure(pressure);
+            pump.set_mode(PumpMode::Pressure(pressure));
         }
 
         let time_fut = async {
@@ -644,8 +695,8 @@ pub async fn execute_profile(profile: BrewProfile) {
         }
     }
     defmt::info!("Profile '{}' completed", profile.name.as_str());
-    set_direct_pump(None);
-    set_target_pressure(0.0);
+    // `pump` drops here (or at the cancellation point if aborted), resetting
+    // direct pump and the pressure target back to idle.
 }
 
 pub async fn execute_steam() {
@@ -660,7 +711,7 @@ pub async fn execute_cooldown_flush() {
     // Drop the target to 0 (heater off) instead of brew temp — the heater
     // fighting the incoming cold water only slows the cooldown down.
     set_target_temp(TargetTempMode::Off).await;
-    set_direct_pump(Some(PUMP_POWER));
+    let _pump = PumpGuard::engage(PumpMode::DirectPump(PUMP_POWER));
 
     let monitor = AdcMonitor::new();
     loop {
@@ -670,8 +721,6 @@ pub async fn execute_cooldown_flush() {
         }
         Timer::after(Duration::from_millis(100)).await;
     }
-
-    set_direct_pump(None);
 }
 
 pub async fn execute_descale() {
@@ -686,27 +735,28 @@ pub async fn execute_descale() {
         // --- Pump 200 ml ---
         let flow = crate::flow_meter::FlowMonitor::new();
         flow.reset_shot_volume();
-        set_direct_pump(Some(PUMP_POWER));
+        let tank_empty = {
+            let _pump = PumpGuard::engage(PumpMode::DirectPump(PUMP_POWER));
 
-        // Allow time for flow to establish before checking for an empty tank.
-        Timer::after(Duration::from_secs(FLOW_START_GRACE_SECS)).await;
+            // Allow time for flow to establish before checking for an empty tank.
+            Timer::after(Duration::from_secs(FLOW_START_GRACE_SECS)).await;
 
-        let tank_empty = loop {
-            Timer::after(Duration::from_millis(200)).await;
-            let state = flow.get_state().await;
+            loop {
+                Timer::after(Duration::from_millis(200)).await;
+                let state = flow.get_state().await;
 
-            if state.flow_rate_ml_s < FLOW_STALL_THRESHOLD_ML_S {
-                // Flow stopped while pump is running — tank is empty.
-                defmt::info!("Descale: no flow detected, tank empty.");
-                break true;
+                if state.flow_rate_ml_s < FLOW_STALL_THRESHOLD_ML_S {
+                    // Flow stopped while pump is running — tank is empty.
+                    defmt::info!("Descale: no flow detected, tank empty.");
+                    break true;
+                }
+                if state.shot_volume_ml >= DESCALE_VOLUME_ML {
+                    defmt::info!("Descale: {}ml dispensed.", DESCALE_VOLUME_ML);
+                    break false;
+                }
             }
-            if state.shot_volume_ml >= DESCALE_VOLUME_ML {
-                defmt::info!("Descale: {}ml dispensed.", DESCALE_VOLUME_ML);
-                break false;
-            }
+            // `_pump` drops here, returning the pump to idle before the soak.
         };
-
-        set_direct_pump(None);
 
         if tank_empty {
             break;
@@ -717,11 +767,163 @@ pub async fn execute_descale() {
         Timer::after(Duration::from_secs(DESCALE_SOAK_SECS)).await;
     }
 
-    set_direct_pump(None);
     set_target_temp(TargetTempMode::Brew).await;
 }
 
 pub async fn execute_direct_pump(power: f32) {
-    set_direct_pump(Some(power));
+    let _pump = PumpGuard::engage(PumpMode::DirectPump(power));
     core::future::pending::<()>().await;
+}
+
+// ==========================================
+// HARDWARE EXECUTOR TASK
+// ==========================================
+
+/// Whether the solenoid valve should be open (pressurizing the group head)
+/// or closed while a hardware operation runs.
+#[derive(Clone, Copy)]
+enum Solenoid {
+    Open,
+    Closed,
+}
+
+/// RAII guard for the solenoid valve: sets it to `state` when created and
+/// unconditionally closes it again when dropped. This is the Rust
+/// equivalent of a context manager — every exit path (natural finish,
+/// abort, or a future early return/panic) releases the valve without
+/// relying on a manual `set_low()` at the end of the function.
+struct SolenoidGuard<'a> {
+    valve: &'a mut Output<'static>,
+}
+
+impl<'a> SolenoidGuard<'a> {
+    fn new(valve: &'a mut Output<'static>, state: Solenoid) -> Self {
+        match state {
+            Solenoid::Open => valve.set_high(),
+            Solenoid::Closed => valve.set_low(),
+        }
+        Self { valve }
+    }
+}
+
+impl Drop for SolenoidGuard<'_> {
+    fn drop(&mut self) {
+        self.valve.set_low();
+    }
+}
+
+async fn run_cancellable<F: core::future::Future>(
+    valve: &mut Output<'static>,
+    solenoid: Solenoid,
+    action_name: &'static str,
+    fut: F,
+) {
+    let _solenoid = SolenoidGuard::new(valve, solenoid);
+    let abort = core::pin::pin!(SIG_PROFILE_ABORT.wait());
+    let run = core::pin::pin!(fut);
+    match select(run, abort).await {
+        Either::First(_) => {
+            defmt::info!("Hardware: {} finished naturally", action_name);
+            // A Stop (or a new transition) racing the last instant of this
+            // operation may have signaled abort just as `run` won the race
+            // above — discard it now so it can't spuriously cancel the
+            // *next* operation (see coordinator::transition_state/stop_to_idle,
+            // which only signal abort while a busy operation is in flight).
+            SIG_PROFILE_ABORT.reset();
+            SIG_COMMAND.signal(MachineCommand::ProfileFinished);
+        }
+        Either::Second(_) => {
+            defmt::warn!("Hardware: {} aborted", action_name);
+        }
+    }
+    // `_solenoid` drops here, closing the valve regardless of which branch ran.
+}
+
+// Separated from the hardware loop so the loop stays readable.
+// pumped_ml must be captured synchronously before any await.
+async fn record_operation(is_descale: bool, pumped_ml: f32) {
+    let mut s = Settings::get().await;
+    let old_s = s.clone();
+
+    if is_descale {
+        s.usage.ml_at_last_descale = s.usage.total_ml_all_time;
+        defmt::info!(
+            "Stored ml_at_last_descale = {} after descale",
+            s.usage.ml_at_last_descale
+        );
+    } else {
+        s.usage.total_ml_all_time += pumped_ml;
+        if pumped_ml > 0.0 {
+            defmt::info!("Added {} ml to total usage", pumped_ml);
+        }
+    }
+
+    if s.usage != old_s.usage {
+        Settings::update_ram(s).await;
+        SIG_FLASH_UPDATE.signal(FlashUpdate::SaveSettings(old_s));
+    }
+}
+
+#[embassy_executor::task]
+pub async fn hardware_task(mut valve: Output<'static>) {
+    loop {
+        let cmd = SIG_HARDWARE_CMD.wait().await;
+        defmt::info!("Hardware task received command");
+
+        let is_descale = matches!(cmd, HardwareCommand::Descale);
+
+        match cmd {
+            HardwareCommand::RunProfile(p) => {
+                defmt::info!("Hardware: Starting profile '{}'", p.name.as_str());
+                run_cancellable(&mut valve, Solenoid::Open, "Profile", execute_profile(p)).await;
+            }
+            HardwareCommand::Steam => {
+                defmt::info!("Hardware: Starting steam");
+                run_cancellable(&mut valve, Solenoid::Closed, "Steam", execute_steam()).await;
+            }
+            HardwareCommand::Descale => {
+                defmt::info!("Hardware: Starting descale");
+                run_cancellable(&mut valve, Solenoid::Closed, "Descale", execute_descale()).await;
+            }
+            HardwareCommand::CooldownFlush => {
+                defmt::info!("Hardware: Starting cooldown flush");
+                run_cancellable(
+                    &mut valve,
+                    Solenoid::Closed,
+                    "Cooldown flush",
+                    execute_cooldown_flush(),
+                )
+                .await;
+            }
+            HardwareCommand::DirectPump(power) => {
+                defmt::info!("Hardware: Starting direct pump {}%", power);
+                run_cancellable(
+                    &mut valve,
+                    Solenoid::Open,
+                    "Direct pump",
+                    execute_direct_pump(power),
+                )
+                .await;
+            }
+            HardwareCommand::HotWater => {
+                defmt::info!("Hardware: Starting hot water");
+                run_cancellable(
+                    &mut valve,
+                    Solenoid::Closed,
+                    "Hot water",
+                    execute_direct_pump(PUMP_POWER),
+                )
+                .await;
+            }
+        }
+
+        // Capture shot volume synchronously — no await, no yield — before the coordinator
+        // can process a new command and call transition_state() → reset_shot_volume().
+        let pumped_ml = crate::flow_meter::FLOW_WATCH
+            .try_get()
+            .unwrap_or_default()
+            .shot_volume_ml;
+
+        record_operation(is_descale, pumped_ml).await;
+    }
 }

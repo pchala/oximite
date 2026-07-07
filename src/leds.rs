@@ -1,10 +1,16 @@
+use embassy_futures::select::select;
 use embassy_rp::pio::{
     Common, Config, Direction, FifoJoin, Instance, Pin, ShiftDirection, StateMachine,
 };
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_time::{Duration, Timer};
 use fixed::FixedU32;
 use pio::pio_asm;
+
+use crate::control;
+use crate::flow_meter;
+use crate::state::{self, MachineState, MACHINE_STATE};
 
 #[derive(Clone, Copy)]
 pub struct Rgb {
@@ -82,5 +88,56 @@ pub async fn run_led_task(mut sm: StateMachine<'static, embassy_rp::peripherals:
             sm.tx().push(word);
         }
         embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+    }
+}
+
+// ==========================================
+// DECOUPLED LED UI TASK
+// ==========================================
+#[embassy_executor::task]
+pub async fn led_update_task() {
+    let mut state_rx = MACHINE_STATE.receiver().unwrap();
+
+    loop {
+        let current_state = state::get_state();
+        let a = control::AdcMonitor::new().get_state().await;
+        let f = flow_meter::FlowMonitor::new().get_state().await;
+
+        let temp_color = if a.temp_c < a.target_temp - 1.0 {
+            Rgb::new(0, 0, 255) // Blue  — heating
+        } else if a.temp_c > a.target_temp + 1.0 {
+            Rgb::new(255, 0, 0) // Red   — over-temp
+        } else {
+            Rgb::new(0, 255, 0) // Green — at target
+        };
+
+        let (l1, l2) = if current_state == MachineState::Sleeping {
+            // Sleep indicator: magenta on LED1, LED2 off
+            (Rgb::new(255, 0, 255), Rgb::off())
+        } else if current_state == MachineState::Steaming || current_state == MachineState::HotWater
+        {
+            // LED1 off, LED2 shows steam/hot-water temperature progress
+            (Rgb::off(), temp_color)
+        } else {
+            // LED1 shows brew temperature, LED2 shows pressure/flow
+            let mut pressure_color = Rgb::off();
+            if current_state == MachineState::Brewing && a.target_bar > 0.0 {
+                if a.flow_limit_ml_s > 0.0 && f.flow_rate_ml_s >= a.flow_limit_ml_s {
+                    pressure_color = Rgb::new(255, 128, 0); // Orange — flow limit
+                } else if (a.pressure_bar - a.target_bar).abs() < 0.2 {
+                    pressure_color = Rgb::new(0, 255, 0); // Green  — on target
+                } else if a.pressure_bar < a.target_bar {
+                    pressure_color = Rgb::new(0, 0, 255); // Blue   — building
+                } else {
+                    pressure_color = Rgb::new(255, 0, 0); // Red    — over pressure
+                }
+            }
+            (temp_color, pressure_color)
+        };
+
+        set_leds([l1, l2]).await;
+
+        // Refresh LEDs dynamically, or immediately if the state changes
+        let _ = select(Timer::after(Duration::from_millis(100)), state_rx.changed()).await;
     }
 }
