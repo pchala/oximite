@@ -2,11 +2,13 @@
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/J5E121FXSB)
 
-**oximite** is a high-performance, asynchronous Rust firmware for the Raspberry Pi Pico W, designed to retrofit standard espresso machines (such as the Gaggia Classic or Rancilio Silvia) with advanced digital controls.
+**oximite** is a high-performance, asynchronous Rust firmware for the RP2350, designed to retrofit standard espresso machines (such as the Gaggia Classic or Rancilio Silvia) with advanced digital controls.
 
-By replacing the factory internals with oximite, machines gain capabilities typically found in commercial or prosumer equipment, including real-time pressure profiling, PID temperature control, volumetric dosing, and a web-based user interface natively hosted on the Pico W.
+By replacing the factory internals with oximite, machines gain capabilities typically found in commercial or prosumer equipment, including real-time pressure profiling, PID temperature control, volumetric dosing, and a web-based user interface natively hosted on the Pico Plus 2 W.
 
 Support the continued development of this open-source project by [leaving a tip on Ko-fi](https://ko-fi.com/J5E121FXSB). Contributions help accelerate the implementation of new features.
+
+>Special thanks to [Pimoroni](https://pimoroni.com) for providing a [Pico Plus 2 W](https://shop.pimoroni.com/products/pimoroni-pico-plus-2-w) used in the project.
 
 ## Features
 
@@ -19,7 +21,7 @@ Support the continued development of this open-source project by [leaving a tip 
 
 ## Architecture
 
-The firmware is written in Rust and utilizes the `embassy-rp` asynchronous framework to distribute workloads across the RP2040's dual cores:
+The firmware is written in Rust and utilizes the `embassy-rp` asynchronous framework to distribute workloads across the RP2350's dual cores:
 
 *   **Core 0 (I/O & Control):** Handles hard-real-time I/O tasks. It runs PIO state machines for zero-cross detection, triac firing, flow meter pulse counting, hardware ADC sampling, and acts as the main state coordinator.
 *   **Core 1 (Networking):** Dedicated to the CYW43 Wi-Fi driver, the TCP/IP networking stack, and serving the embedded HTTP Web Server.
@@ -31,24 +33,27 @@ The firmware is written in Rust and utilizes the `embassy-rp` asynchronous frame
 | **GP0** | PIO0 (SM2) | Output | **Triac Control:** Phase-angle firing for pump/heater modulation. |
 | **GP2** | Standard GPIO | Output | **Heater Relay:** Solid State Relay (SSR) control for the boiler. |
 | **GP3** | Standard GPIO | Output | **3-Way Valve:** Solid State Relay (SSR) control for the brew group solenoid. |
-| **GP9** | PIO0 (SM3) | Output | **WS2812 RGB LED:** Status indication via addressable LEDs. |
-| **GP10** | PIO0 (SM1) | Input | **Zero-Cross:** Syncs Triac firing with 50/60Hz AC mains. |
+| **GP5** | GPIO (Pull-Up) | Input | **Power Button:** Physical button to wake/sleep the machine. |
 | **GP6** | GPIO (Pull-Up) | Input | **Brew Button:** Physical button to start/stop brewing. |
 | **GP7** | GPIO (Pull-Up) | Input | **Steam Button:** Physical button to toggle steam mode. |
 | **GP8** | GPIO (Pull-Up) | Input | **Flush Button:** Physical button for quick grouphead flush. |
+| **GP9** | PIO0 (SM3) | Output | **WS2812 RGB LED:** Status indication via addressable LEDs. |
+| **GP10** | PIO0 (SM1) | Input | **Zero-Cross:** Syncs Triac firing with 50/60Hz AC mains. |
 | **GP15** | PIO0 (SM0) | Input | **Flow Meter:** Reads pulses from a Hall-effect water flow sensor. |
 | **GP23** | WL_ON | Output | *Internal:* CYW43 Wi-Fi chip power control. |
 | **GP24** | WL_D / PIO1 | In/Out | *Internal:* CYW43 Wi-Fi SPI Data. |
 | **GP25** | WL_CS | Output | *Internal:* CYW43 Wi-Fi Chip Select. |
-| **GP26** | ADC Channel 0 | Analog In | **Pressure Sensor:** Reads analog voltage from the pressure transducer. |
-| **GP27** | ADC Channel 1 | Analog In | **Temp Sensor:** Reads analog voltage from the thermistor/thermocouple. |
+| **GP26** | GPIO (HiZ) | — | *Unused:* Held high-impedance; shares PCB net with A0 (GP40). |
+| **GP27** | GPIO (HiZ) | — | *Unused:* Held high-impedance; shares PCB net with A1 (GP41). |
 | **GP29** | WL_CLK / PIO1 | Output | *Internal:* CYW43 Wi-Fi SPI Clock. |
+| **GP40** | ADC (A0) | Analog In | **Pressure Sensor:** Reads analog voltage from the pressure transducer. |
+| **GP41** | ADC (A1) | Analog In | **Temp Sensor:** Reads analog voltage from the thermistor/thermocouple. |
 
 ## Getting Started
 
 ### 1. Build & Flash
 
-Ensure the Rust `thumbv6m-none-eabi` target is installed. The firmware is standalone and includes the `BOOT2` stage.
+Ensure the Rust `thumbv8m.main-none-eabihf` target is installed.
 
 ```bash
 cargo run --release

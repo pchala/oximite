@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import serial
 
 # IMPORTANT: Update these to match your RP2040's networking
-TCP_IP = '192.168.1.224'
+TCP_IP = '192.168.1.117'
 TCP_PORT = 8080
 
 # IMPORTANT: Update this to match your RP2040's serial port (e.g., 'COM3' or '/dev/ttyACM0')
@@ -393,7 +393,7 @@ class TestOximite(unittest.TestCase):
 
     def test_13_boiler_stability_10min(self):
         """Records boiler temperature for 10 minutes and plots statistics."""
-        duration_s = 300
+        duration_s = 60
         print(f"\nRunning Boiler Stability Test (duration: {duration_s}s)...")
 
         # Ensure we are in a state that heats (Idle should be enough)
@@ -414,7 +414,7 @@ class TestOximite(unittest.TestCase):
                 print(f"Recorded {elapsed / 60.0:.0f}/{duration_s / 60.0:.0f} minutes...")
                 last_print = now
 
-        self.plot_stability_results("13_Boiler_Stability_steam_5min")
+        self.plot_stability_results("13_Boiler_Stability_15min")
 
     # def test_08_steam_mode(self):
     #     """Tests steam mode behavior and time limit."""

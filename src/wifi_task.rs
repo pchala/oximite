@@ -12,10 +12,10 @@ use static_cell::StaticCell;
 use crate::control::AdcMonitor;
 use crate::flow_meter::FlowMonitor;
 use crate::settings::{
-    BrewProfile, HardwareSettings, MachineSettings, PidSettings, Settings, WifiSettings,
+    BrewProfile, FlashUpdate, HardwareSettings, MachineSettings, PidSettings, Settings,
+    WifiSettings, SIG_FLASH_UPDATE,
 };
 use crate::state::{get_state, MachineCommand, MachineState, SIG_COMMAND};
-use crate::{FlashUpdate, SIG_FLASH_UPDATE};
 
 static INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 
@@ -433,9 +433,9 @@ pub async fn setup_wifi(
     force_ap: bool,
 ) {
     defmt::info!("Wifi: setup_wifi started");
-    // Firmware moved to reserved flash addresses to reduce binary size
-    let fw = unsafe { core::slice::from_raw_parts(0x101B0000 as *const u8, 231077) };
-    let clm = unsafe { core::slice::from_raw_parts(0x101EF000 as *const u8, 984) };
+    // Firmware stored at reserved flash addresses (see flash-wifi.bat and memory.x)
+    let fw = unsafe { core::slice::from_raw_parts(0x10FB0000 as *const u8, 231077) };
+    let clm = unsafe { core::slice::from_raw_parts(0x10FEF000 as *const u8, 984) };
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());

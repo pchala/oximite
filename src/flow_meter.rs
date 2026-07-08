@@ -11,7 +11,7 @@ use embassy_sync::signal::Signal;
 
 pub static SIG_RESET_VOLUME: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-pub const CLOCK_FREQ_HZ: f32 = 125_000_000.0;
+pub const CLOCK_FREQ_HZ: f32 = 150_000_000.0;
 pub const CYCLES_PER_LOOP: f32 = 2.0;
 
 #[derive(Clone, Copy, Default)]

@@ -1,11 +1,13 @@
 use embassy_rp::flash::{Async, Flash, Instance};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_sync::signal::Signal;
+use embassy_sync::watch::Watch;
 use sequential_storage::cache::NoCache;
 use sequential_storage::map::{fetch_item, remove_item, store_item};
 use serde::{Deserialize, Serialize};
 
-const FS_RANGE: core::ops::Range<u32> = (2097152 - 65536)..2097152;
+const FS_RANGE: core::ops::Range<u32> = (16777216 - 65536)..16777216;
 const MAX_PROFILES: u8 = 10;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -30,7 +32,7 @@ pub struct MachineSettings {
     pub steam_pressure: f32,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct HardwareSettings {
     pub temp_offset: f32,
     pub flow_edges_per_liter: f32,
@@ -38,7 +40,7 @@ pub struct HardwareSettings {
     pub flow_multiplier: f32,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct PidSettings {
     pub kp: f32,
     pub ki: f32,
@@ -112,6 +114,42 @@ impl Default for Settings {
 }
 
 // ==========================================
+// CONTROL SETTINGS - Cheap hot-path snapshot
+// ==========================================
+
+/// Subset of `Settings` actually needed by the hard-real-time AC-sync control
+/// loop (`control::ac_sync_control_task`, ~100Hz). Kept `Copy` and published
+/// via `Watch` so the hot loop can grab the latest values with a plain copy —
+/// no mutex lock/await and no cloning of unrelated fields (profile name,
+/// Wi-Fi credentials, usage counters) on every tick.
+#[derive(Clone, Copy, PartialEq)]
+pub struct ControlSettings {
+    pub hardware: HardwareSettings,
+    pub temp_pid: PidSettings,
+    pub press_pid: PidSettings,
+}
+
+impl Default for ControlSettings {
+    fn default() -> Self {
+        Self {
+            hardware: DEFAULT_SETTINGS.hardware,
+            temp_pid: DEFAULT_SETTINGS.temp_pid,
+            press_pid: DEFAULT_SETTINGS.press_pid,
+        }
+    }
+}
+
+pub static CONTROL_SETTINGS: Watch<CriticalSectionRawMutex, ControlSettings, 2> = Watch::new();
+
+impl ControlSettings {
+    /// Latest control-relevant settings. Cheap enough to call every tick of a
+    /// hot loop — republished by `Settings::update_ram` whenever settings change.
+    pub fn current() -> Self {
+        CONTROL_SETTINGS.try_get().unwrap_or_default()
+    }
+}
+
+// ==========================================
 // RAM CACHE - Live settings state
 // ==========================================
 
@@ -123,6 +161,11 @@ impl Settings {
     }
 
     pub async fn update_ram(new_settings: Self) {
+        CONTROL_SETTINGS.sender().send(ControlSettings {
+            hardware: new_settings.hardware,
+            temp_pid: new_settings.temp_pid,
+            press_pid: new_settings.press_pid,
+        });
         *CURRENT_SETTINGS.lock().await = new_settings;
     }
 
@@ -184,7 +227,7 @@ pub struct SettingsStore;
 
 impl SettingsStore {
     /// Reads all settings sections from flash and populates the RAM cache.
-    pub async fn load<T: Instance>(flash: &mut Flash<'_, T, Async, 2097152>) {
+    pub async fn load<T: Instance>(flash: &mut Flash<'_, T, Async, 16777216>) {
         let mut scratch = [0u8; 1024];
         let mut s = Settings::default();
         let mut loaded = false;
@@ -224,7 +267,7 @@ impl SettingsStore {
 
     /// Writes only sections that differ between `old` and `new` to flash.
     pub async fn save_changed<T: Instance>(
-        flash: &mut Flash<'_, T, Async, 2097152>,
+        flash: &mut Flash<'_, T, Async, 16777216>,
         old: &Settings,
         new: &Settings,
     ) {
@@ -322,7 +365,7 @@ pub async fn get_all_profiles_from_ram() -> heapless::Vec<(u8, BrewProfile), 10>
     list
 }
 
-pub async fn load_all_profiles_from_flash<T: Instance>(flash: &mut Flash<'_, T, Async, 2097152>) {
+pub async fn load_all_profiles_from_flash<T: Instance>(flash: &mut Flash<'_, T, Async, 16777216>) {
     let mut scratch = [0u8; 512];
     let mut cache = PROFILES_CACHE.lock().await;
 
@@ -353,7 +396,7 @@ pub async fn delete_profile_from_ram(slot: u8) {
 }
 
 pub async fn save_profile_to_flash<T: Instance>(
-    flash: &mut Flash<'_, T, Async, 2097152>,
+    flash: &mut Flash<'_, T, Async, 16777216>,
     slot: u8,
     profile: &BrewProfile,
 ) -> Result<(), ()> {
@@ -381,7 +424,7 @@ pub async fn save_profile_to_flash<T: Instance>(
 }
 
 pub async fn delete_profile_from_flash<T: Instance>(
-    flash: &mut Flash<'_, T, Async, 2097152>,
+    flash: &mut Flash<'_, T, Async, 16777216>,
     slot: u8,
 ) -> Result<(), ()> {
     if slot >= MAX_PROFILES {
@@ -392,4 +435,38 @@ pub async fn delete_profile_from_flash<T: Instance>(
     remove_item(flash, FS_RANGE, &mut NoCache::new(), &mut scratch, &key)
         .await
         .map_err(|_| ())
+}
+
+// ==========================================
+// BACKGROUND FLASH EVENT HANDLER
+// ==========================================
+pub enum FlashUpdate {
+    SaveSettings(Settings),
+    SaveProfile(u8),
+    DeleteProfile(u8),
+}
+
+pub static SIG_FLASH_UPDATE: Signal<CriticalSectionRawMutex, FlashUpdate> = Signal::new();
+
+#[embassy_executor::task]
+pub async fn flash_update_task(
+    mut flash: Flash<'static, embassy_rp::peripherals::FLASH, Async, 16777216>,
+) {
+    loop {
+        let event = SIG_FLASH_UPDATE.wait().await;
+        match event {
+            FlashUpdate::SaveSettings(old_s) => {
+                let new_s = Settings::get().await;
+                SettingsStore::save_changed(&mut flash, &old_s, &new_s).await;
+            }
+            FlashUpdate::SaveProfile(slot) => {
+                if let Some(p) = get_profile_from_ram(slot).await {
+                    let _ = save_profile_to_flash(&mut flash, slot, &p).await;
+                }
+            }
+            FlashUpdate::DeleteProfile(slot) => {
+                let _ = delete_profile_from_flash(&mut flash, slot).await;
+            }
+        }
+    }
 }
