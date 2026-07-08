@@ -8,7 +8,7 @@ By replacing the factory internals with oximite, machines gain capabilities typi
 
 Support the continued development of this open-source project by [leaving a tip on Ko-fi](https://ko-fi.com/J5E121FXSB). Contributions help accelerate the implementation of new features.
 
->[Pico Plus 2 W](https://shop.pimoroni.com/products/pimoroni-pico-plus-2-w) kindly provided by [Pimoroni](https://pimoroni.com). Thank you!
+>Special thanks to [Pimoroni](https://pimoroni.com) for providing a [Pico Plus 2 W](https://shop.pimoroni.com/products/pimoroni-pico-plus-2-w) used in the project.
 
 ## Features
 
