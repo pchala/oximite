@@ -20,6 +20,13 @@ async fn go_to_sleep() {
     control::set_target_temp(TargetTempMode::Off).await;
 }
 
+/// Reads the configured sleep timeout (minutes) from settings and converts
+/// it to a `Duration`. Negative values are clamped to 0 (instant sleep).
+async fn sleep_timeout() -> Duration {
+    let minutes = Settings::get().await.machine.sleep_timeout_min;
+    Duration::from_secs((minutes.max(0.0) * 60.0) as u64)
+}
+
 async fn wake_up() {
     defmt::info!("Power Management: WAKING UP.");
     state::set_state(MachineState::Idle);
@@ -214,7 +221,6 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
 // ==========================================
 #[embassy_executor::task]
 pub async fn coordinator_task() {
-    const SLEEP_TIMEOUT: Duration = Duration::from_secs(20 * 60);
     let mut last_activity = embassy_time::Instant::now();
 
     state::set_state(MachineState::Idle);
@@ -224,7 +230,7 @@ pub async fn coordinator_task() {
         match select(SIG_COMMAND.wait(), Timer::after(Duration::from_millis(100))).await {
             Either::Second(_) => {
                 if state::get_state() == MachineState::Idle
-                    && last_activity.elapsed() >= SLEEP_TIMEOUT
+                    && last_activity.elapsed() >= sleep_timeout().await
                 {
                     go_to_sleep().await;
                 }

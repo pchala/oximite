@@ -29,15 +29,18 @@ pub struct MachineSettings {
     pub brew_temp: f32,
     pub steam_temp: f32,
     pub steam_time_limit_s: f32,
-    pub steam_pressure: f32,
+    /// Minutes of inactivity while Idle before the machine auto-sleeps.
+    pub sleep_timeout_min: f32,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct HardwareSettings {
     pub temp_offset: f32,
     pub flow_edges_per_liter: f32,
-    pub temp_feed_forward: f32,
-    pub flow_multiplier: f32,
+    /// Pressure-setpoint reduction (bar) per ml/s of flow above a step's flow_limit.
+    /// Replaces the old temp_feed_forward slot; used by the pressure PID's
+    /// setpoint-modulation flow-limit path, not the direct-pump clamp path.
+    pub flow_restrict_bar_per_mls: f32,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -79,13 +82,12 @@ const DEFAULT_SETTINGS: Settings = Settings {
         brew_temp: 92.0,
         steam_temp: 135.0,
         steam_time_limit_s: 120.0,
-        steam_pressure: 1.5,
+        sleep_timeout_min: 20.0,
     },
     hardware: HardwareSettings {
         temp_offset: 8.0,
         flow_edges_per_liter: 5200.0,
-        temp_feed_forward: 35.0,
-        flow_multiplier: 20.0,
+        flow_restrict_bar_per_mls: 3.0,
     },
     temp_pid: PidSettings {
         kp: 2.0,

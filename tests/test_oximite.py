@@ -422,7 +422,7 @@ class TestOximite(unittest.TestCase):
     #     # First ensure we have known settings
     #     settings = {
     #         "machine": {"brew_temp": 92.0, "steam_temp": 135.0, "temp_offset": -2.5,
-    #         "steam_time_limit_s": 10.0, "steam_pressure": 1.5},
+    #         "steam_time_limit_s": 10.0, "sleep_timeout_min": 20.0},
     #         "temp_pid": {"kp": 2.0, "ki": 0.01, "kd": 5.0},
     #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }
@@ -461,7 +461,7 @@ class TestOximite(unittest.TestCase):
     #     # Change temp to something high to see it move
     #     settings = {
     #         "machine": {"brew_temp": 98.0, "steam_temp": 135.0, "temp_offset": -2.5,
-    #         "steam_time_limit_s": 60.0, "steam_pressure": 1.5},
+    #         "steam_time_limit_s": 60.0, "sleep_timeout_min": 20.0},
     #         "temp_pid": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
     #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }
@@ -474,7 +474,7 @@ class TestOximite(unittest.TestCase):
     #     # Restore defaults
     #     self.send_command({"cmd": "save_settings", "settings": {
     #         "machine": {"brew_temp": 92.0, "steam_temp": 135.0, "temp_offset": -2.5,
-    #         "steam_time_limit_s": 120.0, "steam_pressure": 1.5},
+    #         "steam_time_limit_s": 120.0, "sleep_timeout_min": 20.0},
     #         "temp_pid": {"kp": 2.0, "ki": 0.01, "kd": 5.0},
     #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }})
@@ -559,7 +559,7 @@ class TestOximite(unittest.TestCase):
             # Step 1: Set PID, set target temp to 0
             cmd_payload = {
                 "cmd": "save_settings",
-                "machine": {"brew_temp": 0.0, "steam_temp": 135.0, "steam_time_limit_s": 120.0, "steam_pressure": 1.5},
+                "machine": {"brew_temp": 0.0, "steam_temp": 135.0, "steam_time_limit_s": 120.0, "sleep_timeout_min": 20.0},
                 "temp_pid": pid,
             }
             self.send_command(cmd_payload)

@@ -318,12 +318,8 @@ impl PidController {
         self.ki = ki;
         self.kd = kd;
     }
-    pub fn update(
-        &mut self,
-        measurement: f32,
-        feed_forward: f32,
-        external_limit: Option<f32>,
-    ) -> f32 {
+    pub fn update(&mut self, measurement: f32, freeze_integral: bool) -> f32 {
+        const OUTPUT_MAX: f32 = 100.0;
         let now = Instant::now();
         let dt = if let Some(last) = self.last_time {
             (now.duration_since(last).as_micros() as f32 / 1_000_000.0).clamp(0.01, 2.0)
@@ -340,17 +336,23 @@ impl PidController {
         self.prev_measurement = measurement;
 
         let p_term = self.kp * error;
-        let limit_max = external_limit.unwrap_or(100.0).min(100.0);
 
-        let base_output = p_term + d_term + feed_forward;
+        let base_output = p_term + d_term;
         let ideal_output = base_output + self.i_term;
 
-        // Conditional integration (anti-windup)
-        if ideal_output < limit_max && ideal_output > 0.0 && feed_forward <= 0.0 {
-            self.i_term = (self.i_term + self.ki * error * dt).clamp(-20.0, 100.0);
+        // Conditional integration (anti-windup): only block the direction that
+        // would *worsen* saturation, always allow unwinding back into range.
+        // `freeze_integral` lets a caller explicitly suspend integration (e.g. the
+        // temp loop during active flow) independent of actuator saturation, since
+        // this directional freeze alone can't see sensor-lag-induced windup.
+        let delta = self.ki * error * dt;
+        let would_worsen_high = ideal_output >= OUTPUT_MAX && delta > 0.0;
+        let would_worsen_low = ideal_output <= 0.0 && delta < 0.0;
+        if !would_worsen_high && !would_worsen_low && !freeze_integral {
+            self.i_term = (self.i_term + delta).clamp(-20.0, 100.0);
         }
 
-        (base_output + self.i_term).clamp(0.0, limit_max)
+        (base_output + self.i_term).clamp(0.0, OUTPUT_MAX)
     }
 }
 
@@ -582,18 +584,34 @@ pub async fn ac_sync_control_task(
 
         // --- Pump Control (Triac Phase Angle) ---
         let mut p_output: f32 = 0.0;
-        let mut max_allowed_power = 100.0;
-
-        // reduce pump power if flow exceeds target
-        if flow_limit > 0.0 && f.flow_rate_ml_s > flow_limit {
-            let restriction = (f.flow_rate_ml_s - flow_limit) * s.hardware.flow_multiplier;
-            max_allowed_power = (100.0 - restriction).max(0.0);
-        }
 
         if let Some(dp) = direct_pump {
-            p_output = dp.clamp(0.0, max_allowed_power);
+            // Direct-pump mode (hot water/cooldown-flush/descale) needs no flow
+            // limiting — it's raw power, not an espresso shot being protected.
+            p_output = dp.clamp(0.0, 100.0);
         } else if target_p > 0.0 {
-            p_output = press_pid.update(p_ema, 0.0, Some(max_allowed_power));
+            // Flow limiting modulates the pressure PID's setpoint rather than
+            // clamping its output (avoids the stale-ceiling windup-dump). Kept
+            // deliberately simple/soft: once flow_limit is hit, shot quality is
+            // already compromised — this just softens it a little, not a precise
+            // flow controller.
+            const MIN_ACTIVE_PRESSURE_BAR: f32 = 0.2;
+            let over = if flow_limit > 0.0 {
+                (f.flow_rate_ml_s - flow_limit).max(0.0)
+            } else {
+                0.0
+            };
+            // floor.min(target_p) keeps min <= max so clamp() can't panic if a step
+            // ever uses a target pressure below MIN_ACTIVE_PRESSURE_BAR. Below that
+            // threshold the clamp range collapses to a point, so flow softening
+            // becomes a no-op for such very-low-pressure steps — acceptable since
+            // real profile steps run well above it (typically several bar).
+            let floor = MIN_ACTIVE_PRESSURE_BAR.min(target_p);
+            let effective_target_p =
+                (target_p - over * s.hardware.flow_restrict_bar_per_mls).clamp(floor, target_p);
+
+            press_pid.set_target(effective_target_p);
+            p_output = press_pid.update(p_ema, false);
         }
 
         // If output is set, push the phase delay to the Triac PIO
@@ -604,8 +622,10 @@ pub async fn ac_sync_control_task(
 
         // --- TEMPERATURE PID (Runs 5 times a second -> every 10 ticks at 50Hz) ---
         if tick.is_multiple_of(10) {
-            let feed_forward = f.flow_rate_ml_s * s.hardware.temp_feed_forward;
-            heater_duty = temp_pid.update(t_ema, feed_forward, None);
+            // Freeze integration explicitly while flow is present, rather than via
+            // feed-forward's incidental value, so removing feed-forward can't
+            // accidentally leave the I-term unfrozen during a shot.
+            heater_duty = temp_pid.update(t_ema, f.flow_rate_ml_s > 0.0);
         }
 
         // Delay for ~2.5ms (at 50Hz) to ensure we toggle the MOC3042
