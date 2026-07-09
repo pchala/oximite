@@ -288,19 +288,17 @@ pub struct PidController {
     kp: f32,
     ki: f32,
     kd: f32,
-    pub setpoint: f32,
     i_term: f32,
     prev_measurement: f32,
     last_time: Option<Instant>,
 }
 
 impl PidController {
-    pub fn new(kp: f32, ki: f32, kd: f32, setpoint: f32) -> Self {
+    pub fn new(kp: f32, ki: f32, kd: f32) -> Self {
         Self {
             kp,
             ki,
             kd,
-            setpoint,
             i_term: 0.0,
             prev_measurement: 0.0,
             last_time: None,
@@ -310,15 +308,15 @@ impl PidController {
         self.i_term = 0.0;
         self.last_time = None;
     }
-    pub fn set_target(&mut self, target: f32) {
-        self.setpoint = target;
-    }
     pub fn set_coeffs(&mut self, kp: f32, ki: f32, kd: f32) {
         self.kp = kp;
         self.ki = ki;
         self.kd = kd;
     }
-    pub fn update(&mut self, measurement: f32, freeze_integral: bool) -> f32 {
+    /// `target` is provided by the caller on every call rather than stored
+    /// internally, since callers already track the current setpoint locally
+    /// (and may recompute it, e.g. flow-limiting, right before each update).
+    pub fn update(&mut self, target: f32, measurement: f32, freeze_integral: bool) -> f32 {
         const OUTPUT_MAX: f32 = 100.0;
         let now = Instant::now();
         let dt = if let Some(last) = self.last_time {
@@ -329,7 +327,7 @@ impl PidController {
         };
         self.last_time = Some(now);
 
-        let error = self.setpoint - measurement;
+        let error = target - measurement;
 
         // D on measurement with correct sign: opposes rate of change
         let d_term = self.kd * (self.prev_measurement - measurement) / dt;
@@ -479,6 +477,21 @@ pub async fn adc_task(
     }
 }
 
+/// Reduces the pressure setpoint once measured flow exceeds `flow_limit`
+fn flow_limited_pressure_target(
+    target_p: f32,
+    flow_limit: f32,
+    flow_rate_ml_s: f32,
+    restrict_bar_per_mls: f32,
+) -> f32 {
+    let over = if flow_limit > 0.0 {
+        (flow_rate_ml_s - flow_limit).max(0.0)
+    } else {
+        0.0
+    };
+    (target_p - over * restrict_bar_per_mls).max(0.2).min(target_p)
+}
+
 #[embassy_executor::task]
 pub async fn ac_sync_control_task(
     mut sm_trigger: StateMachine<'static, PIO0, 1>,
@@ -494,14 +507,12 @@ pub async fn ac_sync_control_task(
         initial_s.press_pid.kp,
         initial_s.press_pid.ki,
         initial_s.press_pid.kd,
-        0.0,
     );
 
     let mut temp_pid = PidController::new(
         initial_s.temp_pid.kp,
         initial_s.temp_pid.ki,
         initial_s.temp_pid.kd,
-        0.0,
     );
 
     // Dynamic targets
@@ -551,7 +562,6 @@ pub async fn ac_sync_control_task(
         // --- Command & Signal Processing ---
         if let Some(tp) = SIG_TARGET_PRESSURE.try_take() {
             press_pid.set_coeffs(s.press_pid.kp, s.press_pid.ki, s.press_pid.kd);
-            press_pid.set_target(tp);
             if target_p == 0.0 && tp != 0.0 {
                 press_pid.reset();
             }
@@ -565,7 +575,6 @@ pub async fn ac_sync_control_task(
         }
         if let Some(tt) = SIG_TARGET_TEMP.try_take() {
             temp_pid.set_coeffs(s.temp_pid.kp, s.temp_pid.ki, s.temp_pid.kd);
-            temp_pid.set_target(tt);
             if target_t == 0.0 && tt != 0.0 {
                 temp_pid.reset();
             }
@@ -583,36 +592,21 @@ pub async fn ac_sync_control_task(
         let f = crate::flow_meter::FlowMonitor::new().get_state().await;
 
         // --- Pump Control (Triac Phase Angle) ---
-        let mut p_output: f32 = 0.0;
-
-        if let Some(dp) = direct_pump {
+        let p_output: f32 = match direct_pump {
             // Direct-pump mode (hot water/cooldown-flush/descale) needs no flow
             // limiting — it's raw power, not an espresso shot being protected.
-            p_output = dp.clamp(0.0, 100.0);
-        } else if target_p > 0.0 {
-            // Flow limiting modulates the pressure PID's setpoint rather than
-            // clamping its output (avoids the stale-ceiling windup-dump). Kept
-            // deliberately simple/soft: once flow_limit is hit, shot quality is
-            // already compromised — this just softens it a little, not a precise
-            // flow controller.
-            const MIN_ACTIVE_PRESSURE_BAR: f32 = 0.2;
-            let over = if flow_limit > 0.0 {
-                (f.flow_rate_ml_s - flow_limit).max(0.0)
-            } else {
-                0.0
-            };
-            // floor.min(target_p) keeps min <= max so clamp() can't panic if a step
-            // ever uses a target pressure below MIN_ACTIVE_PRESSURE_BAR. Below that
-            // threshold the clamp range collapses to a point, so flow softening
-            // becomes a no-op for such very-low-pressure steps — acceptable since
-            // real profile steps run well above it (typically several bar).
-            let floor = MIN_ACTIVE_PRESSURE_BAR.min(target_p);
-            let effective_target_p =
-                (target_p - over * s.hardware.flow_restrict_bar_per_mls).clamp(floor, target_p);
-
-            press_pid.set_target(effective_target_p);
-            p_output = press_pid.update(p_ema, false);
-        }
+            Some(dp) => dp.clamp(0.0, 100.0),
+            None if target_p > 0.0 => {
+                let effective_target_p = flow_limited_pressure_target(
+                    target_p,
+                    flow_limit,
+                    f.flow_rate_ml_s,
+                    s.hardware.flow_restrict_bar_per_mls,
+                );
+                press_pid.update(effective_target_p, p_ema, false)
+            }
+            None => 0.0,
+        };
 
         // If output is set, push the phase delay to the Triac PIO
         if p_output > 0.0 {
@@ -622,10 +616,7 @@ pub async fn ac_sync_control_task(
 
         // --- TEMPERATURE PID (Runs 5 times a second -> every 10 ticks at 50Hz) ---
         if tick.is_multiple_of(10) {
-            // Freeze integration explicitly while flow is present, rather than via
-            // feed-forward's incidental value, so removing feed-forward can't
-            // accidentally leave the I-term unfrozen during a shot.
-            heater_duty = temp_pid.update(t_ema, f.flow_rate_ml_s > 0.0);
+            heater_duty = temp_pid.update(target_t, t_ema, f.flow_rate_ml_s > 0.0);
         }
 
         // Delay for ~2.5ms (at 50Hz) to ensure we toggle the MOC3042
