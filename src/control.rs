@@ -112,6 +112,30 @@ impl Drop for PumpGuard {
     }
 }
 
+pub static SIG_BREW_ACTIVE: Signal<CriticalSectionRawMutex, bool> = Signal::new();
+
+/// RAII guard marking that a real brew profile (not cooldown flush, descale,
+/// hot water, or a raw direct-pump command) is running. `ac_sync_control_task`
+/// only substitutes `target` for the real measurement (freezing the PID's
+/// output, see the temp-control loop below) while this is armed — those other
+/// operations set an explicit temperature target (often `Off`, to let cold
+/// water cool the boiler as fast as possible) and must keep tracking it via
+/// the normal PID, not have the heater frozen just because the pump is flowing.
+pub struct BrewActiveGuard;
+
+impl BrewActiveGuard {
+    pub fn engage() -> Self {
+        SIG_BREW_ACTIVE.signal(true);
+        Self
+    }
+}
+
+impl Drop for BrewActiveGuard {
+    fn drop(&mut self) {
+        SIG_BREW_ACTIVE.signal(false);
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct AdcState {
     pub pressure_bar: f32,
@@ -316,7 +340,7 @@ impl PidController {
     /// `target` is provided by the caller on every call rather than stored
     /// internally, since callers already track the current setpoint locally
     /// (and may recompute it, e.g. flow-limiting, right before each update).
-    pub fn update(&mut self, target: f32, measurement: f32, freeze_integral: bool) -> f32 {
+    pub fn update(&mut self, target: f32, measurement: f32) -> f32 {
         const OUTPUT_MAX: f32 = 100.0;
         let now = Instant::now();
         let dt = if let Some(last) = self.last_time {
@@ -340,13 +364,10 @@ impl PidController {
 
         // Conditional integration (anti-windup): only block the direction that
         // would *worsen* saturation, always allow unwinding back into range.
-        // `freeze_integral` lets a caller explicitly suspend integration (e.g. the
-        // temp loop during active flow) independent of actuator saturation, since
-        // this directional freeze alone can't see sensor-lag-induced windup.
         let delta = self.ki * error * dt;
         let would_worsen_high = ideal_output >= OUTPUT_MAX && delta > 0.0;
         let would_worsen_low = ideal_output <= 0.0 && delta < 0.0;
-        if !would_worsen_high && !would_worsen_low && !freeze_integral {
+        if !would_worsen_high && !would_worsen_low {
             self.i_term = (self.i_term + delta).clamp(-20.0, 100.0);
         }
 
@@ -504,6 +525,12 @@ pub async fn ac_sync_control_task(
     let (mut target_p, mut flow_limit) = (0.0, 0.0);
     let mut direct_pump: Option<f32> = None;
     let mut target_t = initial_s.machine.brew_temp;
+    let mut brew_active = false;
+    // Latches true the first time real flow is seen during a brew profile, and
+    // only clears when the profile ends. This prevents brief flow dips
+    // (pre-infusion soak, a low-pressure profile tail, flow-meter quantization)
+    // from de-freezing the temp PID mid-shot — see the temp PID block below.
+    let mut brew_hold_latched = false;
 
     let mut tick: u32 = 0;
     let mut heater_duty = 0.0;
@@ -558,6 +585,14 @@ pub async fn ac_sync_control_task(
         if let Some(dp) = SIG_DIRECT_PUMP.try_take() {
             direct_pump = dp;
         }
+        if let Some(ba) = SIG_BREW_ACTIVE.try_take() {
+            brew_active = ba;
+            if !brew_active {
+                // Profile ended (or was cancelled) — clear the latch so the
+                // next brew starts fresh instead of inheriting it.
+                brew_hold_latched = false;
+            }
+        }
         if let Some(tt) = SIG_TARGET_TEMP.try_take() {
             temp_pid.set_coeffs(s.temp_pid.kp, s.temp_pid.ki, s.temp_pid.kd);
             if target_t == 0.0 && tt != 0.0 {
@@ -585,7 +620,7 @@ pub async fn ac_sync_control_task(
                 if flow_limit > 0.0 && f.flow_rate_ml_s > flow_limit {
                     target_p = (target_p - s.hardware.flow_backoff_step_bar).max(0.2);
                 }
-                press_pid.update(target_p, p_ema, false)
+                press_pid.update(target_p, p_ema)
             }
             None => 0.0,
         };
@@ -597,8 +632,45 @@ pub async fn ac_sync_control_task(
         }
 
         // --- TEMPERATURE PID (Runs 5 times a second -> every 10 ticks at 50Hz) ---
+        // While a real brew profile is actively pushing water, feed the PID its
+        // own target as the "measurement" instead of the real (lagged, noisy,
+        // crashing) sensor reading. With error forced to 0, P and D both drop
+        // out and the anti-windup delta (`ki * error * dt`) is 0 too, so `i_term`
+        // — the baseline duty that was already holding the boiler in equilibrium
+        // right before the shot — simply freezes at its last real value instead
+        // of reacting to the crash. `update()` keeps running every tick, so
+        // `last_time`/`prev_measurement` stay live (no stale-`dt` cliff to patch
+        // over at shot-end). The moment real flow stops, we resume feeding the
+        // real measurement; the residual gap between the frozen target and the
+        // now-lower actual temperature shows up as an immediate corrective
+        // kick, restoring the boiler quickly, while during the shot itself the
+        // boiler is left to crash and the grouphead to taper the puck
+        // temperature down naturally — preserving the Gaggia Classic's natural
+        // extraction character instead of fighting it.
+        //
+        // Gated on `brew_active` (not just flow) so cooldown flush, descale, hot
+        // water, and raw direct-pump commands — which drive the pump directly
+        // but set their own temperature targets, e.g. cooldown flush explicitly
+        // drops to `Off` so cold water can cool the boiler unopposed — keep
+        // tracking their real target via the normal PID instead of getting
+        // frozen just because water is flowing.
+        //
+        // The hold is latched (not re-evaluated tick-to-tick on raw flow):
+        // once real flow is seen during a brew, we stay frozen through any
+        // later flow dip (pre-infusion soak, low-pressure tail, flow-meter
+        // quantization near 0) until the profile ends. Without this latch, a
+        // pause would let the real (already-crashed) measurement back in,
+        // causing the PID to fight the crash and wind `i_term` up mid-shot —
+        // so the next flow burst would freeze at an inflated value instead of
+        // the true pre-shot equilibrium, inverting the taper we're trying to
+        // preserve.
         if tick.is_multiple_of(10) {
-            heater_duty = temp_pid.update(target_t, t_ema, f.flow_rate_ml_s > 0.0);
+            if brew_active && f.flow_rate_ml_s > 0.0 {
+                brew_hold_latched = true;
+            }
+            let holding = brew_active && brew_hold_latched;
+            let measurement = if holding { target_t } else { t_ema };
+            heater_duty = temp_pid.update(target_t, measurement);
         }
 
         // Delay for ~2.5ms (at 50Hz) to ensure we toggle the MOC3042
@@ -620,6 +692,7 @@ pub async fn ac_sync_control_task(
 pub async fn execute_profile(profile: BrewProfile) {
     defmt::info!("Executing profile: {}", profile.name.as_str());
     let mut pump = PumpGuard::engage(PumpMode::Pressure(0.0));
+    let _brew_active = BrewActiveGuard::engage();
 
     for (i, step) in profile.steps.iter().enumerate() {
         let mut time_s = step.time_s.unwrap_or(120.0);
