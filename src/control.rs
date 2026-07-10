@@ -477,21 +477,6 @@ pub async fn adc_task(
     }
 }
 
-/// Reduces the pressure setpoint once measured flow exceeds `flow_limit`
-fn flow_limited_pressure_target(
-    target_p: f32,
-    flow_limit: f32,
-    flow_rate_ml_s: f32,
-    restrict_bar_per_mls: f32,
-) -> f32 {
-    let over = if flow_limit > 0.0 {
-        (flow_rate_ml_s - flow_limit).max(0.0)
-    } else {
-        0.0
-    };
-    (target_p - over * restrict_bar_per_mls).max(0.2).min(target_p)
-}
-
 #[embassy_executor::task]
 pub async fn ac_sync_control_task(
     mut sm_trigger: StateMachine<'static, PIO0, 1>,
@@ -597,13 +582,10 @@ pub async fn ac_sync_control_task(
             // limiting — it's raw power, not an espresso shot being protected.
             Some(dp) => dp.clamp(0.0, 100.0),
             None if target_p > 0.0 => {
-                let effective_target_p = flow_limited_pressure_target(
-                    target_p,
-                    flow_limit,
-                    f.flow_rate_ml_s,
-                    s.hardware.flow_restrict_bar_per_mls,
-                );
-                press_pid.update(effective_target_p, p_ema, false)
+                if flow_limit > 0.0 && f.flow_rate_ml_s > flow_limit {
+                    target_p = (target_p - s.hardware.flow_backoff_step_bar).max(0.2);
+                }
+                press_pid.update(target_p, p_ema, false)
             }
             None => 0.0,
         };

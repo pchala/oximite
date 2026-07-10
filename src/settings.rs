@@ -36,11 +36,10 @@ pub struct MachineSettings {
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct HardwareSettings {
     pub temp_offset: f32,
-    pub flow_edges_per_liter: f32,
-    /// Pressure-setpoint reduction (bar) per ml/s of flow above a step's flow_limit.
-    /// Replaces the old temp_feed_forward slot; used by the pressure PID's
-    /// setpoint-modulation flow-limit path, not the direct-pump clamp path.
-    pub flow_restrict_bar_per_mls: f32,
+    pub flow_pulses_per_liter: f32,
+    /// Pressure-setpoint decrement (bar) applied each control-loop tick
+    /// while measured flow exceeds a step's flow_limit.
+    pub flow_backoff_step_bar: f32,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -86,8 +85,8 @@ const DEFAULT_SETTINGS: Settings = Settings {
     },
     hardware: HardwareSettings {
         temp_offset: 8.0,
-        flow_edges_per_liter: 5200.0,
-        flow_restrict_bar_per_mls: 3.0,
+        flow_pulses_per_liter: 48000.0,
+        flow_backoff_step_bar: 0.02,
     },
     temp_pid: PidSettings {
         kp: 2.0,

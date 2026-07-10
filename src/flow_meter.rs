@@ -41,24 +41,26 @@ pub fn setup_flow_sm(
     sm: &mut StateMachine<'static, PIO0, 0>,
     pio_pin: Pin<'static, PIO0>,
 ) {
-    // High-precision period-measurement with symmetric 2-cycle resolution
+    // High-precision full-period measurement with symmetric 2-cycle
+    // resolution: counts continuously across both the HIGH and LOW phases
+    // of one pulse and pushes a single tick count per pulse (falling edge
+    // to falling edge), rather than pushing the two phases separately.
     let prg = pio_asm!(
         ".wrap_target",
-        // --- 1. MEASURE HIGH STATE ---
         "mov x, !null",
+        // --- 1. COUNT WHILE HIGH ---
         "high_loop:",
         "jmp x-- next_high", // 1 cycle
         "next_high:",
-        "jmp pin high_loop", // 1 cycle
-        "mov isr, !x",       // Pin went LOW, invert X
-        "push noblock",      // Push HIGH duration
-        // --- 2. MEASURE LOW STATE ---
-        "mov x, !null",
+        "jmp pin high_loop", // 1 cycle: loop while pin is HIGH
+        // Pin just went LOW (falling edge) — keep counting through the LOW phase.
+        // --- 2. COUNT WHILE LOW ---
         "low_loop:",
         "jmp pin low_done", // 1 cycle: breaks out if pin goes HIGH
         "jmp x-- low_loop", // 1 cycle: decrements and loops if X != 0
         "jmp low_loop",     // catch the fall-through and loop back
         "low_done:",
+        // Pin just went HIGH again — one full pulse period elapsed.
         "mov isr, !x",
         "push noblock",
         ".wrap",
@@ -76,17 +78,17 @@ pub fn setup_flow_sm(
 
 #[embassy_executor::task]
 pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
-    let mut total_edges = 0u32;
-    let mut edges_at_start = 0u32;
+    let mut total_pulses = 0u32;
+    let mut pulses_at_start = 0u32;
 
     let s = crate::settings::Settings::get().await;
-    let edges_per_liter = if s.hardware.flow_edges_per_liter > 0.0 {
-        s.hardware.flow_edges_per_liter
+    let pulses_per_liter = if s.hardware.flow_pulses_per_liter > 0.0 {
+        s.hardware.flow_pulses_per_liter
     } else {
-        5200.0 // Fallback to avoid division by zero
+        48000.0 // Fallback to avoid division by zero
     };
-    let ml_per_edge: f32 = 1000.0 / edges_per_liter;
-    let flow_numerator: f32 = (CLOCK_FREQ_HZ / CYCLES_PER_LOOP) * ml_per_edge;
+    let ml_per_pulse: f32 = 1000.0 / pulses_per_liter;
+    let flow_numerator: f32 = (CLOCK_FREQ_HZ / CYCLES_PER_LOOP) * ml_per_pulse;
 
     loop {
         match with_timeout(
@@ -97,12 +99,12 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
         {
             Ok(Either::First(val)) => {
                 let mut current_ticks = val;
-                total_edges += 1;
+                total_pulses += 1;
 
-                // Drain the FIFO (cap at 4 to prevent infinite loop on noise storm)
-                for _ in 0..4 {
+                // Drain the FIFO.
+                for _ in 0..7 {
                     if let Some(val) = sm.rx().try_pull() {
-                        total_edges += 1;
+                        total_pulses += 1;
                         current_ticks = val;
                         defmt::warn!("PIO FIFO had multiple entries!");
                     } else {
@@ -112,8 +114,9 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
 
                 if current_ticks > 0 {
                     let raw_flow_ml_s = flow_numerator / (current_ticks as f32);
-                    let vol_ml = (total_edges as f32) * ml_per_edge;
-                    let shot_ml = (total_edges.wrapping_sub(edges_at_start) as f32) * ml_per_edge;
+                    let vol_ml = (total_pulses as f32) * ml_per_pulse;
+                    let shot_ml =
+                        (total_pulses.wrapping_sub(pulses_at_start) as f32) * ml_per_pulse;
 
                     let mut state = FLOW_WATCH.try_get().unwrap_or_default();
 
@@ -133,7 +136,7 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
                 }
             }
             Ok(Either::Second(_)) => {
-                edges_at_start = total_edges;
+                pulses_at_start = total_pulses;
                 let mut state = FLOW_WATCH.try_get().unwrap_or_default();
                 state.shot_volume_ml = 0.0;
                 state.flow_rate_ml_s = 0.0;
