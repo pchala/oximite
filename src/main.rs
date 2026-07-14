@@ -136,7 +136,8 @@ async fn main(spawner: Spawner) {
     let adc_peri = p.ADC;
     let adc = Adc::new(adc_peri, Irqs, AdcConfig::default());
 
-    let flow_pin = common0.make_pio_pin(p.PIN_15);
+    let mut flow_pin = common0.make_pio_pin(p.PIN_15);
+    flow_pin.set_pull(Pull::Up); // new flow sensor requires pull-up
     flow_meter::setup_flow_sm(&mut common0, &mut sm0, flow_pin);
     spawner.spawn(flow_meter::run_flow_task(sm0)).unwrap();
 

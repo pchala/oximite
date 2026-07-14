@@ -1,4 +1,5 @@
 use embassy_futures::select::{select, Either};
+use embassy_futures::yield_now;
 use embassy_rp::adc::{Adc, Async, Channel};
 use embassy_rp::gpio::Output;
 use embassy_rp::peripherals::PIO0;
@@ -525,12 +526,8 @@ pub async fn ac_sync_control_task(
     let (mut target_p, mut flow_limit) = (0.0, 0.0);
     let mut direct_pump: Option<f32> = None;
     let mut target_t = initial_s.machine.brew_temp;
+    let mut feed_forward: f32 = 0.0;
     let mut brew_active = false;
-    // Latches true the first time real flow is seen during a brew profile, and
-    // only clears when the profile ends. This prevents brief flow dips
-    // (pre-infusion soak, a low-pressure profile tail, flow-meter quantization)
-    // from de-freezing the temp PID mid-shot — see the temp PID block below.
-    let mut brew_hold_latched = false;
 
     let mut tick: u32 = 0;
     let mut heater_duty = 0.0;
@@ -587,11 +584,6 @@ pub async fn ac_sync_control_task(
         }
         if let Some(ba) = SIG_BREW_ACTIVE.try_take() {
             brew_active = ba;
-            if !brew_active {
-                // Profile ended (or was cancelled) — clear the latch so the
-                // next brew starts fresh instead of inheriting it.
-                brew_hold_latched = false;
-            }
         }
         if let Some(tt) = SIG_TARGET_TEMP.try_take() {
             temp_pid.set_coeffs(s.temp_pid.kp, s.temp_pid.ki, s.temp_pid.kd);
@@ -599,6 +591,10 @@ pub async fn ac_sync_control_task(
                 temp_pid.reset();
             }
             target_t = tt;
+            const CONST_FF: f32 = 0.021; // balance for the boiler/brew group
+            feed_forward =
+                CONST_FF * (s.hardware.feed_forward_percents / 100.0) * (target_t - 20.0);
+            // 50 as UI setting is 6deg feed-forward at 3.5ml/s.
         }
 
         // --- Global Telemetry Update ---
@@ -632,45 +628,13 @@ pub async fn ac_sync_control_task(
         }
 
         // --- TEMPERATURE PID (Runs 5 times a second -> every 10 ticks at 50Hz) ---
-        // While a real brew profile is actively pushing water, feed the PID its
-        // own target as the "measurement" instead of the real (lagged, noisy,
-        // crashing) sensor reading. With error forced to 0, P and D both drop
-        // out and the anti-windup delta (`ki * error * dt`) is 0 too, so `i_term`
-        // — the baseline duty that was already holding the boiler in equilibrium
-        // right before the shot — simply freezes at its last real value instead
-        // of reacting to the crash. `update()` keeps running every tick, so
-        // `last_time`/`prev_measurement` stay live (no stale-`dt` cliff to patch
-        // over at shot-end). The moment real flow stops, we resume feeding the
-        // real measurement; the residual gap between the frozen target and the
-        // now-lower actual temperature shows up as an immediate corrective
-        // kick, restoring the boiler quickly, while during the shot itself the
-        // boiler is left to crash and the grouphead to taper the puck
-        // temperature down naturally — preserving the Gaggia Classic's natural
-        // extraction character instead of fighting it.
-        //
-        // Gated on `brew_active` (not just flow) so cooldown flush, descale, hot
-        // water, and raw direct-pump commands — which drive the pump directly
-        // but set their own temperature targets, e.g. cooldown flush explicitly
-        // drops to `Off` so cold water can cool the boiler unopposed — keep
-        // tracking their real target via the normal PID instead of getting
-        // frozen just because water is flowing.
-        //
-        // The hold is latched (not re-evaluated tick-to-tick on raw flow):
-        // once real flow is seen during a brew, we stay frozen through any
-        // later flow dip (pre-infusion soak, low-pressure tail, flow-meter
-        // quantization near 0) until the profile ends. Without this latch, a
-        // pause would let the real (already-crashed) measurement back in,
-        // causing the PID to fight the crash and wind `i_term` up mid-shot —
-        // so the next flow burst would freeze at an inflated value instead of
-        // the true pre-shot equilibrium, inverting the taper we're trying to
-        // preserve.
         if tick.is_multiple_of(10) {
-            if brew_active && f.flow_rate_ml_s > 0.0 {
-                brew_hold_latched = true;
-            }
-            let holding = brew_active && brew_hold_latched;
-            let measurement = if holding { target_t } else { t_ema };
-            heater_duty = temp_pid.update(target_t, measurement);
+            let effective_target = if brew_active {
+                target_t + (f.flow_rate_ml_s * feed_forward).clamp(0.0, 20.0)
+            } else {
+                target_t
+            };
+            heater_duty = temp_pid.update(effective_target, t_ema);
         }
 
         // Delay for ~2.5ms (at 50Hz) to ensure we toggle the MOC3042
@@ -693,6 +657,13 @@ pub async fn execute_profile(profile: BrewProfile) {
     defmt::info!("Executing profile: {}", profile.name.as_str());
     let mut pump = PumpGuard::engage(PumpMode::Pressure(0.0));
     let _brew_active = BrewActiveGuard::engage();
+
+    // Yield once so the flow task can process the SIG_RESET_VOLUME signal that
+    // transition_state() sent before dispatching this command. get_state() is
+    // async but never suspends (it calls try_get() synchronously), so without
+    // this yield the flow task never runs and vol_fut would see the stale
+    // shot_volume_ml from the previous profile on every other run.
+    yield_now().await;
 
     for (i, step) in profile.steps.iter().enumerate() {
         let mut time_s = step.time_s.unwrap_or(120.0);
@@ -735,10 +706,12 @@ pub async fn execute_profile(profile: BrewProfile) {
         let vol_fut = async {
             if volume > 0.0 {
                 loop {
+                    // volume is cumulative across the whole profile (volume_ml
+                    // is reset to 0 at profile start by transition_state).
                     if crate::flow_meter::FlowMonitor::new()
                         .get_state()
                         .await
-                        .shot_volume_ml
+                        .volume_ml
                         >= volume
                     {
                         defmt::info!("Step {} volume limit reached", i);
@@ -760,7 +733,7 @@ pub async fn execute_profile(profile: BrewProfile) {
             defmt::warn!("Step {} hit safety timeout (120s)!", i);
         }
     }
-    defmt::info!("Profile '{}' completed", profile.name.as_str());
+    defmt::info!("Profile '{}' completed\r\n", profile.name.as_str());
     // `pump` drops here (or at the cancellation point if aborted), resetting
     // direct pump and the pressure target back to idle.
 }
@@ -800,7 +773,7 @@ pub async fn execute_descale() {
     loop {
         // --- Pump 200 ml ---
         let flow = crate::flow_meter::FlowMonitor::new();
-        flow.reset_shot_volume();
+        flow.reset_volume();
         let tank_empty = {
             let _pump = PumpGuard::engage(PumpMode::DirectPump(PUMP_POWER));
 
@@ -816,7 +789,7 @@ pub async fn execute_descale() {
                     defmt::info!("Descale: no flow detected, tank empty.");
                     break true;
                 }
-                if state.shot_volume_ml >= DESCALE_VOLUME_ML {
+                if state.volume_ml >= DESCALE_VOLUME_ML {
                     defmt::info!("Descale: {}ml dispensed.", DESCALE_VOLUME_ML);
                     break false;
                 }
@@ -1000,11 +973,11 @@ pub async fn hardware_task(valve: Output<'static>) {
         }
 
         // Capture shot volume synchronously — no await, no yield — before the coordinator
-        // can process a new command and call transition_state() → reset_shot_volume().
+        // can process a new command and call transition_state() → reset_volume().
         let pumped_ml = crate::flow_meter::FLOW_WATCH
             .try_get()
             .unwrap_or_default()
-            .shot_volume_ml;
+            .volume_ml;
 
         record_operation(is_descale, pumped_ml).await;
     }

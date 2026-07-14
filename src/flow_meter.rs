@@ -17,8 +17,7 @@ pub const CYCLES_PER_LOOP: f32 = 2.0;
 #[derive(Clone, Copy, Default)]
 pub struct FlowState {
     pub flow_rate_ml_s: f32,
-    pub total_volume_ml: f32,
-    pub shot_volume_ml: f32,
+    pub volume_ml: f32,
 }
 
 pub static FLOW_WATCH: Watch<CriticalSectionRawMutex, FlowState, 4> = Watch::new();
@@ -31,7 +30,7 @@ impl FlowMonitor {
     pub async fn get_state(&self) -> FlowState {
         FLOW_WATCH.try_get().unwrap_or_default()
     }
-    pub fn reset_shot_volume(&self) {
+    pub fn reset_volume(&self) {
         SIG_RESET_VOLUME.signal(());
     }
 }
@@ -41,27 +40,28 @@ pub fn setup_flow_sm(
     sm: &mut StateMachine<'static, PIO0, 0>,
     pio_pin: Pin<'static, PIO0>,
 ) {
-    // High-precision full-period measurement with symmetric 2-cycle
-    // resolution: counts continuously across both the HIGH and LOW phases
-    // of one pulse and pushes a single tick count per pulse (falling edge
-    // to falling edge), rather than pushing the two phases separately.
+    // Measures each half-period separately and pushes twice per physical
+    // pulse (once for HIGH, once for LOW). With a 50% duty-cycle sensor
+    // this doubles the effective sampling rate vs. measuring full periods.
+    // CYCLES_PER_LOOP = 2 (jmp x-- + jmp pin, one 2-cycle iteration each).
     let prg = pio_asm!(
         ".wrap_target",
+        // --- 1. MEASURE HIGH PHASE ---
         "mov x, !null",
-        // --- 1. COUNT WHILE HIGH ---
         "high_loop:",
         "jmp x-- next_high", // 1 cycle
         "next_high:",
-        "jmp pin high_loop", // 1 cycle: loop while pin is HIGH
-        // Pin just went LOW (falling edge) — keep counting through the LOW phase.
-        // --- 2. COUNT WHILE LOW ---
+        "jmp pin high_loop", // 1 cycle: loop while HIGH
+        "mov isr, !x",       // pin went LOW — push HIGH duration
+        "push noblock",
+        // --- 2. MEASURE LOW PHASE ---
+        "mov x, !null",
         "low_loop:",
-        "jmp pin low_done", // 1 cycle: breaks out if pin goes HIGH
-        "jmp x-- low_loop", // 1 cycle: decrements and loops if X != 0
-        "jmp low_loop",     // catch the fall-through and loop back
+        "jmp pin low_done", // 1 cycle: exit when HIGH
+        "jmp x-- low_loop", // 1 cycle
+        "jmp low_loop",     // catch fall-through (X wrapped)
         "low_done:",
-        // Pin just went HIGH again — one full pulse period elapsed.
-        "mov isr, !x",
+        "mov isr, !x", // pin went HIGH — push LOW duration
         "push noblock",
         ".wrap",
     );
@@ -78,14 +78,13 @@ pub fn setup_flow_sm(
 
 #[embassy_executor::task]
 pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
-    let mut total_pulses = 0u32;
-    let mut pulses_at_start = 0u32;
+    let mut volume_ml: f32 = 0.0;
 
     let s = crate::settings::Settings::get().await;
     let pulses_per_liter = if s.hardware.flow_pulses_per_liter > 0.0 {
         s.hardware.flow_pulses_per_liter
     } else {
-        48000.0 // Fallback to avoid division by zero
+        98324.0 // 49162 physical pulses/L × 2 edges; fallback if flash value is 0
     };
     let ml_per_pulse: f32 = 1000.0 / pulses_per_liter;
     let flow_numerator: f32 = (CLOCK_FREQ_HZ / CYCLES_PER_LOOP) * ml_per_pulse;
@@ -99,14 +98,13 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
         {
             Ok(Either::First(val)) => {
                 let mut current_ticks = val;
-                total_pulses += 1;
+                let mut pulses_this_batch: u32 = 1;
 
-                // Drain the FIFO.
+                // Drain any extra entries that piled up in the FIFO.
                 for _ in 0..7 {
                     if let Some(val) = sm.rx().try_pull() {
-                        total_pulses += 1;
+                        pulses_this_batch += 1;
                         current_ticks = val;
-                        defmt::warn!("PIO FIFO had multiple entries!");
                     } else {
                         break;
                     }
@@ -114,9 +112,11 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
 
                 if current_ticks > 0 {
                     let raw_flow_ml_s = flow_numerator / (current_ticks as f32);
-                    let vol_ml = (total_pulses as f32) * ml_per_pulse;
-                    let shot_ml =
-                        (total_pulses.wrapping_sub(pulses_at_start) as f32) * ml_per_pulse;
+                    if pulses_this_batch > 1 {
+                        defmt::warn!("PIO FIFO had {} entries!", pulses_this_batch);
+                    }
+
+                    volume_ml += ml_per_pulse * pulses_this_batch as f32;
 
                     let mut state = FLOW_WATCH.try_get().unwrap_or_default();
 
@@ -128,17 +128,16 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
                             state.flow_rate_ml_s + ALPHA * (raw_flow_ml_s - state.flow_rate_ml_s);
                     }
 
-                    state.total_volume_ml = vol_ml;
-                    state.shot_volume_ml = shot_ml;
+                    state.volume_ml = volume_ml;
                     FLOW_WATCH.sender().send(state);
                 } else {
                     defmt::warn!("PIO return 0 for flow");
                 }
             }
             Ok(Either::Second(_)) => {
-                pulses_at_start = total_pulses;
+                volume_ml = 0.0;
                 let mut state = FLOW_WATCH.try_get().unwrap_or_default();
-                state.shot_volume_ml = 0.0;
+                state.volume_ml = 0.0;
                 state.flow_rate_ml_s = 0.0;
                 FLOW_WATCH.sender().send(state);
             }

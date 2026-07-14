@@ -131,7 +131,7 @@ async fn get_telemetry_json() -> heapless::String<256> {
         p: a.pressure_bar,
         tp: a.target_bar,
         fl: f.flow_rate_ml_s,
-        vol: f.shot_volume_ml,
+        vol: f.volume_ml,
         st: st_val as u32,
     };
 

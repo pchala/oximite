@@ -48,7 +48,7 @@ async fn wake_up() {
 /// happens to land in that same window (see the race this replaced).
 async fn transition_state(new_state: MachineState, target_mode: Option<TargetTempMode>) {
     let was_busy = state::get_state().is_busy();
-    crate::flow_meter::FlowMonitor::new().reset_shot_volume();
+    crate::flow_meter::FlowMonitor::new().reset_volume();
     state::set_state(new_state);
     if was_busy {
         control::SIG_PROFILE_ABORT.signal(());
@@ -71,10 +71,10 @@ async fn start(
     control::SIG_HARDWARE_CMD.signal(hw_cmd);
 }
 
-async fn stop_to_idle() {
+async fn stop_to_idle(abort_hardware: bool) {
     let was_busy = state::get_state().is_busy();
     state::set_state(MachineState::Idle);
-    if was_busy {
+    if was_busy && abort_hardware {
         control::SIG_PROFILE_ABORT.signal(());
     }
     control::set_target_temp(TargetTempMode::Brew).await;
@@ -95,7 +95,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
         }
         (_, MachineCommand::TogglePower) => {
             // If busy, act as Stop
-            stop_to_idle().await;
+            stop_to_idle(true).await;
         }
 
         // Brew
@@ -147,7 +147,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
             .await;
         }
         (MachineState::Steaming, MachineCommand::Steam) => {
-            stop_to_idle().await;
+            stop_to_idle(true).await;
         }
 
         // Hot water: while steaming (wand already open by the user), Brew
@@ -192,10 +192,13 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
         (s, MachineCommand::Brew | MachineCommand::Steam | MachineCommand::Flush)
             if s.is_busy() =>
         {
-            stop_to_idle().await;
+            stop_to_idle(true).await;
         }
-        (_, MachineCommand::Stop) | (_, MachineCommand::ProfileFinished) => {
-            stop_to_idle().await;
+        (_, MachineCommand::Stop) => {
+            stop_to_idle(true).await;
+        }
+        (_, MachineCommand::ProfileFinished) => {
+            stop_to_idle(false).await;
         }
 
         // Settings (valid in any state)

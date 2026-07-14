@@ -35,11 +35,17 @@ pub struct MachineSettings {
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct HardwareSettings {
+    /// °C offset between boiler sensor and group head / puck at shot start.
+    /// Also used as the maximum boiler target drop by end of shot.
     pub temp_offset: f32,
     pub flow_pulses_per_liter: f32,
     /// Pressure-setpoint decrement (bar) applied each control-loop tick
     /// while measured flow exceeds a step's flow_limit.
     pub flow_backoff_step_bar: f32,
+    /// Tau (ml) for the volume-based boiler target decay during a shot.
+    /// Lower = faster drop. At vol = tau, ~63% of temp_offset is applied.
+    /// At vol = 3*tau, ~95% is applied. Tune to match group head warm-up.
+    pub feed_forward_percents: f32,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -84,9 +90,10 @@ const DEFAULT_SETTINGS: Settings = Settings {
         sleep_timeout_min: 20.0,
     },
     hardware: HardwareSettings {
-        temp_offset: 8.0,
-        flow_pulses_per_liter: 48000.0,
+        temp_offset: 10.0,
+        flow_pulses_per_liter: 98324.0, // 49162 physical pulses/L × 2 edges per pulse
         flow_backoff_step_bar: 0.02,
+        feed_forward_percents: 100.0,
     },
     temp_pid: PidSettings {
         kp: 2.0,

@@ -274,12 +274,53 @@ class TestOximite(unittest.TestCase):
         profile = {
             "name": "Stas Style",
             "steps": [
-                {"time_s": 3.0, "pressure": 30.0},
-                {"time_s": 2.0, "pressure": 0.0},
-                {"volume": 115.0, "pressure": 9.0},
+                {"time_s": 5.0, "pressure": 20.0},
+                {"volume": 80.0, "pressure": 9.0},
             ],
         }
         self.run_profile_and_wait(profile, title="Default_Style")
+
+    def test_pid_reaction(self):
+        print("\nRunning: PID Reaction Test...")
+        # Step 1: Set PID coefficients (temp_pid must be top-level, not nested under "settings")
+        self.send_command({
+            "cmd": "save_settings",
+            "temp_pid": {"kp": 6.0, "ki": 0.5, "kd": 30.0},
+        })
+        
+        # Step 2: Call stop to activate them
+        self.send_command({"cmd": "stop"})
+        time.sleep(1.0)
+        
+        # Step 3: Run profile for 100ml at pressure 30
+        profile = {
+            "name": "PID Reaction",
+            "steps": [
+                {"volume": 100.0, "pressure": 30.0}
+            ]
+        }
+        
+        print("Starting profile...")
+        self.send_command({"cmd": "profile", "profile": profile})
+        self.__class__.telemetry_history.clear()
+        
+        # Wait for machine to enter BREWING state (1)
+        start = time.time()
+        while self.__class__.current_state == 0:
+            if time.time() - start > 5.0:
+                print("Timeout waiting for command to start!")
+                break
+            time.sleep(0.05)
+            
+        # Wait for profile to finish (return to Idle state 0)
+        self.wait_for_state(0, timeout=150, title="PID_Reaction_Test")
+        
+        # Step 4: Record one minute after profile finish
+        print("Profile finished. Recording...")
+        time.sleep(10.0)
+        
+        # Step 5: Plot results
+        self.plot_results("PID_Reaction_Test")
 
     def test_sweet_profile(self):
         profile = {
