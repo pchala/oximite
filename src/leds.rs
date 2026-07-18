@@ -97,19 +97,34 @@ pub async fn run_led_task(mut sm: StateMachine<'static, embassy_rp::peripherals:
 #[embassy_executor::task]
 pub async fn led_update_task() {
     let mut state_rx = MACHINE_STATE.receiver().unwrap();
+    let mut last_wakeup = embassy_time::Instant::now();
+    let mut was_sleeping = false;
 
     loop {
         let current_state = state::get_state();
+        
+        if was_sleeping && current_state != MachineState::Sleeping {
+            last_wakeup = embassy_time::Instant::now();
+        }
+        was_sleeping = current_state == MachineState::Sleeping;
+
         let a = control::AdcMonitor::new().get_state().await;
         let f = flow_meter::FlowMonitor::new().get_state().await;
 
-        let temp_color = if a.temp_c < a.target_temp - 1.0 {
+        let mut temp_color = if a.temp_c < a.target_temp - 1.0 {
             Rgb::new(0, 0, 255) // Blue  — heating
         } else if a.temp_c > a.target_temp + 1.0 {
             Rgb::new(255, 0, 0) // Red   — over-temp
         } else {
             Rgb::new(0, 255, 0) // Green — at target
         };
+
+        let is_warming_up = last_wakeup.elapsed() < Duration::from_secs(6 * 60);
+        let blink_off = (embassy_time::Instant::now().as_millis() / 500) % 2 == 0;
+        
+        if is_warming_up && blink_off && current_state != MachineState::Sleeping {
+            temp_color = Rgb::off();
+        }
 
         let (l1, l2) = if current_state == MachineState::Sleeping {
             // Sleep indicator: magenta on LED1, LED2 off

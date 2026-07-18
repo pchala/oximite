@@ -30,6 +30,7 @@ struct ApiCommand<'a> {
     press_pid: Option<PidSettings>,
     wifi: Option<WifiSettings>,
     power: Option<f32>,
+    temp: Option<f32>,
 }
 
 #[derive(Serialize)]
@@ -40,7 +41,9 @@ struct TelemetryData {
     tp: f32,
     fl: f32,
     vol: f32,
+    hp: f32,
     st: u32,
+    sbt: f32,
 }
 
 #[derive(Serialize)]
@@ -64,6 +67,11 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
             SIG_COMMAND.signal(MachineCommand::Stop);
             if let Some(p) = payload.power {
                 SIG_COMMAND.signal(MachineCommand::DirectPump(p));
+            }
+        }
+        "set_session_temp" => {
+            if let Some(t) = payload.temp {
+                SIG_COMMAND.signal(MachineCommand::SetSessionTemp(t));
             }
         }
         "save_settings" => {
@@ -132,7 +140,9 @@ async fn get_telemetry_json() -> heapless::String<256> {
         tp: a.target_bar,
         fl: f.flow_rate_ml_s,
         vol: f.volume_ml,
+        hp: a.heater_duty,
         st: st_val as u32,
+        sbt: crate::state::get_session_brew_temp(),
     };
 
     let mut json_str = heapless::String::<256>::new();

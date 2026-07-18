@@ -118,6 +118,7 @@ class TestOximite(unittest.TestCase):
         tp = [d.get('tp', 0) for d in history]
         vol = [d.get('vol', 0) for d in history]
         fl = [d.get('fl', 0) for d in history]
+        hp = [d.get('hp', 0) for d in history]
         t = [d.get('t', 0) for d in history]
         tt = [d.get('tt', 0) for d in history]
 
@@ -126,9 +127,17 @@ class TestOximite(unittest.TestCase):
         # --- Top Panel: Temperature ---
         ax_temp.set_title(title.replace('_', ' '), fontweight='bold', fontsize=14)
         ax_temp.set_ylabel("Temperature (°C)", color='tab:red', fontweight='bold')
-        ax_temp.plot(x, tt, label="Target Temp", linestyle="--", color='grey')
-        ax_temp.plot(x, t, label="Actual Temp", color='tab:red', linewidth=2)
-        ax_temp.legend(loc='upper left')
+        line_tt = ax_temp.plot(x, tt, label="Target Temp", linestyle="--", color='grey')
+        line_t = ax_temp.plot(x, t, label="Actual Temp", color='tab:red', linewidth=2)
+        
+        ax_hp = ax_temp.twinx()
+        ax_hp.set_ylabel("Heater Power (%)", color='tab:orange', fontweight='bold')
+        line_hp = ax_hp.plot(x, hp, label="Heater Power", color='tab:orange', alpha=0.5)
+        ax_hp.set_ylim(-5, 105)
+        
+        lines_top = line_tt + line_t + line_hp
+        labels_top = [l.get_label() for l in lines_top]
+        ax_temp.legend(lines_top, labels_top, loc='upper left')
         ax_temp.grid(True, alpha=0.3)
 
         # --- Bottom Panel: Pressure ---
@@ -140,18 +149,16 @@ class TestOximite(unittest.TestCase):
         ax_press.tick_params(axis='y', labelcolor=color_p)
         ax_press.set_ylim(bottom=0)
 
-        # --- Bottom Panel: Volume & Flow (Twin Axis) ---
-        ax_vol = ax_press.twinx()
-        color_v = 'tab:green'
+        # --- Bottom Panel: Flow (Twin Axis) ---
+        ax_flow = ax_press.twinx()
         color_f = 'tab:purple'
-        ax_vol.set_ylabel("Volume (ml) / Flow (ml/s)", color=color_v, fontweight='bold')
-        line3 = ax_vol.plot(x, vol, label="Accumulated Volume (ml)", color=color_v, linewidth=2)
-        line4 = ax_vol.plot(x, fl, label="Flow Rate (ml/s)", color=color_f, linestyle=":", alpha=0.7)
-        ax_vol.tick_params(axis='y', labelcolor=color_v)
-        ax_vol.set_ylim(bottom=0)
+        ax_flow.set_ylabel("Flow Rate (ml/s)", color=color_f, fontweight='bold')
+        line3 = ax_flow.plot(x, fl, label="Flow Rate (ml/s)", color=color_f, linewidth=2)
+        ax_flow.tick_params(axis='y', labelcolor=color_f)
+        ax_flow.set_ylim(bottom=0)
 
         # Combine legends
-        lines = line1 + line2 + line3 + line4
+        lines = line1 + line2 + line3
         labels = [l.get_label() for l in lines]
         ax_press.legend(lines, labels, loc='upper left')
         ax_press.grid(True, alpha=0.3)
@@ -292,11 +299,12 @@ class TestOximite(unittest.TestCase):
         self.send_command({"cmd": "stop"})
         time.sleep(1.0)
         
-        # Step 3: Run profile for 100ml at pressure 30
+        # Step 3: Run profile 
         profile = {
             "name": "PID Reaction",
             "steps": [
-                {"volume": 100.0, "pressure": 30.0}
+                {"time_s": 5.0, "pressure": 20.0},
+                {"volume": 80.0, "pressure": 29.0},
             ]
         }
         
@@ -317,7 +325,7 @@ class TestOximite(unittest.TestCase):
         
         # Step 4: Record one minute after profile finish
         print("Profile finished. Recording...")
-        time.sleep(10.0)
+        time.sleep(60.0)
         
         # Step 5: Plot results
         self.plot_results("PID_Reaction_Test")

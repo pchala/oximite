@@ -208,6 +208,16 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
             SIG_FLASH_UPDATE.signal(FlashUpdate::SaveSettings(old_s));
         }
 
+        // Session Temperature Adjustment (valid in any state)
+        (_, MachineCommand::SetSessionTemp(t)) => {
+            state::set_session_brew_temp(t);
+            // Instantly apply if we are currently using brew temp target
+            let s = state::get_state();
+            if s == MachineState::Idle || s == MachineState::Brewing || s == MachineState::Pumping || s == MachineState::Cooling || s == MachineState::HotWater {
+                control::set_target_temp(TargetTempMode::Brew).await;
+            }
+        }
+
         (state, cmd) => {
             // Safety catch-all: ignore invalid/dangerous commands
             defmt::warn!(
@@ -227,6 +237,8 @@ pub async fn coordinator_task() {
     let mut last_activity = embassy_time::Instant::now();
 
     state::set_state(MachineState::Idle);
+    let initial_temp = crate::settings::ControlSettings::current().machine.brew_temp;
+    state::set_session_brew_temp(initial_temp);
     wake_up().await;
 
     loop {

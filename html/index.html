@@ -41,7 +41,15 @@
         <div class="panel">
             <h2>oximite <span id="machine-state" style="float:right; color:var(--accent);">IDLE</span></h2>
             <div class="grid-3" style="margin-bottom: 20px;">
-                <div class="stat-box"><span class="stat-label">Temperature</span><span id="val-t">0.0</span> °C</div>
+                <div class="stat-box">
+                    <span class="stat-label">Brew Target</span>
+                    <div style="display:flex; justify-content:center; align-items:center; margin-top:5px; font-size:0.9em;">
+                        <button style="padding: 2px 10px; min-width:30px; background:#444;" onclick="adjustSessionTemp(-0.5)">-</button>
+                        <span id="val-sbt" style="margin: 0 10px; font-size: 1.1em;">0.0 °C</span>
+                        <button style="padding: 2px 10px; min-width:30px; background:#444;" onclick="adjustSessionTemp(0.5)">+</button>
+                    </div>
+                </div>
+                <div class="stat-box"><span class="stat-label">Actual Temp</span><span id="val-t">0.0</span> °C</div>
                 <div class="stat-box"><span class="stat-label">Pressure</span><span id="val-p">0.0</span> Bar</div>
                 <div class="stat-box"><span class="stat-label">Flow Rate</span><span id="val-fl">0.0</span> ml/s</div>
                 <div class="stat-box"><span class="stat-label">Volume</span><span id="val-vol">0.0</span> ml</div>
@@ -189,6 +197,14 @@
 
     // --- TELEMETRY POLLING ---
     let lastState = 0; let ticks = 0; let isPolling = false;
+    let currentSessionTemp = 0.0;
+    
+    function adjustSessionTemp(delta) {
+        let newTemp = currentSessionTemp + delta;
+        sendCommand('set_session_temp', { temp: newTemp });
+        currentSessionTemp = newTemp;
+        document.getElementById('val-sbt').innerText = currentSessionTemp.toFixed(1) + " °C";
+    }
     let brewStartTime = 0; let lastBrewTime = 0;
     async function pollTelemetry() {
         if (isPolling) return;
@@ -201,6 +217,10 @@
             const data = await res.json();
             
             document.getElementById('val-t').innerText = data.t.toFixed(1); 
+            if (data.sbt !== undefined) {
+                currentSessionTemp = data.sbt;
+                document.getElementById('val-sbt').innerText = data.sbt.toFixed(1) + " °C";
+            }
             document.getElementById('val-p').innerText = data.p.toFixed(1);
             document.getElementById('val-fl').innerText = data.fl.toFixed(1); 
             document.getElementById('val-vol').innerText = data.vol.toFixed(1);

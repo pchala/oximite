@@ -3,7 +3,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use portable_atomic::AtomicU8;
+use portable_atomic::{AtomicU8, AtomicU32};
 
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, defmt::Format, IntoPrimitive, TryFromPrimitive)]
@@ -30,6 +30,7 @@ impl MachineState {
                 | MachineState::Cooling
                 | MachineState::Descaling
                 | MachineState::HotWater
+                | MachineState::Steaming
         )
     }
 }
@@ -46,6 +47,7 @@ pub enum MachineCommand {
     ProfileFinished, // Sent by hardware when it finishes naturally
     SaveSettings(crate::settings::Settings),
     TogglePower,
+    SetSessionTemp(f32),
 }
 
 impl defmt::Format for MachineCommand {
@@ -61,6 +63,7 @@ impl defmt::Format for MachineCommand {
             MachineCommand::ProfileFinished => defmt::write!(fmt, "ProfileFinished"),
             MachineCommand::SaveSettings(_) => defmt::write!(fmt, "SaveSettings"),
             MachineCommand::TogglePower => defmt::write!(fmt, "TogglePower"),
+            MachineCommand::SetSessionTemp(t) => defmt::write!(fmt, "SetSessionTemp({})", t),
         }
     }
 }
@@ -85,4 +88,14 @@ pub fn set_state(state: MachineState) {
         CURRENT_STATE.store(state.into(), Ordering::Relaxed);
         MACHINE_STATE.sender().send(state);
     }
+}
+
+pub static SESSION_BREW_TEMP: AtomicU32 = AtomicU32::new(0);
+
+pub fn get_session_brew_temp() -> f32 {
+    f32::from_bits(SESSION_BREW_TEMP.load(Ordering::Relaxed))
+}
+
+pub fn set_session_brew_temp(temp: f32) {
+    SESSION_BREW_TEMP.store(temp.to_bits(), Ordering::Relaxed);
 }

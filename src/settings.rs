@@ -24,7 +24,7 @@ pub struct BrewProfile {
     pub steps: heapless::Vec<BrewProfileStep, 10>,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct MachineSettings {
     pub brew_temp: f32,
     pub steam_temp: f32,
@@ -132,6 +132,7 @@ impl Default for Settings {
 /// Wi-Fi credentials, usage counters) on every tick.
 #[derive(Clone, Copy, PartialEq)]
 pub struct ControlSettings {
+    pub machine: MachineSettings,
     pub hardware: HardwareSettings,
     pub temp_pid: PidSettings,
     pub press_pid: PidSettings,
@@ -140,6 +141,7 @@ pub struct ControlSettings {
 impl Default for ControlSettings {
     fn default() -> Self {
         Self {
+            machine: DEFAULT_SETTINGS.machine,
             hardware: DEFAULT_SETTINGS.hardware,
             temp_pid: DEFAULT_SETTINGS.temp_pid,
             press_pid: DEFAULT_SETTINGS.press_pid,
@@ -170,6 +172,7 @@ impl Settings {
 
     pub async fn update_ram(new_settings: Self) {
         CONTROL_SETTINGS.sender().send(ControlSettings {
+            machine: new_settings.machine,
             hardware: new_settings.hardware,
             temp_pid: new_settings.temp_pid,
             press_pid: new_settings.press_pid,

@@ -96,27 +96,40 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
         )
         .await
         {
-            Ok(Either::First(val)) => {
-                let mut current_ticks = val;
-                let mut pulses_this_batch: u32 = 1;
+            Ok(Either::First(first_val)) => {
+                let mut valid_pulses: u32 = 0;
+                let mut last_valid_ticks: u32 = 0;
+                let mut total_pulses = 1;
+
+                let mut process_pulse = |val: u32| {
+                    if val > 0 {
+                        let raw_flow = flow_numerator / (val as f32);
+                        if raw_flow <= 50.0 {
+                            valid_pulses += 1;
+                            last_valid_ticks = val;
+                        } else {
+                            defmt::warn!("Ignored noise pulse ({} ml/s)", raw_flow);
+                        }
+                    } else {
+                        defmt::warn!("PIO return 0 for flow");
+                    }
+                };
+
+                process_pulse(first_val);
 
                 // Drain any extra entries that piled up in the FIFO.
-                for _ in 0..7 {
-                    if let Some(val) = sm.rx().try_pull() {
-                        pulses_this_batch += 1;
-                        current_ticks = val;
-                    } else {
-                        break;
-                    }
+                while let Some(val) = sm.rx().try_pull() {
+                    total_pulses += 1;
+                    process_pulse(val);
                 }
 
-                if current_ticks > 0 {
-                    let raw_flow_ml_s = flow_numerator / (current_ticks as f32);
-                    if pulses_this_batch > 1 {
-                        defmt::warn!("PIO FIFO had {} entries!", pulses_this_batch);
+                if valid_pulses > 0 {
+                    let raw_flow_ml_s = flow_numerator / (last_valid_ticks as f32);
+                    if total_pulses > 1 {
+                        defmt::warn!("PIO FIFO had {} entries!", total_pulses);
                     }
 
-                    volume_ml += ml_per_pulse * pulses_this_batch as f32;
+                    volume_ml += ml_per_pulse * valid_pulses as f32;
 
                     let mut state = FLOW_WATCH.try_get().unwrap_or_default();
 
@@ -130,8 +143,6 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
 
                     state.volume_ml = volume_ml;
                     FLOW_WATCH.sender().send(state);
-                } else {
-                    defmt::warn!("PIO return 0 for flow");
                 }
             }
             Ok(Either::Second(_)) => {

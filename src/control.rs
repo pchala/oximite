@@ -46,9 +46,9 @@ pub enum TargetTempMode {
 }
 
 pub async fn set_target_temp(mode: TargetTempMode) {
-    let s = crate::settings::Settings::get().await;
+    let s = crate::settings::ControlSettings::current();
     let temp = match mode {
-        TargetTempMode::Brew => s.machine.brew_temp + s.hardware.temp_offset,
+        TargetTempMode::Brew => crate::state::get_session_brew_temp() + s.hardware.temp_offset,
         TargetTempMode::Steam => s.machine.steam_temp,
         TargetTempMode::Descale => 60.0,
         TargetTempMode::Off => 0.0,
@@ -144,6 +144,7 @@ pub struct AdcState {
     pub target_bar: f32,
     pub target_temp: f32,
     pub flow_limit_ml_s: f32,
+    pub heater_duty: f32,
 }
 
 impl AdcState {
@@ -179,6 +180,7 @@ impl AdcMonitor {
             target_bar: 0.0,
             target_temp: 20.0,
             flow_limit_ml_s: 0.0,
+            heater_duty: 0.0,
         })
     }
 }
@@ -602,6 +604,7 @@ pub async fn ac_sync_control_task(
         new_state.target_bar = target_p;
         new_state.flow_limit_ml_s = flow_limit;
         new_state.target_temp = target_t;
+        new_state.heater_duty = heater_duty;
         ADC_WATCH.sender().send(new_state);
 
         // --- Get flow readings ---
