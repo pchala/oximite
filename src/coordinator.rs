@@ -202,10 +202,24 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
         }
 
         // Settings (valid in any state)
-        (_, MachineCommand::SaveSettings(new_s)) => {
-            let old_s = Settings::get().await;
-            Settings::update_ram(new_s).await;
-            SIG_FLASH_UPDATE.signal(FlashUpdate::SaveSettings(old_s));
+        (_, MachineCommand::SaveMachine(m)) => {
+            let mut s = Settings::get().await;
+            s.machine = m;
+            Settings::update_ram(s).await;
+            SIG_FLASH_UPDATE.signal(FlashUpdate::SaveMachine(m));
+        }
+        (_, MachineCommand::SavePids(t, p)) => {
+            let mut s = Settings::get().await;
+            s.temp_pid = t;
+            s.press_pid = p;
+            Settings::update_ram(s).await;
+            SIG_FLASH_UPDATE.signal(FlashUpdate::SavePids(t, p));
+        }
+        (_, MachineCommand::SaveWifi(w)) => {
+            let mut s = Settings::get().await;
+            s.wifi = w.clone();
+            Settings::update_ram(s).await;
+            SIG_FLASH_UPDATE.signal(FlashUpdate::SaveWifi(w));
         }
 
         // Session Temperature Adjustment (valid in any state)
@@ -213,7 +227,12 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
             state::set_session_brew_temp(t);
             // Instantly apply if we are currently using brew temp target
             let s = state::get_state();
-            if s == MachineState::Idle || s == MachineState::Brewing || s == MachineState::Pumping || s == MachineState::Cooling || s == MachineState::HotWater {
+            if s == MachineState::Idle
+                || s == MachineState::Brewing
+                || s == MachineState::Pumping
+                || s == MachineState::Cooling
+                || s == MachineState::HotWater
+            {
                 control::set_target_temp(TargetTempMode::Brew).await;
             }
         }
@@ -237,7 +256,9 @@ pub async fn coordinator_task() {
     let mut last_activity = embassy_time::Instant::now();
 
     state::set_state(MachineState::Idle);
-    let initial_temp = crate::settings::ControlSettings::current().machine.brew_temp;
+    let initial_temp = crate::settings::ControlSettings::current()
+        .machine
+        .brew_temp;
     state::set_session_brew_temp(initial_temp);
     wake_up().await;
 
@@ -259,11 +280,16 @@ pub async fn coordinator_task() {
                 // The waking command itself is dropped — we don't want to start
                 // a cold brew if the user pressed Brew just to wake it up.
                 if state::get_state() == MachineState::Sleeping {
-                    if let MachineCommand::SaveSettings(_) = cmd {
-                        // fall through — settings save silently without waking
-                    } else {
-                        wake_up().await;
-                        continue;
+                    match cmd {
+                        MachineCommand::SaveMachine(_)
+                        | MachineCommand::SavePids(_, _)
+                        | MachineCommand::SaveWifi(_) => {
+                            // fall through — settings save silently without waking
+                        }
+                        _ => {
+                            wake_up().await;
+                            continue;
+                        }
                     }
                 }
 

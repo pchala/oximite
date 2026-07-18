@@ -12,8 +12,8 @@ use static_cell::StaticCell;
 use crate::control::AdcMonitor;
 use crate::flow_meter::FlowMonitor;
 use crate::settings::{
-    BrewProfile, FlashUpdate, HardwareSettings, MachineSettings, PidSettings, Settings,
-    WifiSettings, SIG_FLASH_UPDATE,
+    BrewProfile, FlashUpdate, MachineSettings, PidSettings, Settings, WifiSettings,
+    SIG_FLASH_UPDATE,
 };
 use crate::state::{get_state, MachineCommand, MachineState, SIG_COMMAND};
 
@@ -25,7 +25,6 @@ struct ApiCommand<'a> {
     profile: Option<BrewProfile>,
     slot: Option<u8>,
     machine: Option<MachineSettings>,
-    hardware: Option<HardwareSettings>,
     temp_pid: Option<PidSettings>,
     press_pid: Option<PidSettings>,
     wifi: Option<WifiSettings>,
@@ -74,25 +73,21 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
                 SIG_COMMAND.signal(MachineCommand::SetSessionTemp(t));
             }
         }
-        "save_settings" => {
-            let mut s = Settings::get().await;
+        "save_machine" => {
             if let Some(m) = payload.machine {
-                s.machine = m;
+                SIG_COMMAND.signal(MachineCommand::SaveMachine(m));
             }
-            if let Some(h) = payload.hardware {
-                s.hardware = h;
+        }
+        "save_pids" => {
+            if let (Some(t), Some(p)) = (payload.temp_pid, payload.press_pid) {
+                SIG_COMMAND.signal(MachineCommand::SavePids(t, p));
             }
-            if let Some(p) = payload.temp_pid {
-                s.temp_pid = p;
-            }
-            if let Some(p) = payload.press_pid {
-                s.press_pid = p;
-            }
+        }
+        "save_wifi" => {
             if let Some(w) = payload.wifi {
                 defmt::info!("API: New SSID: {}", w.ssid.as_str());
-                s.wifi = w;
+                SIG_COMMAND.signal(MachineCommand::SaveWifi(w));
             }
-            SIG_COMMAND.signal(MachineCommand::SaveSettings(s));
         }
         "profile" => {
             if let Some(p) = payload.profile {
@@ -131,7 +126,7 @@ async fn get_telemetry_json() -> heapless::String<256> {
     let s = Settings::get().await;
 
     let (disp_t, disp_tt) =
-        a.display_temps(s.hardware.temp_offset, st_val == MachineState::Steaming);
+        a.display_temps(s.machine.temp_offset, st_val == MachineState::Steaming);
 
     let data = TelemetryData {
         t: disp_t,

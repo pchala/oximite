@@ -81,8 +81,8 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
     let mut volume_ml: f32 = 0.0;
 
     let s = crate::settings::Settings::get().await;
-    let pulses_per_liter = if s.hardware.flow_pulses_per_liter > 0.0 {
-        s.hardware.flow_pulses_per_liter
+    let pulses_per_liter = if s.machine.flow_pulses_per_liter > 0.0 {
+        s.machine.flow_pulses_per_liter
     } else {
         98324.0 // 49162 physical pulses/L × 2 edges; fallback if flash value is 0
     };

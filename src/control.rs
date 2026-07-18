@@ -48,7 +48,7 @@ pub enum TargetTempMode {
 pub async fn set_target_temp(mode: TargetTempMode) {
     let s = crate::settings::ControlSettings::current();
     let temp = match mode {
-        TargetTempMode::Brew => crate::state::get_session_brew_temp() + s.hardware.temp_offset,
+        TargetTempMode::Brew => crate::state::get_session_brew_temp() + s.machine.temp_offset,
         TargetTempMode::Steam => s.machine.steam_temp,
         TargetTempMode::Descale => 60.0,
         TargetTempMode::Off => 0.0,
@@ -594,8 +594,7 @@ pub async fn ac_sync_control_task(
             }
             target_t = tt;
             const CONST_FF: f32 = 0.021; // balance for the boiler/brew group
-            feed_forward =
-                CONST_FF * (s.hardware.feed_forward_percents / 100.0) * (target_t - 20.0);
+            feed_forward = CONST_FF * (s.machine.feed_forward_percents / 100.0) * (target_t - 20.0);
             // 50 as UI setting is 6deg feed-forward at 3.5ml/s.
         }
 
@@ -617,7 +616,7 @@ pub async fn ac_sync_control_task(
             Some(dp) => dp.clamp(0.0, 100.0),
             None if target_p > 0.0 => {
                 if flow_limit > 0.0 && f.flow_rate_ml_s > flow_limit {
-                    target_p = (target_p - s.hardware.flow_backoff_step_bar).max(0.2);
+                    target_p = (target_p - s.machine.flow_backoff_step_bar).max(0.2);
                 }
                 press_pid.update(target_p, p_ema)
             }
@@ -758,7 +757,7 @@ pub async fn execute_cooldown_flush() {
     let monitor = AdcMonitor::new();
     loop {
         let t_c = monitor.get_state().await.temp_c;
-        if t_c <= s.machine.brew_temp + s.hardware.temp_offset {
+        if t_c <= s.machine.brew_temp + s.machine.temp_offset {
             break;
         }
         Timer::after(Duration::from_millis(100)).await;
@@ -918,8 +917,8 @@ async fn record_operation(is_descale: bool, pumped_ml: f32) {
     }
 
     if s.usage != old_s.usage {
-        Settings::update_ram(s).await;
-        SIG_FLASH_UPDATE.signal(FlashUpdate::SaveSettings(old_s));
+        Settings::update_ram(s.clone()).await;
+        SIG_FLASH_UPDATE.signal(FlashUpdate::SaveUsage(s.usage));
     }
 }
 

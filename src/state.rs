@@ -3,7 +3,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use portable_atomic::{AtomicU8, AtomicU32};
+use portable_atomic::{AtomicU32, AtomicU8};
 
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, defmt::Format, IntoPrimitive, TryFromPrimitive)]
@@ -36,6 +36,7 @@ impl MachineState {
 }
 
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum MachineCommand {
     RunProfile(crate::settings::BrewProfile),
     Brew,
@@ -45,7 +46,9 @@ pub enum MachineCommand {
     Descale,
     DirectPump(f32),
     ProfileFinished, // Sent by hardware when it finishes naturally
-    SaveSettings(crate::settings::Settings),
+    SaveMachine(crate::settings::MachineSettings),
+    SavePids(crate::settings::PidSettings, crate::settings::PidSettings),
+    SaveWifi(crate::settings::WifiSettings),
     TogglePower,
     SetSessionTemp(f32),
 }
@@ -61,7 +64,9 @@ impl defmt::Format for MachineCommand {
             MachineCommand::Descale => defmt::write!(fmt, "Descale"),
             MachineCommand::DirectPump(p) => defmt::write!(fmt, "DirectPump({})", p),
             MachineCommand::ProfileFinished => defmt::write!(fmt, "ProfileFinished"),
-            MachineCommand::SaveSettings(_) => defmt::write!(fmt, "SaveSettings"),
+            MachineCommand::SaveMachine(_) => defmt::write!(fmt, "SaveMachine"),
+            MachineCommand::SavePids(_, _) => defmt::write!(fmt, "SavePids"),
+            MachineCommand::SaveWifi(_) => defmt::write!(fmt, "SaveWifi"),
             MachineCommand::TogglePower => defmt::write!(fmt, "TogglePower"),
             MachineCommand::SetSessionTemp(t) => defmt::write!(fmt, "SetSessionTemp({})", t),
         }

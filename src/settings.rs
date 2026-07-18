@@ -31,10 +31,6 @@ pub struct MachineSettings {
     pub steam_time_limit_s: f32,
     /// Minutes of inactivity while Idle before the machine auto-sleeps.
     pub sleep_timeout_min: f32,
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub struct HardwareSettings {
     /// °C offset between boiler sensor and group head / puck at shot start.
     /// Also used as the maximum boiler target drop by end of shot.
     pub temp_offset: f32,
@@ -74,7 +70,6 @@ pub struct UsageSettings {
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub machine: MachineSettings,
-    pub hardware: HardwareSettings,
     pub temp_pid: PidSettings,
     pub press_pid: PidSettings,
     pub wifi: WifiSettings,
@@ -88,8 +83,6 @@ const DEFAULT_SETTINGS: Settings = Settings {
         steam_temp: 135.0,
         steam_time_limit_s: 120.0,
         sleep_timeout_min: 20.0,
-    },
-    hardware: HardwareSettings {
         temp_offset: 10.0,
         flow_pulses_per_liter: 98324.0, // 49162 physical pulses/L × 2 edges per pulse
         flow_backoff_step_bar: 0.02,
@@ -133,7 +126,6 @@ impl Default for Settings {
 #[derive(Clone, Copy, PartialEq)]
 pub struct ControlSettings {
     pub machine: MachineSettings,
-    pub hardware: HardwareSettings,
     pub temp_pid: PidSettings,
     pub press_pid: PidSettings,
 }
@@ -142,7 +134,6 @@ impl Default for ControlSettings {
     fn default() -> Self {
         Self {
             machine: DEFAULT_SETTINGS.machine,
-            hardware: DEFAULT_SETTINGS.hardware,
             temp_pid: DEFAULT_SETTINGS.temp_pid,
             press_pid: DEFAULT_SETTINGS.press_pid,
         }
@@ -173,7 +164,6 @@ impl Settings {
     pub async fn update_ram(new_settings: Self) {
         CONTROL_SETTINGS.sender().send(ControlSettings {
             machine: new_settings.machine,
-            hardware: new_settings.hardware,
             temp_pid: new_settings.temp_pid,
             press_pid: new_settings.press_pid,
         });
@@ -214,26 +204,6 @@ macro_rules! load_section {
     }};
 }
 
-/// Serialises and stores a section only when the value has changed.
-macro_rules! save_if_changed {
-    ($flash:expr, $scratch:expr, $buf:expr, $old:expr, $new:expr, $key:expr, $changed:ident) => {
-        if $old != $new {
-            if let Ok(len) = serde_json_core::to_slice($new, &mut $buf) {
-                let _ = store_item(
-                    $flash,
-                    FS_RANGE,
-                    &mut NoCache::new(),
-                    $scratch,
-                    $key,
-                    &&$buf[..len],
-                )
-                .await;
-                $changed = true;
-            }
-        }
-    };
-}
-
 pub struct SettingsStore;
 
 impl SettingsStore {
@@ -245,10 +215,6 @@ impl SettingsStore {
 
         if let Some(v) = load_section!(flash, &mut scratch, b"sys_machine", MachineSettings) {
             s.machine = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_hardware", HardwareSettings) {
-            s.hardware = v;
             loaded = true;
         }
         if let Some(v) = load_section!(flash, &mut scratch, b"sys_temp_pid", PidSettings) {
@@ -276,73 +242,26 @@ impl SettingsStore {
         Settings::update_ram(s).await;
     }
 
-    /// Writes only sections that differ between `old` and `new` to flash.
-    pub async fn save_changed<T: Instance>(
+    pub async fn save_section<T: Instance, S: Serialize, K: sequential_storage::map::Key>(
         flash: &mut Flash<'_, T, Async, 16777216>,
-        old: &Settings,
-        new: &Settings,
-    ) {
+        key: &K,
+        data: &S,
+    ) -> Result<(), ()> {
         let mut scratch = [0u8; 1024];
         let mut buf = [0u8; 1024];
-        let mut saved = false;
-
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.machine,
-            &new.machine,
-            b"sys_machine",
-            saved
-        );
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.hardware,
-            &new.hardware,
-            b"sys_hardware",
-            saved
-        );
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.temp_pid,
-            &new.temp_pid,
-            b"sys_temp_pid",
-            saved
-        );
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.press_pid,
-            &new.press_pid,
-            b"sys_press_pid",
-            saved
-        );
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.wifi,
-            &new.wifi,
-            b"sys_wifi",
-            saved
-        );
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.usage,
-            &new.usage,
-            b"sys_usage",
-            saved
-        );
-
-        if saved {
-            defmt::info!("Settings changes saved to flash.");
+        if let Ok(len) = serde_json_core::to_slice(data, &mut buf) {
+            store_item(
+                flash,
+                FS_RANGE,
+                &mut NoCache::new(),
+                &mut scratch,
+                key,
+                &&buf[..len],
+            )
+            .await
+            .map_err(|_| ())
+        } else {
+            Err(())
         }
     }
 }
@@ -452,7 +371,10 @@ pub async fn delete_profile_from_flash<T: Instance>(
 // BACKGROUND FLASH EVENT HANDLER
 // ==========================================
 pub enum FlashUpdate {
-    SaveSettings(Settings),
+    SaveMachine(MachineSettings),
+    SavePids(PidSettings, PidSettings),
+    SaveWifi(WifiSettings),
+    SaveUsage(UsageSettings),
     SaveProfile(u8),
     DeleteProfile(u8),
 }
@@ -466,9 +388,18 @@ pub async fn flash_update_task(
     loop {
         let event = SIG_FLASH_UPDATE.wait().await;
         match event {
-            FlashUpdate::SaveSettings(old_s) => {
-                let new_s = Settings::get().await;
-                SettingsStore::save_changed(&mut flash, &old_s, &new_s).await;
+            FlashUpdate::SaveMachine(m) => {
+                let _ = SettingsStore::save_section(&mut flash, b"sys_machine", &m).await;
+            }
+            FlashUpdate::SavePids(t, p) => {
+                let _ = SettingsStore::save_section(&mut flash, b"sys_temp_pid", &t).await;
+                let _ = SettingsStore::save_section(&mut flash, b"sys_press_pid", &p).await;
+            }
+            FlashUpdate::SaveWifi(w) => {
+                let _ = SettingsStore::save_section(&mut flash, b"sys_wifi", &w).await;
+            }
+            FlashUpdate::SaveUsage(u) => {
+                let _ = SettingsStore::save_section(&mut flash, b"sys_usage", &u).await;
             }
             FlashUpdate::SaveProfile(slot) => {
                 if let Some(p) = get_profile_from_ram(slot).await {

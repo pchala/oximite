@@ -102,7 +102,7 @@ pub async fn led_update_task() {
 
     loop {
         let current_state = state::get_state();
-        
+
         if was_sleeping && current_state != MachineState::Sleeping {
             last_wakeup = embassy_time::Instant::now();
         }
@@ -120,8 +120,8 @@ pub async fn led_update_task() {
         };
 
         let is_warming_up = last_wakeup.elapsed() < Duration::from_secs(6 * 60);
-        let blink_off = (embassy_time::Instant::now().as_millis() / 500) % 2 == 0;
-        
+        let blink_off = (embassy_time::Instant::now().as_millis() / 500).is_multiple_of(2);
+
         if is_warming_up && blink_off && current_state != MachineState::Sleeping {
             temp_color = Rgb::off();
         }
