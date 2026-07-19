@@ -289,22 +289,22 @@ class TestOximite(unittest.TestCase):
 
     def test_pid_reaction(self):
         print("\nRunning: PID Reaction Test...")
-        # Step 1: Set PID coefficients (temp_pid must be top-level, not nested under "settings")
-        self.send_command({
-            "cmd": "save_settings",
-            "temp_pid": {"kp": 6.0, "ki": 0.5, "kd": 30.0},
-        })
+        # # Step 1: Set PID coefficients (temp_pid must be top-level, not nested under "settings")
+        # self.send_command({
+        #     "cmd": "save_settings",
+        #     "temp_pid": {"kp": 6.0, "ki": 0.5, "kd": 30.0},
+        # })
         
-        # Step 2: Call stop to activate them
-        self.send_command({"cmd": "stop"})
-        time.sleep(1.0)
+        # # Step 2: Call stop to activate them
+        # self.send_command({"cmd": "stop"})
+        # time.sleep(1.0)
         
         # Step 3: Run profile 
         profile = {
             "name": "PID Reaction",
             "steps": [
-                {"time_s": 5.0, "pressure": 20.0},
-                {"volume": 80.0, "pressure": 29.0},
+                {"time_s": 10.0, "pressure": 20.0},
+                {"volume": 80.0, "pressure": 9.0},
             ]
         }
         
