@@ -437,8 +437,8 @@ pub fn setup_triac_sm(
     sm.set_enable(true);
 }
 
-/// Samples `total` conversions from `ch`, discarding the leading `total - keep`
-/// (letting the sample-and-hold cap settle) and returning the average of the rest.
+// Samples `total` conversions from `ch`, discarding the leading `total - keep`
+// (letting the sample-and-hold cap settle) and returning the average of the rest.
 async fn sample_avg(
     adc: &mut Adc<'static, Async>,
     ch: &mut Channel<'static>,
@@ -525,7 +525,7 @@ pub async fn ac_sync_control_task(
     );
 
     // Dynamic targets
-    let (mut target_p, mut flow_limit) = (0.0, 0.0);
+    let (mut target_p, mut effective_target_p, mut flow_limit) = (0.0, 0.0, 0.0);
     let mut direct_pump: Option<f32> = None;
     let mut target_t = initial_s.machine.brew_temp;
     let mut feed_forward: f32 = 0.0;
@@ -579,6 +579,9 @@ pub async fn ac_sync_control_task(
             target_p = tp;
         }
         if let Some(fl) = SIG_FLOW_LIMIT.try_take() {
+            if flow_limit == 0.0 && fl > 0.0 {
+                effective_target_p = p_ema;
+            }
             flow_limit = fl;
         }
         if let Some(dp) = SIG_DIRECT_PUMP.try_take() {
@@ -595,7 +598,6 @@ pub async fn ac_sync_control_task(
             target_t = tt;
             const CONST_FF: f32 = 0.021; // balance for the boiler/brew group
             feed_forward = CONST_FF * (s.machine.feed_forward_percents / 100.0) * (target_t - 20.0);
-            // 50 as UI setting is 6deg feed-forward at 3.5ml/s.
         }
 
         // --- Global Telemetry Update ---
@@ -615,10 +617,17 @@ pub async fn ac_sync_control_task(
             // limiting — it's raw power, not an espresso shot being protected.
             Some(dp) => dp.clamp(0.0, 100.0),
             None if target_p > 0.0 => {
-                if flow_limit > 0.0 && f.flow_rate_ml_s > flow_limit {
-                    target_p = (target_p - s.machine.flow_backoff_step_bar).max(0.2);
+                if flow_limit > 0.0 {
+                    if f.flow_rate_ml_s > flow_limit {
+                        effective_target_p -= s.machine.flow_backoff_step_bar;
+                    } else if f.flow_rate_ml_s < flow_limit {
+                        effective_target_p += s.machine.flow_backoff_step_bar;
+                    }
+                    effective_target_p = effective_target_p.clamp(0.2, target_p);
+                } else {
+                    effective_target_p = target_p;
                 }
-                press_pid.update(target_p, p_ema)
+                press_pid.update(effective_target_p, p_ema)
             }
             None => 0.0,
         };
@@ -631,15 +640,16 @@ pub async fn ac_sync_control_task(
 
         // --- TEMPERATURE PID (Runs 5 times a second -> every 10 ticks at 50Hz) ---
         if tick.is_multiple_of(10) {
-            let effective_target = if brew_active {
+            let effective_target_t = if brew_active {
                 target_t + (f.flow_rate_ml_s * feed_forward).clamp(0.0, 20.0)
             } else {
                 target_t
             };
-            heater_duty = temp_pid.update(effective_target, t_ema);
+            heater_duty = temp_pid.update(effective_target_t, t_ema);
         }
 
-        // Delay for ~2.5ms (at 50Hz) to ensure we toggle the MOC3042
+        // Delay for ~2.5ms (at 50Hz) to ensure we toggle the MOC3042 while voltage is high enough (>20V inhibit),
+        // avoiding accidental single half-wave latches.
         timer.await;
 
         // --- HEATER PIN TOGGLE (Delta-Sigma running every single full-wave) ---

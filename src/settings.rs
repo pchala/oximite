@@ -85,18 +85,18 @@ const DEFAULT_SETTINGS: Settings = Settings {
         sleep_timeout_min: 20.0,
         temp_offset: 10.0,
         flow_pulses_per_liter: 98324.0, // 49162 physical pulses/L × 2 edges per pulse
-        flow_backoff_step_bar: 0.02,
+        flow_backoff_step_bar: 0.1,
         feed_forward_percents: 100.0,
     },
     temp_pid: PidSettings {
-        kp: 2.0,
-        ki: 0.01,
-        kd: 5.0,
+        kp: 8.0,
+        ki: 0.8,
+        kd: 20.0,
     },
     press_pid: PidSettings {
-        kp: 2.0,
-        ki: 0.1,
-        kd: 0.5,
+        kp: 10.0,
+        ki: 20.0,
+        kd: 0.0,
     },
     wifi: WifiSettings {
         ssid: heapless::String::new(),

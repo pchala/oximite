@@ -303,8 +303,9 @@ class TestOximite(unittest.TestCase):
         profile = {
             "name": "PID Reaction",
             "steps": [
-                {"time_s": 10.0, "pressure": 20.0},
-                {"volume": 80.0, "pressure": 9.0},
+                {"time_s": 5.0, "pressure": 20.0},
+                {"time_s": 3.0},
+                {"volume": 85.0, "pressure": 9.0, "flow": 3.0},
             ]
         }
         

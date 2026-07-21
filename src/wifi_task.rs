@@ -42,7 +42,6 @@ struct TelemetryData {
     vol: f32,
     hp: f32,
     st: u32,
-    sbt: f32,
 }
 
 #[derive(Serialize)]
@@ -130,14 +129,13 @@ async fn get_telemetry_json() -> heapless::String<256> {
 
     let data = TelemetryData {
         t: disp_t,
-        tt: disp_tt,
+        tt: crate::state::get_session_brew_temp(),
         p: a.pressure_bar,
         tp: a.target_bar,
         fl: f.flow_rate_ml_s,
         vol: f.volume_ml,
         hp: a.heater_duty,
         st: st_val as u32,
-        sbt: crate::state::get_session_brew_temp(),
     };
 
     let mut json_str = heapless::String::<256>::new();
