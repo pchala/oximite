@@ -129,7 +129,7 @@ async fn get_telemetry_json() -> heapless::String<256> {
 
     let data = TelemetryData {
         t: disp_t,
-        tt: crate::state::get_session_brew_temp(),
+        tt: disp_tt,
         p: a.pressure_bar,
         tp: a.target_bar,
         fl: f.flow_rate_ml_s,
