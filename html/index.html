@@ -219,9 +219,9 @@
             const data = await res.json();
             
             document.getElementById('val-t').innerText = data.t.toFixed(1); 
-            if (data.sbt !== undefined) {
-                currentSessionTemp = data.sbt;
-                document.getElementById('val-sbt').innerText = data.sbt.toFixed(1) + " °C";
+            if (data.tt !== undefined) {
+                currentSessionTemp = data.tt;
+                document.getElementById('val-sbt').innerText = data.tt.toFixed(1) + " °C";
             }
             document.getElementById('val-p').innerText = data.p.toFixed(1);
             document.getElementById('val-fl').innerText = data.fl.toFixed(1); 
