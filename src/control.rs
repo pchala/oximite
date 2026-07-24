@@ -437,6 +437,73 @@ pub fn setup_triac_sm(
     sm.set_enable(true);
 }
 
+/// Heater PIO SM: zero-cross-synced ON/OFF with a hardware fail-safe.
+///
+/// `ac_sync_control_task` keeps deciding "fire/skip this chunk" (delta-sigma,
+/// unchanged) but never touches the heater pin directly — it just pushes `1`
+/// to this SM's TX FIFO when the chunk should fire, or nothing when it
+/// shouldn't. The SM checks its FIFO **once per full AC cycle** (a "chunk" =
+/// the sensed positive half-wave + the following negative half-wave) using
+/// the classic non-blocking-pull idiom: preload scratch X with the sentinel
+/// 0, `pull noblock` (copies TX FIFO into OSR if non-empty, else copies X
+/// back into OSR unchanged), so OSR/X == 0 means "nothing was queued".
+///
+/// Two consecutive queued flags therefore hold the pin on for 2 full cycles
+/// (4 half-waves) with no glitch in between (the SM just re-asserts `set
+/// pins,1` at the next boundary). If `ac_sync_control_task` hangs or panics
+/// and stops pushing, the FIFO drains and the very next boundary check
+/// forces the pin low — the heater fails safe within at most one chunk
+/// (~20ms @ 50Hz), entirely independent of the CPU/executor.
+///
+/// **Zero-cross race note:** GP10 is tapped after the step-down transformer
+/// (see `sch/README.md`), so the sensed edge lags the true mains zero-cross.
+/// Deciding right at `wait 0 pin 0` would race the MOC3062M's own true-zero-cross
+/// retrigger sample: a late OFF flag could arrive just after the opto already
+/// latched "conduct through this half-wave", silently stretching one chunk to
+/// 3 half-waves instead of 2. To avoid that, the SM burns a fixed ~2ms settle
+/// delay right after the sensed edge (a single `nop [31]`, using the SM's own
+/// slow clock divider so its 5-bit delay field spans milliseconds) before it
+/// ever samples the FIFO or touches the pin — landing the decision safely
+/// mid-half-wave on both the sensed and true timelines, well clear of any
+/// zero-cross window, using a hardware delay slot instead of a software timer
+/// so the safety margin holds even if the task controlling it has died.
+pub fn setup_heater_sm(
+    common: &mut Common<'static, PIO0>,
+    sm: &mut StateMachine<'static, PIO0, 0>,
+    heater_pin: &Pin<'static, PIO0>,
+    zc_pin: &Pin<'static, PIO0>,
+) {
+    let prg = pio_asm!(
+        ".wrap_target",
+        "wait 0 pin 0", // Sync: sensed start of positive half-wave (chunk boundary)
+        "nop [31]",     // Fixed settle delay: 32 cycles @ 16kHz = exactly 2ms, clears
+                        // the true-zero-cross race window regardless of transformer lag
+        "set x, 0",     // Sentinel: 0 = "nothing queued this chunk"
+        "pull noblock", // FIFO has data -> OSR=data; empty -> OSR=x (0)
+        "mov x, osr",
+        "jmp !x, off",
+        "set pins, 1", // Flag present -> heater ON for the whole chunk
+        "jmp cont",
+        "off:",
+        "set pins, 0", // FIFO empty -> heater OFF for the whole chunk (fail-safe)
+        "cont:",
+        "wait 1 pin 0", // Ride out the rest of the positive half-wave
+        ".wrap"         // Loop back to "wait 0 pin 0": rides out the negative half-wave too
+    );
+    let loaded = common.load_program(&prg.program);
+    let mut cfg = Config::default();
+    cfg.use_program(&loaded, &[]);
+    cfg.set_set_pins(&[heater_pin]);
+    cfg.set_in_pins(&[zc_pin]);
+    // 16kHz SM clock: only governs the settle-delay loop's granularity and the
+    // "wait pin" instructions' edge-detection latency (both ms-scale-tolerant
+    // here) — independent of the trigger/triac SMs' own clock dividers.
+    cfg.clock_divider = FixedU32::from_num(150_000_000.0 / 16_000.0);
+    sm.set_config(&cfg);
+    sm.set_pin_dirs(Direction::Out, &[heater_pin]);
+    sm.set_enable(true);
+}
+
 // Samples `total` conversions from `ch`, discarding the leading `total - keep`
 // (letting the sample-and-hold cap settle) and returning the average of the rest.
 async fn sample_avg(
@@ -504,8 +571,8 @@ pub async fn adc_task(
 #[embassy_executor::task]
 pub async fn ac_sync_control_task(
     mut sm_trigger: StateMachine<'static, PIO0, 1>,
-    mut sm_triac: StateMachine<'static, PIO0, 2>,
-    mut heater: Output<'static>,
+    mut sm_pump: StateMachine<'static, PIO0, 2>,
+    mut sm_heater: StateMachine<'static, PIO0, 0>,
 ) {
     // EMA filter for AC period
     let mut ac_ema = 10_000.0;
@@ -555,13 +622,6 @@ pub async fn ac_sync_control_task(
                 ac_ema = ac_ema + ALPHA_AC * (half_wave_us - ac_ema);
             }
         }
-
-        // Delay for ~2.5ms (at 50Hz) to ensure we toggle the MOC3042
-        // while voltage is high enough (>20V inhibit), avoiding accidental single half-wave latches.
-        // ac_ema is the half-wave duration in microseconds.
-        let quarter_half_wave_us = (ac_ema / 4.0) as u64;
-        let timer =
-            embassy_time::Timer::after(embassy_time::Duration::from_micros(quarter_half_wave_us));
 
         // --- Sensor Data Retrieval (From ADC Watch) ---
         let state = ADC_WATCH.try_get().unwrap_or_default();
@@ -635,7 +695,7 @@ pub async fn ac_sync_control_task(
         // If output is set, push the phase delay to the Triac PIO
         if p_output > 0.0 {
             let delay = get_delay_fraction(p_output) * ac_ema;
-            sm_triac.tx().push(delay as u32);
+            sm_pump.tx().push(delay as u32);
         }
 
         // --- TEMPERATURE PID (Runs 5 times a second -> every 10 ticks at 50Hz) ---
@@ -648,17 +708,16 @@ pub async fn ac_sync_control_task(
             heater_duty = temp_pid.update(effective_target_t, t_ema);
         }
 
-        // Delay for ~2.5ms (at 50Hz) to ensure we toggle the MOC3042 while voltage is high enough (>20V inhibit),
-        // avoiding accidental single half-wave latches.
-        timer.await;
-
-        // --- HEATER PIN TOGGLE (Delta-Sigma running every single full-wave) ---
+        // --- HEATER PIO FLAG (Delta-Sigma decision; unchanged) ---
+        // The heater SM (setup_heater_sm) owns the actual zero-cross-synced pin
+        // toggle and its own fixed settle delay — we just tell it "fire this
+        // chunk" or not. Pushing nothing on a "skip" cycle is deliberate: the
+        // SM's non-blocking FIFO check already defaults to OFF, and that same
+        // default is what makes the heater fail safe if this task ever hangs.
         heater_accumulator += heater_duty;
         if heater_accumulator >= 100.0 {
             heater_accumulator -= 100.0;
-            heater.set_high(); // Fire for this cycle
-        } else {
-            heater.set_low(); // Skip this cycle
+            sm_heater.tx().push(1); // Flag: fire heater for this chunk
         }
 
         tick = tick.wrapping_add(1);

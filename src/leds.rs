@@ -71,7 +71,7 @@ pub fn setup_ws2812_sm<P: Instance, const SM: usize>(
 }
 
 #[embassy_executor::task]
-pub async fn run_led_task(mut sm: StateMachine<'static, embassy_rp::peripherals::PIO0, 3>) {
+pub async fn run_led_task(mut sm: StateMachine<'static, embassy_rp::peripherals::PIO2, 1>) {
     const BRIGHTNESS: u32 = 30; // ~20% (50/255)
 
     loop {

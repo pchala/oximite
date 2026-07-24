@@ -1,5 +1,5 @@
 use embassy_futures::select::{select, Either};
-use embassy_rp::peripherals::PIO0;
+use embassy_rp::peripherals::PIO2;
 use embassy_rp::pio::{Common, Config, FifoJoin, Pin, StateMachine};
 use embassy_sync::watch::Watch;
 use embassy_time::{with_timeout, Duration};
@@ -36,9 +36,9 @@ impl FlowMonitor {
 }
 
 pub fn setup_flow_sm(
-    common: &mut Common<'static, PIO0>,
-    sm: &mut StateMachine<'static, PIO0, 0>,
-    pio_pin: Pin<'static, PIO0>,
+    common: &mut Common<'static, PIO2>,
+    sm: &mut StateMachine<'static, PIO2, 0>,
+    pio_pin: Pin<'static, PIO2>,
 ) {
     // Measures each half-period separately and pushes twice per physical
     // pulse (once for HIGH, once for LOW). With a 50% duty-cycle sensor
@@ -77,7 +77,7 @@ pub fn setup_flow_sm(
 }
 
 #[embassy_executor::task]
-pub async fn run_flow_task(mut sm: StateMachine<'static, PIO0, 0>) {
+pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
     let mut volume_ml: f32 = 0.0;
 
     let s = crate::settings::Settings::get().await;

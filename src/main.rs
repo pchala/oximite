@@ -17,7 +17,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::flash::Flash;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::multicore::{spawn_core1, Stack as CoreStack};
-use embassy_rp::peripherals::{PIO0, PIO1};
+use embassy_rp::peripherals::{PIO0, PIO1, PIO2};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -29,6 +29,7 @@ static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new(
 bind_interrupts!(pub struct Irqs {
     PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO0>;
     PIO1_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO1>;
+    PIO2_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO2>;
     ADC_IRQ_FIFO => embassy_rp::adc::InterruptHandler;
 });
 
@@ -129,32 +130,44 @@ async fn main(spawner: Spawner) {
         mut sm0,
         mut sm1,
         mut sm2,
-        mut sm3,
         ..
     } = embassy_rp::pio::Pio::new(p.PIO0, Irqs);
+
+    let embassy_rp::pio::Pio {
+        common: mut common2,
+        sm0: mut sm2_0,
+        sm1: mut sm2_1,
+        ..
+    } = embassy_rp::pio::Pio::new(p.PIO2, Irqs);
 
     let adc_peri = p.ADC;
     let adc = Adc::new(adc_peri, Irqs, AdcConfig::default());
 
-    let mut flow_pin = common0.make_pio_pin(p.PIN_15);
+    // Flow meter and WS2812 LEDs both live on PIO2 (unrelated to the
+    // zero-cross-synced group below), freeing two PIO0 SM slots for the
+    // heater's PIO-driven pin control and keeping PIO0 exactly at its
+    // 32-word instruction-memory budget (trigger + triac + heater = 25/32).
+    let mut flow_pin = common2.make_pio_pin(p.PIN_15);
     flow_pin.set_pull(Pull::Up); // new flow sensor requires pull-up
-    flow_meter::setup_flow_sm(&mut common0, &mut sm0, flow_pin);
-    spawner.spawn(flow_meter::run_flow_task(sm0)).unwrap();
+    flow_meter::setup_flow_sm(&mut common2, &mut sm2_0, flow_pin);
+    spawner.spawn(flow_meter::run_flow_task(sm2_0)).unwrap();
 
     let zc_pin = common0.make_pio_pin(p.PIN_10);
     let triac_pin = common0.make_pio_pin(p.PIN_0);
     control::setup_trigger_sm(&mut common0, &mut sm1, &zc_pin);
     control::setup_triac_sm(&mut common0, &mut sm2, &triac_pin, &zc_pin);
 
-    let led_pin = common0.make_pio_pin(p.PIN_9);
-    leds::setup_ws2812_sm(&mut common0, &mut sm3, led_pin);
-    spawner.spawn(leds::run_led_task(sm3)).unwrap();
+    let heater_pin = common0.make_pio_pin(p.PIN_2);
+    control::setup_heater_sm(&mut common0, &mut sm0, &heater_pin, &zc_pin);
+
+    let led_pin = common2.make_pio_pin(p.PIN_9);
+    leds::setup_ws2812_sm(&mut common2, &mut sm2_1, led_pin);
+    spawner.spawn(leds::run_led_task(sm2_1)).unwrap();
 
     // A0 (GP40) = pressure sensor, A1 (GP41) = temperature sensor.
     // GP26-28 are already held HiZ above — they share the same PCB nets as A0-A2.
     let ch_press = embassy_rp::adc::Channel::new_pin(p.PIN_40, Pull::None);
     let ch_temp = embassy_rp::adc::Channel::new_pin(p.PIN_41, Pull::None);
-    let heater_output = Output::new(p.PIN_2, Level::Low);
     let valve_output = Output::new(p.PIN_3, Level::Low);
 
     spawner
@@ -162,7 +175,7 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     spawner
-        .spawn(control::ac_sync_control_task(sm1, sm2, heater_output))
+        .spawn(control::ac_sync_control_task(sm1, sm2, sm0))
         .unwrap();
 
     let btn_power = Input::new(p.PIN_5, Pull::Up);
