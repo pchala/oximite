@@ -35,9 +35,8 @@ pub struct MachineSettings {
     /// Also used as the maximum boiler target drop by end of shot.
     pub temp_offset: f32,
     pub flow_pulses_per_liter: f32,
-    /// Pressure-setpoint decrement (bar) applied each control-loop tick
-    /// while measured flow exceeds a step's flow_limit.
-    pub flow_backoff_step_bar: f32,
+    /// Proportional gain (bar per ml/s over limit) for flow limiting.
+    pub flow_limit_kp: f32,
     /// Tau (ml) for the volume-based boiler target decay during a shot.
     /// Lower = faster drop. At vol = tau, ~63% of temp_offset is applied.
     /// At vol = 3*tau, ~95% is applied. Tune to match group head warm-up.
@@ -78,7 +77,7 @@ const DEFAULT_SETTINGS: Settings = Settings {
         sleep_timeout_min: 20.0,
         temp_offset: 10.0,
         flow_pulses_per_liter: 98324.0, // 49162 physical pulses/L × 2 edges per pulse
-        flow_backoff_step_bar: 0.1,
+        flow_limit_kp: 1.0,
         feed_forward_percents: 100.0,
     },
     temp_pid: PidSettings {
@@ -111,7 +110,7 @@ impl Default for Settings {
 /// loop (`control::ac_sync_control_task`, ~100Hz). Kept `Copy` and published
 /// via `Watch` so the hot loop can grab the latest values with a plain copy —
 /// no mutex lock/await and no cloning of unrelated fields (profile name,
-/// Wi-Fi credentials, usage counters) on every tick.
+/// Wi-Fi credentials) on every tick.
 #[derive(Clone, Copy, PartialEq)]
 pub struct ControlSettings {
     pub machine: MachineSettings,

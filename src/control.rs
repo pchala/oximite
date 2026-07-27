@@ -439,14 +439,11 @@ pub fn setup_triac_sm(
 
 /// Heater PIO SM: zero-cross-synced ON/OFF with a hardware fail-safe.
 ///
-/// `ac_sync_control_task` keeps deciding "fire/skip this chunk" (delta-sigma,
-/// unchanged) but never touches the heater pin directly — it just pushes `1`
-/// to this SM's TX FIFO when the chunk should fire, or nothing when it
-/// shouldn't. The SM checks its FIFO **once per full AC cycle** (a "chunk" =
-/// the sensed positive half-wave + the following negative half-wave) using
-/// the classic non-blocking-pull idiom: preload scratch X with the sentinel
-/// 0, `pull noblock` (copies TX FIFO into OSR if non-empty, else copies X
-/// back into OSR unchanged), so OSR/X == 0 means "nothing was queued".
+/// `ac_sync_control_task` decides "fire/skip this chunk" (delta-sigma) but
+/// never touches the heater pin directly — it just pushes `1` to this SM's
+/// TX FIFO when the chunk should fire, or nothing when it shouldn't. The SM
+/// checks its FIFO **once per full AC cycle** (a "chunk" = the sensed
+/// positive half-wave + the following negative half-wave).
 ///
 /// Two consecutive queued flags therefore hold the pin on for 2 full cycles
 /// (4 half-waves) with no glitch in between (the SM just re-asserts `set
@@ -592,7 +589,7 @@ pub async fn ac_sync_control_task(
     );
 
     // Dynamic targets
-    let (mut target_p, mut effective_target_p, mut flow_limit) = (0.0, 0.0, 0.0);
+    let (mut target_p, mut flow_limit) = (0.0, 0.0);
     let mut direct_pump: Option<f32> = None;
     let mut target_t = initial_s.machine.brew_temp;
     let mut feed_forward: f32 = 0.0;
@@ -639,9 +636,6 @@ pub async fn ac_sync_control_task(
             target_p = tp;
         }
         if let Some(fl) = SIG_FLOW_LIMIT.try_take() {
-            if flow_limit == 0.0 && fl > 0.0 {
-                effective_target_p = p_ema;
-            }
             flow_limit = fl;
         }
         if let Some(dp) = SIG_DIRECT_PUMP.try_take() {
@@ -677,16 +671,16 @@ pub async fn ac_sync_control_task(
             // limiting — it's raw power, not an espresso shot being protected.
             Some(dp) => dp.clamp(0.0, 100.0),
             None if target_p > 0.0 => {
-                if flow_limit > 0.0 {
-                    if f.flow_rate_ml_s > flow_limit {
-                        effective_target_p -= s.machine.flow_backoff_step_bar;
-                    } else if f.flow_rate_ml_s < flow_limit {
-                        effective_target_p += s.machine.flow_backoff_step_bar;
-                    }
-                    effective_target_p = effective_target_p.clamp(0.2, target_p);
+                // Proportional flow-limit backoff, recomputed fresh each tick
+                // (no accumulator). MARGIN gives some safety headroom below
+                // flow_limit before flow settles at equilibrium.
+                const MARGIN: f32 = 1.2;
+                let effective_target_p = if flow_limit > 0.0 {
+                    let flow_error = f.flow_rate_ml_s * MARGIN - flow_limit;
+                    (target_p - s.machine.flow_limit_kp * flow_error).clamp(0.2, target_p)
                 } else {
-                    effective_target_p = target_p;
-                }
+                    target_p
+                };
                 press_pid.update(effective_target_p, p_ema)
             }
             None => 0.0,
@@ -708,7 +702,7 @@ pub async fn ac_sync_control_task(
             heater_duty = temp_pid.update(effective_target_t, t_ema);
         }
 
-        // --- HEATER PIO FLAG (Delta-Sigma decision; unchanged) ---
+        // --- HEATER PIO FLAG (Delta-Sigma decision) ---
         // The heater SM (setup_heater_sm) owns the actual zero-cross-synced pin
         // toggle and its own fixed settle delay — we just tell it "fire this
         // chunk" or not. Pushing nothing on a "skip" cycle is deliberate: the

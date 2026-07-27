@@ -117,7 +117,7 @@
 
             <h3>Other Settings</h3>
             <div class="grid-2">
-                <div><label>Flow Backoff Step (bar/tick)</label><input type="number" id="set-frb" value="0.02" step="0.01"></div>
+                <div><label>Flow Limit Gain (bar per ml/s over)</label><input type="number" id="set-frb" value="1.0" step="0.1"></div>
                 <div><label>Feed Forward Percentage (%)</label><input type="number" id="set-fhm" value="100" step="1" min="0" max="200"></div>
                 <div><label>Flow sensor (Edges/L)</label><input type="number" id="set-fepl" value="98324" step="1"></div>
                 <div><label>Sleep Timeout (min)</label><input type="number" id="set-slt" value="20" step="1"></div>
@@ -254,7 +254,7 @@
                 sleep_timeout_min: parseFloat(document.getElementById('set-slt').value),
                 temp_offset: parseFloat(document.getElementById('set-to').value),
                 flow_pulses_per_liter: parseFloat(document.getElementById('set-fepl').value),
-                flow_backoff_step_bar: parseFloat(document.getElementById('set-frb').value),
+                flow_limit_kp: parseFloat(document.getElementById('set-frb').value),
                 feed_forward_percents: parseFloat(document.getElementById('set-fhm').value),
             }
         });
@@ -296,7 +296,7 @@
                 if (data.machine.sleep_timeout_min !== undefined) document.getElementById('set-slt').value = data.machine.sleep_timeout_min;
                 if (data.machine.temp_offset !== undefined) document.getElementById('set-to').value = data.machine.temp_offset;
                 if (data.machine.flow_pulses_per_liter !== undefined) document.getElementById('set-fepl').value = data.machine.flow_pulses_per_liter;
-                if (data.machine.flow_backoff_step_bar !== undefined) document.getElementById('set-frb').value = data.machine.flow_backoff_step_bar;
+                if (data.machine.flow_limit_kp !== undefined) document.getElementById('set-frb').value = data.machine.flow_limit_kp;
                 if (data.machine.feed_forward_percents !== undefined) document.getElementById('set-fhm').value = data.machine.feed_forward_percents;
             }
             if (data.temp_pid) {

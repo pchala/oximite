@@ -45,7 +45,7 @@ async fn wake_up() {
 /// Unconditional signaling would leave a stale abort pending whenever we
 /// start fresh from Idle — `run_cancellable` would then have to defensively
 /// `reset()` it before listening, which can also discard a *real* Stop that
-/// happens to land in that same window (see the race this replaced).
+/// happens to land in that same window.
 async fn transition_state(new_state: MachineState, target_mode: Option<TargetTempMode>) {
     let was_busy = state::get_state().is_busy();
     crate::flow_meter::FlowMonitor::new().reset_volume();
