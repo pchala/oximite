@@ -11,7 +11,7 @@ use embassy_time::{Duration, Instant, Timer};
 use fixed::FixedU32;
 use pio::pio_asm;
 
-use crate::settings::{BrewProfile, FlashUpdate, Settings, SIG_FLASH_UPDATE};
+use crate::settings::{BrewProfile, Settings};
 use crate::state::{MachineCommand, SIG_COMMAND};
 
 pub static SIG_TARGET_PRESSURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
@@ -966,30 +966,6 @@ impl HardwareExecutor {
     }
 }
 
-// Separated from the hardware loop so the loop stays readable.
-// pumped_ml must be captured synchronously before any await.
-async fn record_operation(is_descale: bool, pumped_ml: f32) {
-    let mut s = Settings::get().await;
-    let old_s = s.clone();
-
-    if is_descale {
-        s.usage.ml_at_last_descale = s.usage.total_ml_all_time;
-        defmt::info!(
-            "Stored ml_at_last_descale = {} after descale",
-            s.usage.ml_at_last_descale
-        );
-    } else {
-        s.usage.total_ml_all_time += pumped_ml;
-        if pumped_ml > 0.0 {
-            defmt::info!("Added {} ml to total usage", pumped_ml);
-        }
-    }
-
-    if s.usage != old_s.usage {
-        Settings::update_ram(s.clone()).await;
-        SIG_FLASH_UPDATE.signal(FlashUpdate::SaveUsage(s.usage));
-    }
-}
 
 #[embassy_executor::task]
 pub async fn hardware_task(valve: Output<'static>) {
@@ -997,8 +973,6 @@ pub async fn hardware_task(valve: Output<'static>) {
     loop {
         let cmd = SIG_HARDWARE_CMD.wait().await;
         defmt::info!("Hardware task received command");
-
-        let is_descale = matches!(cmd, HardwareCommand::Descale);
 
         match cmd {
             HardwareCommand::RunProfile(p) => {
@@ -1042,14 +1016,5 @@ pub async fn hardware_task(valve: Output<'static>) {
                     .await;
             }
         }
-
-        // Capture shot volume synchronously — no await, no yield — before the coordinator
-        // can process a new command and call transition_state() → reset_volume().
-        let pumped_ml = crate::flow_meter::FLOW_WATCH
-            .try_get()
-            .unwrap_or_default()
-            .volume_ml;
-
-        record_operation(is_descale, pumped_ml).await;
     }
 }

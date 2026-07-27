@@ -57,12 +57,6 @@ pub struct WifiSettings {
     pub password: heapless::String<64>,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
-pub struct UsageSettings {
-    pub total_ml_all_time: f32,
-    pub ml_at_last_descale: f32,
-}
-
 // ==========================================
 // DATA - Pure settings values
 // ==========================================
@@ -73,7 +67,6 @@ pub struct Settings {
     pub temp_pid: PidSettings,
     pub press_pid: PidSettings,
     pub wifi: WifiSettings,
-    pub usage: UsageSettings,
 }
 
 /// Single source of truth for defaults — used by both `Default` and the static cache.
@@ -101,10 +94,6 @@ const DEFAULT_SETTINGS: Settings = Settings {
     wifi: WifiSettings {
         ssid: heapless::String::new(),
         password: heapless::String::new(),
-    },
-    usage: UsageSettings {
-        total_ml_all_time: 0.0,
-        ml_at_last_descale: 0.0,
     },
 };
 
@@ -227,10 +216,6 @@ impl SettingsStore {
         }
         if let Some(v) = load_section!(flash, &mut scratch, b"sys_wifi", WifiSettings) {
             s.wifi = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_usage", UsageSettings) {
-            s.usage = v;
             loaded = true;
         }
 
@@ -374,7 +359,6 @@ pub enum FlashUpdate {
     SaveMachine(MachineSettings),
     SavePids(PidSettings, PidSettings),
     SaveWifi(WifiSettings),
-    SaveUsage(UsageSettings),
     SaveProfile(u8),
     DeleteProfile(u8),
 }
@@ -397,9 +381,6 @@ pub async fn flash_update_task(
             }
             FlashUpdate::SaveWifi(w) => {
                 let _ = SettingsStore::save_section(&mut flash, b"sys_wifi", &w).await;
-            }
-            FlashUpdate::SaveUsage(u) => {
-                let _ = SettingsStore::save_section(&mut flash, b"sys_usage", &u).await;
             }
             FlashUpdate::SaveProfile(slot) => {
                 if let Some(p) = get_profile_from_ram(slot).await {

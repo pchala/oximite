@@ -142,11 +142,7 @@
 
         <div class="panel">
             <div class="grid-2">
-                <div class="stat-box" style="padding: 10px; display: flex; flex-direction: column; justify-content: center;">
-                    <div style="margin-bottom: 4px; line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Since Descale</span><span id="val-descale-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">L</span></div>
-                    <div style="line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Total</span><span id="val-total-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">L</span></div>
-                </div>
-                <button onclick="sendCommand('descale')">DESCALE</button>
+                <button onclick="sendCommand('descale')" style="grid-column: span 2;">DESCALE</button>
             </div>
         </div>
 
@@ -238,7 +234,7 @@
             if (data.st !== 0) { chart.data.labels.push(ticks++); chart.data.datasets[0].data.push(data.p); chart.data.datasets[1].data.push(data.fl); chart.update(); }
             
             if (lastState !== 0 && data.st === 0) {
-                loadSettings(); // Refresh usage stats when returning to IDLE
+                loadSettings(); // Refresh settings display when returning to IDLE
             }
             lastState = data.st;
         } catch (e) {} finally {
@@ -316,17 +312,6 @@
             if (data.wifi) {
                 if (data.wifi.ssid !== undefined) document.getElementById('set-ssid').value = data.wifi.ssid;
                 if (data.wifi.password !== undefined) document.getElementById('set-pass').value = data.wifi.password;
-            }
-            if (data.usage) {
-                let totalAllTime = data.usage.total_ml_all_time || 0.0;
-                let atLastDescale = data.usage.ml_at_last_descale || 0.0;
-                let sinceDescale = totalAllTime - atLastDescale;
-                
-                const descaleEl = document.getElementById('val-descale-ml');
-                if (descaleEl) descaleEl.innerText = (sinceDescale / 1000).toFixed(1);
-                
-                const totalEl = document.getElementById('val-total-ml');
-                if (totalEl) totalEl.innerText = (totalAllTime / 1000).toFixed(1);
             }
         } catch (e) {}
     }
