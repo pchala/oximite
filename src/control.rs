@@ -335,6 +335,13 @@ impl PidController {
         self.i_term = 0.0;
         self.last_time = None;
     }
+    /// Resets the integral term when the setpoint activates from idle (0 ->
+    /// non-zero), so a fresh engagement doesn't inherit stale wind-up.
+    pub fn reset_if_reactivated(&mut self, previous: f32, next: f32) {
+        if previous == 0.0 && next != 0.0 {
+            self.reset();
+        }
+    }
     pub fn set_coeffs(&mut self, kp: f32, ki: f32, kd: f32) {
         self.kp = kp;
         self.ki = ki;
@@ -474,7 +481,7 @@ pub fn setup_heater_sm(
         ".wrap_target",
         "wait 0 pin 0", // Sync: sensed start of positive half-wave (chunk boundary)
         "nop [31]",     // Fixed settle delay: 32 cycles @ 16kHz = exactly 2ms, clears
-                        // the true-zero-cross race window regardless of transformer lag
+        // the true-zero-cross race window regardless of transformer lag
         "set x, 0",     // Sentinel: 0 = "nothing queued this chunk"
         "pull noblock", // FIFO has data -> OSR=data; empty -> OSR=x (0)
         "mov x, osr",
@@ -630,13 +637,12 @@ pub async fn ac_sync_control_task(
         // --- Command & Signal Processing ---
         if let Some(tp) = SIG_TARGET_PRESSURE.try_take() {
             press_pid.set_coeffs(s.press_pid.kp, s.press_pid.ki, s.press_pid.kd);
-            if target_p == 0.0 && tp != 0.0 {
-                press_pid.reset();
-            }
+            press_pid.reset_if_reactivated(target_p, tp);
             target_p = tp;
         }
         if let Some(fl) = SIG_FLOW_LIMIT.try_take() {
-            flow_limit = fl;
+            const MARGIN: f32 = 0.8;
+            flow_limit = fl * MARGIN;
         }
         if let Some(dp) = SIG_DIRECT_PUMP.try_take() {
             direct_pump = dp;
@@ -646,9 +652,7 @@ pub async fn ac_sync_control_task(
         }
         if let Some(tt) = SIG_TARGET_TEMP.try_take() {
             temp_pid.set_coeffs(s.temp_pid.kp, s.temp_pid.ki, s.temp_pid.kd);
-            if target_t == 0.0 && tt != 0.0 {
-                temp_pid.reset();
-            }
+            temp_pid.reset_if_reactivated(target_t, tt);
             target_t = tt;
             const CONST_FF: f32 = 0.021; // balance for the boiler/brew group
             feed_forward = CONST_FF * (s.machine.feed_forward_percents / 100.0) * (target_t - 20.0);
@@ -671,12 +675,9 @@ pub async fn ac_sync_control_task(
             // limiting — it's raw power, not an espresso shot being protected.
             Some(dp) => dp.clamp(0.0, 100.0),
             None if target_p > 0.0 => {
-                // Proportional flow-limit backoff, recomputed fresh each tick
-                // (no accumulator). MARGIN gives some safety headroom below
-                // flow_limit before flow settles at equilibrium.
-                const MARGIN: f32 = 1.2;
+                // Proportional flow-limit
                 let effective_target_p = if flow_limit > 0.0 {
-                    let flow_error = f.flow_rate_ml_s * MARGIN - flow_limit;
+                    let flow_error = f.flow_rate_ml_s - flow_limit;
                     (target_p - s.machine.flow_limit_kp * flow_error).clamp(0.2, target_p)
                 } else {
                     target_p
@@ -959,7 +960,6 @@ impl HardwareExecutor {
         // of which branch ran.
     }
 }
-
 
 #[embassy_executor::task]
 pub async fn hardware_task(valve: Output<'static>) {
