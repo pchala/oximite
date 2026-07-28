@@ -14,11 +14,8 @@ use pio::pio_asm;
 use crate::settings::{BrewProfile, Settings};
 use crate::state::{MachineCommand, SIG_COMMAND};
 
-pub static SIG_TARGET_PRESSURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
-pub static SIG_FLOW_LIMIT: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static SIG_TARGET_TEMP: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static SIG_PROFILE_ABORT: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-pub static SIG_DIRECT_PUMP: Signal<CriticalSectionRawMutex, Option<f32>> = Signal::new();
 
 #[derive(Clone)]
 #[allow(clippy::large_enum_variant)]
@@ -32,12 +29,6 @@ pub enum HardwareCommand {
 }
 pub static SIG_HARDWARE_CMD: Signal<CriticalSectionRawMutex, HardwareCommand> = Signal::new();
 
-pub fn set_target_pressure(bar: f32) {
-    SIG_TARGET_PRESSURE.signal(bar);
-}
-pub fn set_flow_limit(ml_s: f32) {
-    SIG_FLOW_LIMIT.signal(ml_s);
-}
 pub enum TargetTempMode {
     Brew,
     Steam,
@@ -55,42 +46,42 @@ pub async fn set_target_temp(mode: TargetTempMode) {
     };
     SIG_TARGET_TEMP.signal(temp);
 }
-pub fn set_direct_pump(power: Option<f32>) {
-    SIG_DIRECT_PUMP.signal(power);
-}
 
 /// Pump power used for flush and cooldown operations (%).
 pub const PUMP_POWER: f32 = 80.0;
 
-/// How the pump should be driven: an open-loop power percentage, or a
-/// pressure-PID target in bar. These are mutually exclusive in
-/// `ac_sync_control_task` — setting one implicitly overrides the other.
+/// How the pump should be driven, sent as a single atomic message
+#[derive(Clone, Copy, PartialEq)]
 pub enum PumpMode {
+    Idle,
     DirectPump(f32),
-    Pressure(f32),
+    Pressure { bar: f32, flow_limit_ml_s: f32 },
 }
 
 impl PumpMode {
-    fn apply(&self) {
+    /// (bar, flow_limit_ml_s) for Pressure mode, or (0.0, 0.0) otherwise —
+    /// lets the control loop treat "not in Pressure mode" the same as "no
+    /// pressure target" without a separate match everywhere it's needed.
+    fn pressure_and_flow_limit(&self) -> (f32, f32) {
         match *self {
-            PumpMode::DirectPump(power) => {
-                set_target_pressure(0.0);
-                set_direct_pump(Some(power));
-            }
-            PumpMode::Pressure(bar) => {
-                set_direct_pump(None);
-                set_target_pressure(bar);
-            }
+            PumpMode::Pressure {
+                bar,
+                flow_limit_ml_s,
+            } => (bar, flow_limit_ml_s),
+            _ => (0.0, 0.0),
         }
+    }
+
+    /// Signals the mode directly, for callers outside a `PumpGuard`
+    pub fn apply(self) {
+        SIG_PUMP_MODE.signal(self);
     }
 }
 
-/// RAII guard for the pump: applies `mode` when created/changed, and always
-/// returns the pump to idle (no direct pump, no pressure target) when
-/// dropped — including when the enclosing future is cancelled mid-await (as
-/// `run_cancellable` does on abort). This guarantees an aborted operation
-/// can't leave the pump engaged, without every `execute_*` function having
-/// to remember a manual reset at each exit point.
+pub static SIG_PUMP_MODE: Signal<CriticalSectionRawMutex, PumpMode> = Signal::new();
+
+// RAII guard for the pump: applies `mode` when created/changed, and always
+// returns the pump to idle when dropped
 pub struct PumpGuard;
 
 impl PumpGuard {
@@ -108,8 +99,7 @@ impl PumpGuard {
 
 impl Drop for PumpGuard {
     fn drop(&mut self) {
-        set_direct_pump(None);
-        set_target_pressure(0.0);
+        PumpMode::Idle.apply();
     }
 }
 
@@ -445,32 +435,6 @@ pub fn setup_triac_sm(
 }
 
 /// Heater PIO SM: zero-cross-synced ON/OFF with a hardware fail-safe.
-///
-/// `ac_sync_control_task` decides "fire/skip this chunk" (delta-sigma) but
-/// never touches the heater pin directly — it just pushes `1` to this SM's
-/// TX FIFO when the chunk should fire, or nothing when it shouldn't. The SM
-/// checks its FIFO **once per full AC cycle** (a "chunk" = the sensed
-/// positive half-wave + the following negative half-wave).
-///
-/// Two consecutive queued flags therefore hold the pin on for 2 full cycles
-/// (4 half-waves) with no glitch in between (the SM just re-asserts `set
-/// pins,1` at the next boundary). If `ac_sync_control_task` hangs or panics
-/// and stops pushing, the FIFO drains and the very next boundary check
-/// forces the pin low — the heater fails safe within at most one chunk
-/// (~20ms @ 50Hz), entirely independent of the CPU/executor.
-///
-/// **Zero-cross race note:** GP10 is tapped after the step-down transformer
-/// (see `sch/README.md`), so the sensed edge lags the true mains zero-cross.
-/// Deciding right at `wait 0 pin 0` would race the MOC3062M's own true-zero-cross
-/// retrigger sample: a late OFF flag could arrive just after the opto already
-/// latched "conduct through this half-wave", silently stretching one chunk to
-/// 3 half-waves instead of 2. To avoid that, the SM burns a fixed ~2ms settle
-/// delay right after the sensed edge (a single `nop [31]`, using the SM's own
-/// slow clock divider so its 5-bit delay field spans milliseconds) before it
-/// ever samples the FIFO or touches the pin — landing the decision safely
-/// mid-half-wave on both the sensed and true timelines, well clear of any
-/// zero-cross window, using a hardware delay slot instead of a software timer
-/// so the safety margin holds even if the task controlling it has died.
 pub fn setup_heater_sm(
     common: &mut Common<'static, PIO0>,
     sm: &mut StateMachine<'static, PIO0, 0>,
@@ -596,8 +560,8 @@ pub async fn ac_sync_control_task(
     );
 
     // Dynamic targets
-    let (mut target_p, mut flow_limit) = (0.0, 0.0);
-    let mut direct_pump: Option<f32> = None;
+    let mut mode = PumpMode::Idle;
+    let mut effective_target_p: f32 = 0.0;
     let mut target_t = initial_s.machine.brew_temp;
     let mut feed_forward: f32 = 0.0;
     let mut brew_active = false;
@@ -635,18 +599,24 @@ pub async fn ac_sync_control_task(
         let s = crate::settings::ControlSettings::current();
 
         // --- Command & Signal Processing ---
-        if let Some(tp) = SIG_TARGET_PRESSURE.try_take() {
+        let (mut target_p, mut flow_limit) = mode.pressure_and_flow_limit();
+        if let Some(new_mode) = SIG_PUMP_MODE.try_take() {
+            let (new_bar, new_fl) = new_mode.pressure_and_flow_limit();
             press_pid.set_coeffs(s.press_pid.kp, s.press_pid.ki, s.press_pid.kd);
-            press_pid.reset_if_reactivated(target_p, tp);
-            target_p = tp;
+            press_pid.reset_if_reactivated(target_p, new_bar);
+            // Reseed the flow-limit accumulator exactly when flow-limited
+            // pressure control transitions inactive -> active
+            if new_bar > 0.0 && new_fl > 0.0 && !(target_p > 0.0 && flow_limit > 0.0) {
+                effective_target_p = p_ema;
+            }
+            mode = new_mode;
+            target_p = new_bar;
+            flow_limit = new_fl;
         }
-        if let Some(fl) = SIG_FLOW_LIMIT.try_take() {
-            const MARGIN: f32 = 0.8;
-            flow_limit = fl * MARGIN;
-        }
-        if let Some(dp) = SIG_DIRECT_PUMP.try_take() {
-            direct_pump = dp;
-        }
+        let direct_pump = match mode {
+            PumpMode::DirectPump(power) => Some(power),
+            _ => None,
+        };
         if let Some(ba) = SIG_BREW_ACTIVE.try_take() {
             brew_active = ba;
         }
@@ -675,13 +645,14 @@ pub async fn ac_sync_control_task(
             // limiting — it's raw power, not an espresso shot being protected.
             Some(dp) => dp.clamp(0.0, 100.0),
             None if target_p > 0.0 => {
-                // Proportional flow-limit
-                let effective_target_p = if flow_limit > 0.0 {
+                // Accumulator-based flow-limit backoff
+                if flow_limit > 0.0 {
                     let flow_error = f.flow_rate_ml_s - flow_limit;
-                    (target_p - s.machine.flow_limit_kp * flow_error).clamp(0.2, target_p)
+                    effective_target_p -= s.machine.flow_limit_kp * flow_error;
+                    effective_target_p = effective_target_p.clamp(0.2, target_p);
                 } else {
-                    target_p
-                };
+                    effective_target_p = target_p;
+                }
                 press_pid.update(effective_target_p, p_ema)
             }
             None => 0.0,
@@ -704,11 +675,6 @@ pub async fn ac_sync_control_task(
         }
 
         // --- HEATER PIO FLAG (Delta-Sigma decision) ---
-        // The heater SM (setup_heater_sm) owns the actual zero-cross-synced pin
-        // toggle and its own fixed settle delay — we just tell it "fire this
-        // chunk" or not. Pushing nothing on a "skip" cycle is deliberate: the
-        // SM's non-blocking FIFO check already defaults to OFF, and that same
-        // default is what makes the heater fail safe if this task ever hangs.
         heater_accumulator += heater_duty;
         if heater_accumulator >= 100.0 {
             heater_accumulator -= 100.0;
@@ -721,14 +687,10 @@ pub async fn ac_sync_control_task(
 
 pub async fn execute_profile(profile: BrewProfile) {
     defmt::info!("Executing profile: {}", profile.name.as_str());
-    let mut pump = PumpGuard::engage(PumpMode::Pressure(0.0));
+    let mut pump = PumpGuard::engage(PumpMode::Idle);
     let _brew_active = BrewActiveGuard::engage();
 
-    // Yield once so the flow task can process the SIG_RESET_VOLUME signal that
-    // transition_state() sent before dispatching this command. get_state() is
-    // async but never suspends (it calls try_get() synchronously), so without
-    // this yield the flow task never runs and vol_fut would see the stale
-    // shot_volume_ml from the previous profile on every other run.
+    // Yield once so the flow task can process the SIG_RESET_VOLUME signal
     yield_now().await;
 
     for (i, step) in profile.steps.iter().enumerate() {
@@ -754,11 +716,13 @@ pub async fn execute_profile(profile: BrewProfile) {
             volume
         );
 
-        set_flow_limit(flow);
         if pressure > 10.0 {
             pump.set_mode(PumpMode::DirectPump(pressure));
         } else {
-            pump.set_mode(PumpMode::Pressure(pressure));
+            pump.set_mode(PumpMode::Pressure {
+                bar: pressure,
+                flow_limit_ml_s: flow,
+            });
         }
 
         let time_fut = async {
@@ -800,8 +764,8 @@ pub async fn execute_profile(profile: BrewProfile) {
         }
     }
     defmt::info!("Profile '{}' completed\r\n", profile.name.as_str());
-    // `pump` drops here (or at the cancellation point if aborted), resetting
-    // direct pump and the pressure target back to idle.
+    // `pump` drops here (or at the cancellation point if aborted), sending
+    // PumpMode::Idle to reset pressure target, flow limit, and direct pump.
 }
 
 pub async fn execute_steam() {

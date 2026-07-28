@@ -78,8 +78,7 @@ async fn stop_to_idle(abort_hardware: bool) {
         control::SIG_PROFILE_ABORT.signal(());
     }
     control::set_target_temp(TargetTempMode::Brew).await;
-    control::set_target_pressure(0.0);
-    control::set_direct_pump(None);
+    control::PumpMode::Idle.apply();
 }
 
 // ==========================================
@@ -127,7 +126,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
             .await;
         }
         (MachineState::Steaming, MachineCommand::Flush) => {
-            control::set_direct_pump(None);
+            control::PumpMode::Idle.apply();
             start(
                 MachineState::Cooling,
                 TargetTempMode::Brew,
@@ -138,7 +137,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
 
         // Steam
         (MachineState::Idle, MachineCommand::Steam) => {
-            control::set_direct_pump(None);
+            control::PumpMode::Idle.apply();
             start(
                 MachineState::Steaming,
                 TargetTempMode::Steam,

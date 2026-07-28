@@ -35,7 +35,13 @@ pub struct MachineSettings {
     /// Also used as the maximum boiler target drop by end of shot.
     pub temp_offset: f32,
     pub flow_pulses_per_liter: f32,
-    /// Proportional gain (bar per ml/s over limit) for flow limiting.
+    /// Flow-limit backoff gain: bar per (ml/s of flow error), added to an
+    /// accumulated pressure setpoint each control tick (integral action, not
+    /// a one-shot shift). Keep small — applied every tick (~50Hz).
+    ///
+    /// Default tuned for max flow ~3.5ml/s and max pressure 9 bar (usable
+    /// range 8.8 bar), targeting a full-range correction in ~2s at max
+    /// error: kp = 8.8 / (50Hz * 3.5ml/s * 2s) ~= 0.025
     pub flow_limit_kp: f32,
     /// Tau (ml) for the volume-based boiler target decay during a shot.
     /// Lower = faster drop. At vol = tau, ~63% of temp_offset is applied.
@@ -77,7 +83,7 @@ const DEFAULT_SETTINGS: Settings = Settings {
         sleep_timeout_min: 20.0,
         temp_offset: 10.0,
         flow_pulses_per_liter: 98324.0, // 49162 physical pulses/L × 2 edges per pulse
-        flow_limit_kp: 1.0,
+        flow_limit_kp: 0.025,
         feed_forward_percents: 100.0,
     },
     temp_pid: PidSettings {
