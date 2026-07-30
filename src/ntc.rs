@@ -1,11 +1,15 @@
-//! Sensor and actuator calibration curves.
+//! Boiler thermistor characterisation table.
 //!
-//! Pure lookup tables and the interpolation around them: raw ADC counts to
-//! physical units, and pump power percentage to triac phase-delay fraction.
-//! No hardware access and no state, so these are trivially testable and are
-//! the only place a recalibration needs to touch.
+//! The NTC divider is strongly non-linear, so instead of a Steinhart-Hart
+//! evaluation at runtime it is characterised once as a table of temperatures
+//! indexed by the top 10 bits of the ADC reading. Pure data — the lookup and
+//! interpolation live in `adc::get_temp_from_adc`, its only consumer. Swapping
+//! the thermistor or recalibrating means regenerating this table and nothing
+//! else.
 
-const NTC_LUT: [f32; 1025] = [
+/// Boiler temperature in °C at each of the 1025 quarter-scale ADC steps, so
+/// index `n` corresponds to a raw reading of `n * 4`.
+pub const NTC_LUT: [f32; 1025] = [
     300.00, 300.00, 300.00, 300.00, 300.00, 300.00, 300.00, 300.00, 300.00, 295.09, 287.69, 281.17,
     275.29, 270.04, 265.21, 260.83, 256.78, 253.01, 249.51, 246.22, 243.16, 240.27, 237.53, 234.94,
     232.50, 230.15, 227.92, 225.80, 223.77, 221.81, 219.95, 218.14, 216.41, 214.74, 213.13, 211.58,
@@ -89,54 +93,3 @@ const NTC_LUT: [f32; 1025] = [
     -15.48, -16.97, -18.57, -20.34, -22.30, -24.50, -27.00, -29.92, -33.49, -38.01, -44.37, -50.00,
     -50.00,
 ];
-
-pub fn get_temp_from_adc(raw_adc: f32) -> f32 {
-    let mut raw_val = raw_adc;
-    raw_val = raw_val.clamp(0.0, 4095.0);
-
-    let index_f = raw_val / 4.0;
-    let index = index_f as usize;
-
-    if index >= 1024 {
-        return NTC_LUT[1024];
-    }
-
-    let remainder = index_f - (index as f32);
-    let lower = NTC_LUT[index];
-    let upper = NTC_LUT[index + 1];
-    lower + (upper - lower) * remainder
-}
-
-const POWER_TO_DELAY_LUT: [f32; 101] = [
-    0.6000, 0.5964, 0.5929, 0.5894, 0.5859, 0.5825, 0.5790, 0.5756, 0.5722, 0.5688, 0.5654, 0.5621,
-    0.5587, 0.5554, 0.5521, 0.5488, 0.5455, 0.5422, 0.5389, 0.5357, 0.5324, 0.5291, 0.5259, 0.5226,
-    0.5194, 0.5162, 0.5129, 0.5097, 0.5065, 0.5033, 0.5000, 0.4968, 0.4936, 0.4904, 0.4871, 0.4839,
-    0.4807, 0.4774, 0.4742, 0.4709, 0.4677, 0.4644, 0.4612, 0.4579, 0.4546, 0.4513, 0.4480, 0.4447,
-    0.4413, 0.4380, 0.4346, 0.4313, 0.4279, 0.4245, 0.4210, 0.4176, 0.4141, 0.4107, 0.4072, 0.4036,
-    0.4001, 0.3965, 0.3929, 0.3893, 0.3856, 0.3819, 0.3782, 0.3744, 0.3706, 0.3668, 0.3629, 0.3590,
-    0.3550, 0.3510, 0.3469, 0.3427, 0.3386, 0.3343, 0.3300, 0.3256, 0.3211, 0.3166, 0.3120, 0.3072,
-    0.3024, 0.2975, 0.2924, 0.2873, 0.2820, 0.2765, 0.2709, 0.2651, 0.2591, 0.2529, 0.2464, 0.2397,
-    0.2326, 0.2252, 0.2174, 0.2090, 0.2000,
-];
-
-pub fn get_delay_fraction(power_percent: f32) -> f32 {
-    let p = power_percent.clamp(0.0, 100.0);
-    let index = p as usize;
-    if index >= 100 {
-        return POWER_TO_DELAY_LUT[100];
-    }
-    let remainder = p - (index as f32);
-    let lower = POWER_TO_DELAY_LUT[index];
-    let upper = POWER_TO_DELAY_LUT[index + 1];
-    lower + (upper - lower) * remainder
-}
-
-/// Raw ADC counts to gauge pressure in bar. The transducer outputs 0.4 V at
-/// 0 MPa and 2.4 V at 1.2 MPa (12 bar), i.e. 6 bar per volt above a 0.4 V
-/// offset. Clamped at zero so sensor noise around ambient can't read negative.
-pub fn get_pressure_from_adc(raw_adc: f32) -> f32 {
-    const ADC_TO_VOLTS: f32 = 3.3 / 4095.0;
-    const V_AT_ZERO_BAR: f32 = 0.4;
-    const BAR_PER_VOLT: f32 = 12.0 / 2.0;
-    ((raw_adc * ADC_TO_VOLTS - V_AT_ZERO_BAR) * BAR_PER_VOLT).max(0.0)
-}

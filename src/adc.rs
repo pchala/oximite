@@ -5,8 +5,37 @@
 use embassy_rp::adc::{Adc, Async, Channel};
 use embassy_time::Duration;
 
-use crate::calibration::{get_pressure_from_adc, get_temp_from_adc};
+use crate::ntc::NTC_LUT;
 use crate::state::TELEMETRY_WATCH;
+
+/// Raw ADC counts to boiler temperature in °C, by linear interpolation between
+/// the two `NTC_LUT` entries that bracket the reading.
+fn get_temp_from_adc(raw_adc: f32) -> f32 {
+    let mut raw_val = raw_adc;
+    raw_val = raw_val.clamp(0.0, 4095.0);
+
+    let index_f = raw_val / 4.0;
+    let index = index_f as usize;
+
+    if index >= 1024 {
+        return NTC_LUT[1024];
+    }
+
+    let remainder = index_f - (index as f32);
+    let lower = NTC_LUT[index];
+    let upper = NTC_LUT[index + 1];
+    lower + (upper - lower) * remainder
+}
+
+/// Raw ADC counts to gauge pressure in bar. The transducer outputs 0.4 V at
+/// 0 MPa and 2.4 V at 1.2 MPa (12 bar), i.e. 6 bar per volt above a 0.4 V
+/// offset. Clamped at zero so sensor noise around ambient can't read negative.
+fn get_pressure_from_adc(raw_adc: f32) -> f32 {
+    const ADC_TO_VOLTS: f32 = 3.3 / 4095.0;
+    const V_AT_ZERO_BAR: f32 = 0.4;
+    const BAR_PER_VOLT: f32 = 12.0 / 2.0;
+    ((raw_adc * ADC_TO_VOLTS - V_AT_ZERO_BAR) * BAR_PER_VOLT).max(0.0)
+}
 
 // Samples `total` conversions from `ch`, discarding the leading `total - keep`
 // (letting the sample-and-hold cap settle) and returning the average of the rest.

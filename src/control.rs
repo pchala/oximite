@@ -21,7 +21,6 @@ use embassy_time::Duration;
 use fixed::FixedU32;
 use pio::pio_asm;
 
-use crate::calibration::get_delay_fraction;
 use crate::pid::PidController;
 use crate::settings::Settings;
 use crate::state::TELEMETRY_WATCH;
@@ -180,6 +179,36 @@ pub fn setup_triac_sm(
     sm.set_config(&cfg);
     sm.set_pin_dirs(Direction::Out, &[triac_pin]);
     sm.set_enable(true);
+}
+
+/// Pump power percentage to the triac's firing delay, as a fraction of the
+/// half-wave measured by the trigger SM. Non-linear because a phase-angle
+/// dimmer's delivered power follows the integral of the sine, not the delay:
+/// 0% fires at 0.6 of the half-wave, 100% at 0.2. Lives here rather than in a
+/// calibration module because `setup_triac_sm` above defines the units of the
+/// word this feeds, and `ac_sync_control_task` below is the only caller.
+const POWER_TO_DELAY_LUT: [f32; 101] = [
+    0.6000, 0.5964, 0.5929, 0.5894, 0.5859, 0.5825, 0.5790, 0.5756, 0.5722, 0.5688, 0.5654, 0.5621,
+    0.5587, 0.5554, 0.5521, 0.5488, 0.5455, 0.5422, 0.5389, 0.5357, 0.5324, 0.5291, 0.5259, 0.5226,
+    0.5194, 0.5162, 0.5129, 0.5097, 0.5065, 0.5033, 0.5000, 0.4968, 0.4936, 0.4904, 0.4871, 0.4839,
+    0.4807, 0.4774, 0.4742, 0.4709, 0.4677, 0.4644, 0.4612, 0.4579, 0.4546, 0.4513, 0.4480, 0.4447,
+    0.4413, 0.4380, 0.4346, 0.4313, 0.4279, 0.4245, 0.4210, 0.4176, 0.4141, 0.4107, 0.4072, 0.4036,
+    0.4001, 0.3965, 0.3929, 0.3893, 0.3856, 0.3819, 0.3782, 0.3744, 0.3706, 0.3668, 0.3629, 0.3590,
+    0.3550, 0.3510, 0.3469, 0.3427, 0.3386, 0.3343, 0.3300, 0.3256, 0.3211, 0.3166, 0.3120, 0.3072,
+    0.3024, 0.2975, 0.2924, 0.2873, 0.2820, 0.2765, 0.2709, 0.2651, 0.2591, 0.2529, 0.2464, 0.2397,
+    0.2326, 0.2252, 0.2174, 0.2090, 0.2000,
+];
+
+fn get_delay_fraction(power_percent: f32) -> f32 {
+    let p = power_percent.clamp(0.0, 100.0);
+    let index = p as usize;
+    if index >= 100 {
+        return POWER_TO_DELAY_LUT[100];
+    }
+    let remainder = p - (index as f32);
+    let lower = POWER_TO_DELAY_LUT[index];
+    let upper = POWER_TO_DELAY_LUT[index + 1];
+    lower + (upper - lower) * remainder
 }
 
 /// Heater PIO SM: zero-cross-synced ON/OFF with a hardware fail-safe.
