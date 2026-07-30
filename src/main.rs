@@ -164,6 +164,13 @@ async fn main(spawner: Spawner) {
     leds::setup_ws2812_sm(&mut common2, &mut sm2_1, led_pin);
     spawner.spawn(leds::run_led_task(sm2_1)).unwrap();
 
+    // The PIO peripherals stay configured for the whole program, but `main`
+    // returns once everything is spawned, which would drop these `Common`
+    // handles.
+    core::mem::forget(common0);
+    core::mem::forget(common1);
+    core::mem::forget(common2);
+
     // A0 (GP40) = pressure sensor, A1 (GP41) = temperature sensor.
     // GP26-28 are already held HiZ above — they share the same PCB nets as A0-A2.
     let ch_press = embassy_rp::adc::Channel::new_pin(p.PIN_40, Pull::None);
