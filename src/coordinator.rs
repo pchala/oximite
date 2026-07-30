@@ -1,8 +1,10 @@
 //! Central state machine: the coordinator task owns `MachineState` and is the
-//! only place that decides what a `MachineCommand` does. Hardware execution
-//! lives in `control.rs` and peripheral/task wiring lives in `main.rs`; this
-//! module is pure transition logic so it stays easy to read and extend as
-//! states/commands are added.
+//! only place that decides what a `MachineCommand` does. It never touches
+//! hardware itself — it dispatches a `HardwareCommand` to `operations.rs`,
+//! which owns the valve and runs the actual sequence, and cancels it via
+//! `SIG_PROFILE_ABORT`. Peripheral/task wiring lives in `main.rs`. Keeping this
+//! module pure transition logic is what lets its command loop stay responsive
+//! while a ten-minute descale is running.
 
 use embassy_futures::select::{select, Either};
 use embassy_time::{Duration, Timer};
