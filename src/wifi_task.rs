@@ -3,7 +3,7 @@ use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_rp::gpio::Output;
-use embassy_rp::peripherals::{DMA_CH0, PIO1};
+use embassy_rp::peripherals::PIO1;
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
 use serde::{Deserialize, Serialize};
@@ -419,7 +419,10 @@ pub async fn dhcp_server_task(stack: &'static embassy_net::Stack<'static>) {
 
 #[embassy_executor::task]
 pub async fn wifi_driver_task(
-    runner: cyw43::Runner<'static, Output<'static>, cyw43_pio::PioSpi<'static, PIO1, 0, DMA_CH0>>,
+    runner: cyw43::Runner<
+        'static,
+        cyw43::SpiBus<Output<'static>, cyw43_pio::PioSpi<'static, PIO1, 0>>,
+    >,
 ) {
     runner.run().await
 }
@@ -432,20 +435,25 @@ pub async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<
 pub async fn setup_wifi(
     spawner: Spawner,
     pwr: Output<'static>,
-    spi: cyw43_pio::PioSpi<'static, PIO1, 0, DMA_CH0>,
+    spi: cyw43_pio::PioSpi<'static, PIO1, 0>,
     force_ap: bool,
 ) {
     defmt::info!("Wifi: setup_wifi started");
     // Firmware stored at reserved flash addresses (see flash-wifi.bat and memory.x)
     let fw = unsafe { core::slice::from_raw_parts(0x10FB0000 as *const u8, 231077) };
     let clm = unsafe { core::slice::from_raw_parts(0x10FEF000 as *const u8, 984) };
+    // cyw43 wants `&Aligned<A4, [u8]>`; `Aligned` is `#[repr(C)]` with a
+    // zero-sized alignment marker followed by the payload, so this is a pure
+    // metadata-preserving cast. Both blobs sit at 4-byte-aligned flash addresses.
+    let fw = unsafe { &*(fw as *const [u8] as *const cyw43::Aligned<cyw43::A4, [u8]>) };
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
     defmt::info!("Wifi: calling cyw43::new");
-    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
+    let (net_device, mut control, runner) =
+        cyw43::new(state, pwr, spi, fw, crate::cyw43_nvram::NVRAM).await;
 
-    spawner.spawn(wifi_driver_task(runner)).unwrap();
+    spawner.spawn(wifi_driver_task(runner).unwrap());
     control.init(clm).await;
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
@@ -463,10 +471,10 @@ pub async fn setup_wifi(
         0x0123_4567_89ab_cdef,
     );
     let stack = STACK.init(stack_alloc);
-    spawner.spawn(net_task(runner_alloc)).unwrap();
+    spawner.spawn(net_task(runner_alloc).unwrap());
 
-    spawner.spawn(wifi_server_task(stack)).unwrap();
-    spawner.spawn(tcp_telemetry_task(stack)).unwrap();
+    spawner.spawn(wifi_server_task(stack).unwrap());
+    spawner.spawn(tcp_telemetry_task(stack).unwrap());
 
     let settings = Settings::get().await;
     let is_ap = force_ap || settings.wifi.ssid.is_empty();
@@ -478,7 +486,9 @@ pub async fn setup_wifi(
             gateway: None,
             dns_servers: Default::default(),
         }));
-        let _ = spawner.spawn(dhcp_server_task(stack));
+        if let Ok(token) = dhcp_server_task(stack) {
+            spawner.spawn(token);
+        }
         control.start_ap_wpa2("Oximite-Setup", "password", 6).await;
 
         core::future::pending::<()>().await;
