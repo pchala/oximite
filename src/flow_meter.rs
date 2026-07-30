@@ -11,7 +11,6 @@ use embassy_sync::signal::Signal;
 
 pub static SIG_RESET_VOLUME: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-pub const CLOCK_FREQ_HZ: f32 = 150_000_000.0;
 pub const CYCLES_PER_LOOP: f32 = 2.0;
 
 #[derive(Clone, Copy, Default)]
@@ -22,17 +21,15 @@ pub struct FlowState {
 
 pub static FLOW_WATCH: Watch<CriticalSectionRawMutex, FlowState, 4> = Watch::new();
 
-pub struct FlowMonitor;
-impl FlowMonitor {
-    pub fn new() -> Self {
-        Self
-    }
-    pub async fn get_state(&self) -> FlowState {
-        FLOW_WATCH.try_get().unwrap_or_default()
-    }
-    pub fn reset_volume(&self) {
-        SIG_RESET_VOLUME.signal(());
-    }
+/// The latest flow reading, or zeroes if the flow task hasn't published yet.
+pub fn get_flow() -> FlowState {
+    FLOW_WATCH.try_get().unwrap_or_default()
+}
+
+/// Zeroes the accumulated volume. Applied by `run_flow_task` rather than here,
+/// so the reset lands between two pulse counts instead of racing one.
+pub fn reset_volume() {
+    SIG_RESET_VOLUME.signal(());
 }
 
 pub fn setup_flow_sm(
@@ -87,7 +84,7 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
         98324.0 // 49162 physical pulses/L × 2 edges; fallback if flash value is 0
     };
     let ml_per_pulse: f32 = 1000.0 / pulses_per_liter;
-    let flow_numerator: f32 = (CLOCK_FREQ_HZ / CYCLES_PER_LOOP) * ml_per_pulse;
+    let flow_numerator: f32 = (crate::board::SYS_CLK_HZ / CYCLES_PER_LOOP) * ml_per_pulse;
 
     loop {
         match with_timeout(

@@ -1,14 +1,22 @@
 #![no_std]
 #![no_main]
 
+mod adc;
+mod board;
 mod buttons;
+mod calibration;
 mod control;
 mod coordinator;
 mod cyw43_nvram;
+mod dhcp;
 mod flow_meter;
 mod leds;
+mod operations;
+mod pid;
+mod profiles;
 mod settings;
 mod state;
+mod web_api;
 mod wifi_task;
 
 use core::ptr::addr_of_mut;
@@ -61,10 +69,10 @@ async fn main(spawner: Spawner) {
         }
         init_pins_hiz!(p_steal; PIN_26, PIN_27);
     }
-    let mut flash: Flash<'static, _, embassy_rp::flash::Async, 16777216> =
+    let mut flash: Flash<'static, _, embassy_rp::flash::Async, { board::FLASH_SIZE }> =
         Flash::new(p.FLASH, p.DMA_CH1, Irqs);
     SettingsStore::load(&mut flash).await;
-    crate::settings::load_all_profiles_from_flash(&mut flash).await;
+    crate::profiles::load_all_profiles_from_flash(&mut flash).await;
 
     // Safe-boot fallback: if the 'flush' button (PIN 8) is held during boot, force AP mode.
     let mut force_ap = false;
@@ -137,8 +145,7 @@ async fn main(spawner: Spawner) {
             let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
             executor.run(|spawner| {
                 defmt::info!("Core 1: Spawning wifi_init_task");
-                spawner
-                    .spawn(wifi_init_task(spawner, pwr, spi, force_ap).unwrap());
+                spawner.spawn(wifi_task::wifi_init_task(spawner, pwr, spi, force_ap).unwrap());
             })
         },
     );
@@ -202,7 +209,7 @@ async fn main(spawner: Spawner) {
     let ch_temp = embassy_rp::adc::Channel::new_pin(p.PIN_41, Pull::None);
     let valve_output = Output::new(p.PIN_3, Level::Low);
 
-    spawner.spawn(control::adc_task(adc, ch_press, ch_temp).unwrap());
+    spawner.spawn(adc::adc_task(adc, ch_press, ch_temp).unwrap());
 
     spawner.spawn(control::ac_sync_control_task(sm1, sm2, sm0).unwrap());
 
@@ -210,24 +217,11 @@ async fn main(spawner: Spawner) {
     let btn_brew = Input::new(p.PIN_6, Pull::Up);
     let btn_steam = Input::new(p.PIN_7, Pull::Up);
     let btn_flush = Input::new(p.PIN_8, Pull::Up);
-    spawner.spawn(
-        buttons::run_button_task(btn_power, btn_brew, btn_steam, btn_flush).unwrap(),
-    );
+    spawner.spawn(buttons::run_button_task(btn_power, btn_brew, btn_steam, btn_flush).unwrap());
 
     // Spawn the decoupled architectural tasks
     spawner.spawn(leds::led_update_task().unwrap());
     spawner.spawn(settings::flash_update_task(flash).unwrap());
     spawner.spawn(coordinator::coordinator_task().unwrap());
-    spawner.spawn(control::hardware_task(valve_output).unwrap());
-}
-
-#[embassy_executor::task]
-async fn wifi_init_task(
-    spawner: Spawner,
-    pwr: Output<'static>,
-    spi: cyw43_pio::PioSpi<'static, PIO1, 0>,
-    force_ap: bool,
-) {
-    defmt::info!("Wifi: init task started");
-    wifi_task::setup_wifi(spawner, pwr, spi, force_ap).await;
+    spawner.spawn(operations::hardware_task(valve_output).unwrap());
 }

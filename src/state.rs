@@ -38,7 +38,7 @@ impl MachineState {
 #[derive(Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum MachineCommand {
-    RunProfile(crate::settings::BrewProfile),
+    RunProfile(crate::profiles::BrewProfile),
     Brew,
     Stop,
     Steam,
@@ -74,6 +74,78 @@ impl defmt::Format for MachineCommand {
 }
 
 pub static SIG_COMMAND: Signal<CriticalSectionRawMutex, MachineCommand> = Signal::new();
+
+/// Commands the coordinator dispatches to `operations::hardware_task`, which
+/// owns the solenoid valve and runs the actual hardware sequences. Kept next to
+/// `MachineCommand` because both are inter-task command channels; `operations`
+/// consumes this one rather than defining it.
+#[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
+pub enum HardwareCommand {
+    RunProfile(crate::profiles::BrewProfile),
+    Steam,
+    Descale,
+    DirectPump(f32),
+    CooldownFlush,
+    HotWater,
+}
+
+pub static SIG_HARDWARE_CMD: Signal<CriticalSectionRawMutex, HardwareCommand> = Signal::new();
+
+/// Cancellation channel for whatever hardware operation is currently running.
+/// The coordinator signals it on Stop or on a transition out of a busy state;
+/// `operations::HardwareExecutor` races every operation against it.
+pub static SIG_PROFILE_ABORT: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Everything the UI and the LED task need to render the machine, published
+/// as one snapshot. Written by two producers: `adc::adc_task` fills in the
+/// measured `pressure_bar`/`temp_c`, and `control::ac_sync_control_task` fills
+/// in the setpoints and heater duty it derives from them. Both run on core0's
+/// executor and neither awaits between reading and sending, so the
+/// read-modify-write is atomic with respect to the other.
+#[derive(Clone, Copy, Default)]
+pub struct Telemetry {
+    pub pressure_bar: f32,
+    pub temp_c: f32,
+    pub target_bar: f32,
+    pub target_temp: f32,
+    pub flow_limit_ml_s: f32,
+    pub heater_duty: f32,
+}
+
+impl Telemetry {
+    /// Returns `(display_temp, display_target_temp)` with the boiler offset
+    /// subtracted for non-steam modes.
+    pub fn display_temps(&self, offset: f32, is_steaming: bool) -> (f32, f32) {
+        if is_steaming {
+            (self.temp_c, self.target_temp)
+        } else {
+            let t = self.temp_c - offset;
+            let tt = if self.target_temp > 0.0 {
+                self.target_temp - offset
+            } else {
+                0.0
+            };
+            (t, tt)
+        }
+    }
+}
+
+pub static TELEMETRY_WATCH: Watch<CriticalSectionRawMutex, Telemetry, 4> = Watch::new();
+
+/// The latest telemetry snapshot, or a plausible cold-machine reading if no
+/// producer has published yet — callers would otherwise see a 0 °C boiler for
+/// the first few milliseconds after boot and act on it.
+pub fn get_telemetry() -> Telemetry {
+    TELEMETRY_WATCH.try_get().unwrap_or(Telemetry {
+        pressure_bar: 0.0,
+        temp_c: 20.0,
+        target_bar: 0.0,
+        target_temp: 20.0,
+        flow_limit_ml_s: 0.0,
+        heater_duty: 0.0,
+    })
+}
 
 // The Watch channel acts as our centralized, broadcasted state for tasks that want notifications.
 pub static MACHINE_STATE: Watch<CriticalSectionRawMutex, MachineState, 4> = Watch::new();

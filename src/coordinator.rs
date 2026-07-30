@@ -9,7 +9,7 @@ use embassy_time::{Duration, Timer};
 
 use crate::control::{self, TargetTempMode};
 use crate::settings::{FlashUpdate, Settings, SIG_FLASH_UPDATE};
-use crate::state::{self, MachineCommand, MachineState, SIG_COMMAND};
+use crate::state::{self, HardwareCommand, MachineCommand, MachineState, SIG_COMMAND};
 
 // ==========================================
 // POWER MANAGEMENT
@@ -48,10 +48,10 @@ async fn wake_up() {
 /// happens to land in that same window.
 async fn transition_state(new_state: MachineState, target_mode: Option<TargetTempMode>) {
     let was_busy = state::get_state().is_busy();
-    crate::flow_meter::FlowMonitor::new().reset_volume();
+    crate::flow_meter::reset_volume();
     state::set_state(new_state);
     if was_busy {
-        control::SIG_PROFILE_ABORT.signal(());
+        state::SIG_PROFILE_ABORT.signal(());
     }
     if let Some(m) = target_mode {
         control::set_target_temp(m).await;
@@ -62,20 +62,16 @@ async fn transition_state(new_state: MachineState, target_mode: Option<TargetTem
 /// `hw_cmd` to the hardware task. This is the common shape of every "start an
 /// operation" arm in `handle_command`; adding a new operation is a single
 /// call to this helper rather than hand-rolled transition + signal code.
-async fn start(
-    new_state: MachineState,
-    temp_mode: TargetTempMode,
-    hw_cmd: control::HardwareCommand,
-) {
+async fn start(new_state: MachineState, temp_mode: TargetTempMode, hw_cmd: HardwareCommand) {
     transition_state(new_state, Some(temp_mode)).await;
-    control::SIG_HARDWARE_CMD.signal(hw_cmd);
+    state::SIG_HARDWARE_CMD.signal(hw_cmd);
 }
 
 async fn stop_to_idle(abort_hardware: bool) {
     let was_busy = state::get_state().is_busy();
     state::set_state(MachineState::Idle);
     if was_busy && abort_hardware {
-        control::SIG_PROFILE_ABORT.signal(());
+        state::SIG_PROFILE_ABORT.signal(());
     }
     control::set_target_temp(TargetTempMode::Brew).await;
     control::PumpMode::Idle.apply();
@@ -85,8 +81,6 @@ async fn stop_to_idle(abort_hardware: bool) {
 // STATE MACHINE TRANSITION TABLE
 // ==========================================
 async fn handle_command(state: MachineState, cmd: MachineCommand) {
-    use control::HardwareCommand;
-
     match (state, cmd) {
         // Power toggle
         (MachineState::Idle, MachineCommand::TogglePower) => {
@@ -99,7 +93,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
 
         // Brew
         (MachineState::Idle, MachineCommand::Brew) => {
-            let p = Settings::get_default_profile().await;
+            let p = crate::profiles::get_default_profile().await;
             start(
                 MachineState::Brewing,
                 TargetTempMode::Brew,
@@ -121,7 +115,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) {
             start(
                 MachineState::Pumping,
                 TargetTempMode::Brew,
-                HardwareCommand::DirectPump(control::PUMP_POWER),
+                HardwareCommand::DirectPump(crate::operations::PUMP_POWER),
             )
             .await;
         }

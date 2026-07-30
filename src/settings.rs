@@ -1,28 +1,13 @@
+use crate::board::{FLASH_SIZE, FS_RANGE};
+use crate::profiles::{delete_profile_from_flash, get_profile_from_ram, save_profile_to_flash};
 use embassy_rp::flash::{Async, Flash, Instance};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use sequential_storage::cache::NoCache;
-use sequential_storage::map::{fetch_item, remove_item, store_item};
+use sequential_storage::map::{fetch_item, store_item};
 use serde::{Deserialize, Serialize};
-
-const FS_RANGE: core::ops::Range<u32> = (16777216 - 65536)..16777216;
-const MAX_PROFILES: u8 = 10;
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct BrewProfileStep {
-    pub time_s: Option<f32>,
-    pub volume: Option<f32>,
-    pub pressure: Option<f32>,
-    pub flow: Option<f32>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct BrewProfile {
-    pub name: heapless::String<32>,
-    pub steps: heapless::Vec<BrewProfileStep, 10>,
-}
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct MachineSettings {
@@ -163,23 +148,6 @@ impl Settings {
         });
         *CURRENT_SETTINGS.lock().await = new_settings;
     }
-
-    pub async fn get_default_profile() -> BrewProfile {
-        if let Some(profile) = get_profile_from_ram(0).await {
-            return profile;
-        }
-        let mut p = BrewProfile {
-            name: heapless::String::try_from("Standard").unwrap(),
-            steps: heapless::Vec::new(),
-        };
-        let _ = p.steps.push(BrewProfileStep {
-            time_s: Some(30.0),
-            volume: Some(36.0),
-            pressure: Some(9.0),
-            flow: Some(0.0),
-        });
-        p
-    }
 }
 
 // ==========================================
@@ -202,7 +170,7 @@ pub struct SettingsStore;
 
 impl SettingsStore {
     /// Reads all settings sections from flash and populates the RAM cache.
-    pub async fn load<T: Instance>(flash: &mut Flash<'_, T, Async, 16777216>) {
+    pub async fn load<T: Instance>(flash: &mut Flash<'_, T, Async, FLASH_SIZE>) {
         let mut scratch = [0u8; 1024];
         let mut s = Settings::default();
         let mut loaded = false;
@@ -233,7 +201,7 @@ impl SettingsStore {
     }
 
     pub async fn save_section<T: Instance, S: Serialize, K: sequential_storage::map::Key>(
-        flash: &mut Flash<'_, T, Async, 16777216>,
+        flash: &mut Flash<'_, T, Async, FLASH_SIZE>,
         key: &K,
         data: &S,
     ) -> Result<(), ()> {
@@ -257,107 +225,6 @@ impl SettingsStore {
 }
 
 // ==========================================
-// PROFILE RAM CACHE & FLASH MANAGEMENT
-// ==========================================
-
-static PROFILES_CACHE: Mutex<CriticalSectionRawMutex, [Option<BrewProfile>; 10]> =
-    Mutex::new([None, None, None, None, None, None, None, None, None, None]);
-
-fn profile_key(slot: u8) -> [u8; 6] {
-    [b'p', b'r', b'o', b'f', b'_', b'0' + slot]
-}
-
-pub async fn get_profile_from_ram(slot: u8) -> Option<BrewProfile> {
-    if slot >= MAX_PROFILES {
-        return None;
-    }
-    PROFILES_CACHE.lock().await[slot as usize].clone()
-}
-
-pub async fn get_all_profiles_from_ram() -> heapless::Vec<(u8, BrewProfile), 10> {
-    let mut list = heapless::Vec::new();
-    let cache = PROFILES_CACHE.lock().await;
-    for i in 0..MAX_PROFILES {
-        if let Some(p) = &cache[i as usize] {
-            let _ = list.push((i, p.clone()));
-        }
-    }
-    list
-}
-
-pub async fn load_all_profiles_from_flash<T: Instance>(flash: &mut Flash<'_, T, Async, 16777216>) {
-    let mut scratch = [0u8; 512];
-    let mut cache = PROFILES_CACHE.lock().await;
-
-    for slot in 0..MAX_PROFILES {
-        let key = profile_key(slot);
-        let fetch_result: Result<Option<&[u8]>, _> =
-            fetch_item(flash, FS_RANGE, &mut NoCache::new(), &mut scratch, &key).await;
-
-        if let Ok(Some(item_bytes)) = fetch_result {
-            if let Ok((profile, _)) = serde_json_core::from_slice::<BrewProfile>(item_bytes) {
-                cache[slot as usize] = Some(profile);
-            }
-        }
-    }
-    defmt::info!("All saved profiles loaded into RAM.");
-}
-
-pub async fn save_profile_to_ram(slot: u8, profile: BrewProfile) {
-    if slot < MAX_PROFILES {
-        PROFILES_CACHE.lock().await[slot as usize] = Some(profile);
-    }
-}
-
-pub async fn delete_profile_from_ram(slot: u8) {
-    if slot < MAX_PROFILES {
-        PROFILES_CACHE.lock().await[slot as usize] = None;
-    }
-}
-
-pub async fn save_profile_to_flash<T: Instance>(
-    flash: &mut Flash<'_, T, Async, 16777216>,
-    slot: u8,
-    profile: &BrewProfile,
-) -> Result<(), ()> {
-    if slot >= MAX_PROFILES {
-        return Err(());
-    }
-    let key = profile_key(slot);
-    let mut scratch = [0u8; 512];
-    let mut data = [0u8; 1024];
-
-    if let Ok(len) = serde_json_core::to_slice(profile, &mut data) {
-        store_item(
-            flash,
-            FS_RANGE,
-            &mut NoCache::new(),
-            &mut scratch,
-            &key,
-            &&data[..len],
-        )
-        .await
-        .map_err(|_| ())
-    } else {
-        Err(())
-    }
-}
-
-pub async fn delete_profile_from_flash<T: Instance>(
-    flash: &mut Flash<'_, T, Async, 16777216>,
-    slot: u8,
-) -> Result<(), ()> {
-    if slot >= MAX_PROFILES {
-        return Err(());
-    }
-    let key = profile_key(slot);
-    let mut scratch = [0u8; 512];
-    remove_item(flash, FS_RANGE, &mut NoCache::new(), &mut scratch, &key)
-        .await
-        .map_err(|_| ())
-}
-
-// ==========================================
 // BACKGROUND FLASH EVENT HANDLER
 // ==========================================
 pub enum FlashUpdate {
@@ -372,7 +239,7 @@ pub static SIG_FLASH_UPDATE: Signal<CriticalSectionRawMutex, FlashUpdate> = Sign
 
 #[embassy_executor::task]
 pub async fn flash_update_task(
-    mut flash: Flash<'static, embassy_rp::peripherals::FLASH, Async, 16777216>,
+    mut flash: Flash<'static, embassy_rp::peripherals::FLASH, Async, FLASH_SIZE>,
 ) {
     loop {
         let event = SIG_FLASH_UPDATE.wait().await;

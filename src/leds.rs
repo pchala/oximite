@@ -8,7 +8,6 @@ use embassy_time::{Duration, Timer};
 use fixed::FixedU32;
 use pio::pio_asm;
 
-use crate::control;
 use crate::flow_meter;
 use crate::state::{self, MachineState, MACHINE_STATE};
 
@@ -60,7 +59,7 @@ pub fn setup_ws2812_sm<P: Instance, const SM: usize>(
     let mut cfg = Config::default();
     cfg.use_program(&loaded, &[&pin]);
     cfg.set_out_pins(&[&pin]);
-    cfg.clock_divider = FixedU32::from_num(150_000_000.0 / 8_000_000.0); // 18.75 → 8 MHz PIO clock for WS2812 timing
+    cfg.clock_divider = FixedU32::from_num(crate::board::SYS_CLK_HZ / 8_000_000.0); // 18.75 → 8 MHz PIO clock for WS2812 timing
     cfg.shift_out.direction = ShiftDirection::Left;
     cfg.shift_out.auto_fill = false;
     cfg.fifo_join = FifoJoin::TxOnly;
@@ -108,8 +107,8 @@ pub async fn led_update_task() {
         }
         was_sleeping = current_state == MachineState::Sleeping;
 
-        let a = control::AdcMonitor::new().get_state().await;
-        let f = flow_meter::FlowMonitor::new().get_state().await;
+        let a = state::get_telemetry();
+        let f = flow_meter::get_flow();
 
         let mut temp_color = if a.temp_c < a.target_temp - 1.0 {
             Rgb::new(0, 0, 255) // Blue  — heating
