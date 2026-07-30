@@ -222,6 +222,5 @@ async fn main(spawner: Spawner) {
     // Spawn the decoupled architectural tasks
     spawner.spawn(leds::led_update_task().unwrap());
     spawner.spawn(settings::flash_update_task(flash).unwrap());
-    spawner.spawn(coordinator::coordinator_task().unwrap());
-    spawner.spawn(operations::hardware_task(valve_output).unwrap());
+    spawner.spawn(coordinator::coordinator_task(valve_output).unwrap());
 }

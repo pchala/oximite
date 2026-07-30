@@ -61,10 +61,6 @@
                 <button class="success" onclick="sendCommand('brew')" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">BREW</button>
             </div>
             <button class="danger" onclick="sendCommand('stop')" style="width: 100%; padding: 15px; font-size: 1.2em;">STOP</button>
-            <div class="grid-2" style="margin-top: 10px;">
-                <input type="number" id="direct-pump-val" placeholder="Pump Power %" min="0" max="100" step="1">
-                <button onclick="sendCommand('direct_pump', { power: parseFloat(document.getElementById('direct-pump-val').value) })">DIRECT PUMP</button>
-            </div>
         </div>
         
         <div class="panel">

@@ -17,7 +17,7 @@ use crate::profiles::BrewProfile;
 use crate::settings::{
     FlashUpdate, MachineSettings, PidSettings, Settings, WifiSettings, SIG_FLASH_UPDATE,
 };
-use crate::state::{get_state, get_telemetry, MachineCommand, MachineState, SIG_COMMAND};
+use crate::state::{get_state, get_telemetry, send_command, MachineCommand, MachineState};
 
 static INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 
@@ -79,48 +79,48 @@ async fn graceful_close(socket: &mut TcpSocket<'_>) {
 
 async fn handle_api_command(payload: ApiCommand<'_>) {
     match payload.cmd {
-        "power" => SIG_COMMAND.signal(MachineCommand::TogglePower),
-        "brew" => SIG_COMMAND.signal(MachineCommand::Brew),
-        "stop" => SIG_COMMAND.signal(MachineCommand::Stop),
-        "steam" => SIG_COMMAND.signal(MachineCommand::Steam),
-        "flush" => SIG_COMMAND.signal(MachineCommand::Flush),
-        "descale" => SIG_COMMAND.signal(MachineCommand::Descale),
+        "power" => send_command(MachineCommand::TogglePower),
+        "brew" => send_command(MachineCommand::Brew),
+        "stop" => send_command(MachineCommand::Stop),
+        "steam" => send_command(MachineCommand::Steam),
+        "flush" => send_command(MachineCommand::Flush),
+        "descale" => send_command(MachineCommand::Descale),
         "direct_pump" => {
-            SIG_COMMAND.signal(MachineCommand::Stop);
+            send_command(MachineCommand::Stop);
             if let Some(p) = payload.power {
-                SIG_COMMAND.signal(MachineCommand::DirectPump(p));
+                send_command(MachineCommand::DirectPump(p));
             }
         }
         "set_session_temp" => {
             if let Some(t) = payload.temp {
-                SIG_COMMAND.signal(MachineCommand::SetSessionTemp(t));
+                send_command(MachineCommand::SetSessionTemp(t));
             }
         }
         "save_machine" => {
             if let Some(m) = payload.machine {
-                SIG_COMMAND.signal(MachineCommand::SaveMachine(m));
+                send_command(MachineCommand::SaveMachine(m));
             }
         }
         "save_pids" => {
             if let (Some(t), Some(p)) = (payload.temp_pid, payload.press_pid) {
-                SIG_COMMAND.signal(MachineCommand::SavePids(t, p));
+                send_command(MachineCommand::SavePids(t, p));
             }
         }
         "save_wifi" => {
             if let Some(w) = payload.wifi {
                 defmt::info!("API: New SSID: {}", w.ssid.as_str());
-                SIG_COMMAND.signal(MachineCommand::SaveWifi(w));
+                send_command(MachineCommand::SaveWifi(w));
             }
         }
         "profile" => {
             if let Some(p) = payload.profile {
-                SIG_COMMAND.signal(MachineCommand::RunProfile(p));
+                send_command(MachineCommand::RunProfile(p));
             }
         }
         "run_slot" => {
             if let Some(slot) = payload.slot {
                 if let Some(p) = crate::profiles::get_profile_from_ram(slot).await {
-                    SIG_COMMAND.signal(MachineCommand::RunProfile(p));
+                    send_command(MachineCommand::RunProfile(p));
                 }
             }
         }

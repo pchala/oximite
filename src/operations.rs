@@ -1,10 +1,12 @@
 //! Machine operations (brew profile, steam, descale, cooldown flush, hot
-//! water, raw pump) and the task that executes them.
+//! water, raw pump) and the valve-owning dispatcher that runs them.
 //!
-//! Each operation is a plain cancellable future built from the control-loop
-//! primitives in `control.rs`; `hardware_task` owns the solenoid valve and
-//! runs whichever one the coordinator asks for, racing it against
-//! `SIG_PROFILE_ABORT`.
+//! Each operation is a plain future built from the control-loop primitives in
+//! `control.rs`. `coordinator_task` awaits [`execute`] directly, racing it
+//! against the command queue, so cancellation is dropping the future and
+//! completion is that future returning. There is no abort signal and no
+//! "operation finished" message — neither can therefore be applied to the
+//! wrong operation.
 
 use embassy_futures::select::{select, Either};
 use embassy_futures::yield_now;
@@ -14,14 +16,23 @@ use embassy_time::{Duration, Timer};
 use crate::control::{set_target_temp, BrewActiveGuard, PumpGuard, PumpMode, TargetTempMode};
 use crate::profiles::BrewProfile;
 use crate::settings::Settings;
-use crate::state::{
-    HardwareCommand, MachineCommand, SIG_COMMAND, SIG_HARDWARE_CMD, SIG_PROFILE_ABORT,
-};
 
 /// Pump power used for flush and cooldown operations (%).
 pub const PUMP_POWER: f32 = 80.0;
 
-pub async fn execute_profile(profile: BrewProfile) {
+/// Safety ceiling for the pump-only operations (flush, raw direct pump,
+/// cooldown flush). These have no target to stop them — they run until the
+/// user says stop — and the buttons are edge-triggered, so a single press
+/// would otherwise pump until the tank ran dry. Auto-sleep cannot rescue them
+/// either: it only fires while Idle. Set well above any plausible manual use
+/// so it never interferes with normal operation.
+const MAX_PUMP_RUN_S: u64 = 60;
+
+/// Hot water gets a longer ceiling than a flush — filling a mug at a few ml/s
+/// is legitimately slower than rinsing the group head.
+const MAX_HOT_WATER_S: u64 = 120;
+
+async fn execute_profile(profile: BrewProfile) {
     defmt::info!("Executing profile: {}", profile.name.as_str());
     let mut pump = PumpGuard::engage(PumpMode::Idle);
     let _brew_active = BrewActiveGuard::engage();
@@ -99,30 +110,39 @@ pub async fn execute_profile(profile: BrewProfile) {
     // PumpMode::Idle to reset pressure target, flow limit, and direct pump.
 }
 
-pub async fn execute_steam() {
+async fn execute_steam() {
     let s = Settings::get().await;
     set_target_temp(TargetTempMode::Steam).await;
     Timer::after(Duration::from_secs(s.machine.steam_time_limit_s as u64)).await;
     set_target_temp(TargetTempMode::Brew).await;
 }
 
-pub async fn execute_cooldown_flush() {
+async fn execute_cooldown_flush() {
     let s = Settings::get().await;
     // Drop the target to 0 (heater off) instead of brew temp — the heater
     // fighting the incoming cold water only slows the cooldown down.
     set_target_temp(TargetTempMode::Off).await;
     let _pump = PumpGuard::engage(PumpMode::DirectPump(PUMP_POWER));
 
-    loop {
-        let t_c = crate::state::get_telemetry().temp_c;
-        if t_c <= s.machine.brew_temp + s.machine.temp_offset {
-            break;
+    let cooled = async {
+        loop {
+            let t_c = crate::state::get_telemetry().temp_c;
+            if t_c <= s.machine.brew_temp + s.machine.temp_offset {
+                break;
+            }
+            Timer::after(Duration::from_millis(100)).await;
         }
-        Timer::after(Duration::from_millis(100)).await;
+    };
+
+    // Bounded like the other pump-only operations — this one stops on a sensor
+    // reading, so a stuck-high temperature would otherwise pump indefinitely.
+    let timeout = Timer::after(Duration::from_secs(MAX_PUMP_RUN_S));
+    if let Either::Second(_) = select(cooled, timeout).await {
+        defmt::warn!("Cooldown flush hit its {}s safety limit", MAX_PUMP_RUN_S);
     }
 }
 
-pub async fn execute_descale() {
+async fn execute_descale() {
     const DESCALE_VOLUME_ML: f32 = 200.0;
     const DESCALE_SOAK_SECS: u64 = 2 * 60;
     const FLOW_START_GRACE_SECS: u64 = 1;
@@ -168,19 +188,23 @@ pub async fn execute_descale() {
     set_target_temp(TargetTempMode::Brew).await;
 }
 
-pub async fn execute_direct_pump(power: f32) {
+/// Runs the pump at a fixed power until cancelled, or until `max_run_s` — see
+/// [`MAX_PUMP_RUN_S`]. Returning normally means the coordinator drops back to
+/// Idle and the valve closes.
+async fn execute_direct_pump(power: f32, max_run_s: u64) {
     let _pump = PumpGuard::engage(PumpMode::DirectPump(power));
-    core::future::pending::<()>().await;
+    Timer::after(Duration::from_secs(max_run_s)).await;
+    defmt::warn!("Direct pump hit its {}s safety limit", max_run_s);
 }
 
 // ==========================================
-// HARDWARE EXECUTOR TASK
+// OPERATION DISPATCH
 // ==========================================
 
-/// Whether a hardware operation needs the solenoid valve open (pressurizing
-/// the group head) while it runs. Operations that don't need it just leave
-/// it alone — it's already closed by the invariant that `SolenoidGuard`
-/// always closes it again on drop, and it starts closed at boot.
+/// Whether an operation needs the solenoid valve open (pressurizing the group
+/// head) while it runs. Operations that don't need it just leave it alone —
+/// it's already closed by the invariant that `SolenoidGuard` always closes it
+/// again on drop, and it starts closed at boot.
 #[derive(Clone, Copy)]
 enum Solenoid {
     Open,
@@ -188,11 +212,11 @@ enum Solenoid {
 }
 
 /// RAII guard for the solenoid valve: opens it when created and
-/// unconditionally closes it again when dropped. This is the Rust
-/// equivalent of a context manager — every exit path (natural finish,
-/// abort, or a future early return/panic) closes the valve without relying
-/// on a manual `set_low()` at the end of the function. Only constructed for
-/// operations that actually open the valve (see `Solenoid`).
+/// unconditionally closes it again when dropped. This is the Rust equivalent
+/// of a context manager — every exit path (natural finish, cancellation, or an
+/// early return) closes the valve without relying on a manual `set_low()` at
+/// the end of the function. Only constructed for operations that actually open
+/// the valve (see `Solenoid`).
 struct SolenoidGuard<'a> {
     valve: &'a mut Output<'static>,
 }
@@ -210,98 +234,72 @@ impl Drop for SolenoidGuard<'_> {
     }
 }
 
-/// Owns the single solenoid valve GPIO and drives cancellable hardware
-/// operations through it. Since there is exactly one valve in the system,
-/// bundling it here means call sites just say `executor.run_cancellable(...)`
-/// instead of threading `&mut valve` through every call.
-struct HardwareExecutor {
-    valve: Output<'static>,
+/// A hardware sequence the coordinator has decided to run.
+///
+/// This is a plain value handed to [`execute`], not a message posted to
+/// another task. That is deliberate: the coordinator awaits the operation
+/// directly, so "it finished" is a future returning rather than a
+/// notification that could be delivered after the coordinator has already
+/// moved on to a different operation.
+///
+/// `Profile` makes this enum ~360 bytes, but it is only ever a local in the
+/// coordinator's future — never queued, never copied per-message — so the
+/// size difference costs one slot of task stack rather than N slots of queue.
+#[allow(clippy::large_enum_variant)]
+pub enum Operation {
+    Profile(BrewProfile),
+    Steam,
+    Descale,
+    CooldownFlush,
+    DirectPump(f32),
+    HotWater,
 }
 
-impl HardwareExecutor {
-    fn new(valve: Output<'static>) -> Self {
-        Self { valve }
+impl Operation {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Operation::Profile(_) => "Profile",
+            Operation::Steam => "Steam",
+            Operation::Descale => "Descale",
+            Operation::CooldownFlush => "Cooldown flush",
+            Operation::DirectPump(_) => "Direct pump",
+            Operation::HotWater => "Hot water",
+        }
     }
 
-    async fn run_cancellable<F: core::future::Future>(
-        &mut self,
-        solenoid: Solenoid,
-        action_name: &'static str,
-        fut: F,
-    ) {
-        // Closed operations never touch the valve — it's already closed.
-        let _solenoid =
-            matches!(solenoid, Solenoid::Open).then(|| SolenoidGuard::open(&mut self.valve));
-        let abort = core::pin::pin!(SIG_PROFILE_ABORT.wait());
-        let run = core::pin::pin!(fut);
-        match select(run, abort).await {
-            Either::First(_) => {
-                defmt::info!("Hardware: {} finished naturally", action_name);
-                // A Stop (or a new transition) racing the last instant of this
-                // operation may have signaled abort just as `run` won the race
-                // above — discard it now so it can't spuriously cancel the
-                // *next* operation (see coordinator::transition_state/stop_to_idle,
-                // which only signal abort while a busy operation is in flight).
-                SIG_PROFILE_ABORT.reset();
-                SIG_COMMAND.signal(MachineCommand::ProfileFinished);
-            }
-            Either::Second(_) => {
-                defmt::warn!("Hardware: {} aborted", action_name);
-            }
+    fn solenoid(&self) -> Solenoid {
+        match self {
+            Operation::Profile(_) | Operation::DirectPump(_) => Solenoid::Open,
+            Operation::Steam
+            | Operation::Descale
+            | Operation::CooldownFlush
+            | Operation::HotWater => Solenoid::Closed,
         }
-        // `_solenoid` drops here (if it was Open), closing the valve regardless
-        // of which branch ran.
     }
 }
 
-#[embassy_executor::task]
-pub async fn hardware_task(valve: Output<'static>) {
-    let mut executor = HardwareExecutor::new(valve);
-    loop {
-        let cmd = SIG_HARDWARE_CMD.wait().await;
-        defmt::info!("Hardware task received command");
-
-        match cmd {
-            HardwareCommand::RunProfile(p) => {
-                defmt::info!("Hardware: Starting profile '{}'", p.name.as_str());
-                executor
-                    .run_cancellable(Solenoid::Open, "Profile", execute_profile(p))
-                    .await;
-            }
-            HardwareCommand::Steam => {
-                defmt::info!("Hardware: Starting steam");
-                executor
-                    .run_cancellable(Solenoid::Closed, "Steam", execute_steam())
-                    .await;
-            }
-            HardwareCommand::Descale => {
-                defmt::info!("Hardware: Starting descale");
-                executor
-                    .run_cancellable(Solenoid::Closed, "Descale", execute_descale())
-                    .await;
-            }
-            HardwareCommand::CooldownFlush => {
-                defmt::info!("Hardware: Starting cooldown flush");
-                executor
-                    .run_cancellable(Solenoid::Closed, "Cooldown flush", execute_cooldown_flush())
-                    .await;
-            }
-            HardwareCommand::DirectPump(power) => {
-                defmt::info!("Hardware: Starting direct pump {}%", power);
-                executor
-                    .run_cancellable(Solenoid::Open, "Direct pump", execute_direct_pump(power))
-                    .await;
-            }
-            HardwareCommand::HotWater => {
-                defmt::info!("Hardware: Starting hot water");
-                executor
-                    .run_cancellable(
-                        Solenoid::Closed,
-                        "Hot water",
-                        execute_direct_pump(PUMP_POWER),
-                    )
-                    .await;
-            }
-        }
+/// Runs one operation to completion, holding the solenoid valve open for the
+/// ones that need it.
+///
+/// Every variant collapses into this single future type, which is what lets
+/// `coordinator_task` race any operation against the command queue with one
+/// `select`.
+///
+/// Cancellation is simply dropping this future. Everything an operation
+/// touches is held by an RAII guard — `PumpGuard`, `BrewActiveGuard` and
+/// `SolenoidGuard` — so an abandoned operation unwinds to a safe state on its
+/// own. Drop order matters and is correct by construction: `_solenoid` is
+/// declared before the operation is awaited, so it is dropped *last*, and the
+/// pump is always returned to idle before the valve closes.
+pub async fn execute(op: Operation, valve: &mut Output<'static>) {
+    // Closed operations never touch the valve — it's already closed.
+    let _solenoid = matches!(op.solenoid(), Solenoid::Open).then(|| SolenoidGuard::open(valve));
+    match op {
+        Operation::Profile(p) => execute_profile(p).await,
+        Operation::Steam => execute_steam().await,
+        Operation::Descale => execute_descale().await,
+        Operation::CooldownFlush => execute_cooldown_flush().await,
+        Operation::DirectPump(power) => execute_direct_pump(power, MAX_PUMP_RUN_S).await,
+        Operation::HotWater => execute_direct_pump(PUMP_POWER, MAX_HOT_WATER_S).await,
     }
 }

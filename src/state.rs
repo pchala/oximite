@@ -1,6 +1,6 @@
 use core::sync::atomic::Ordering;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
+use embassy_sync::channel::Channel;
 use embassy_sync::watch::Watch;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use portable_atomic::{AtomicU32, AtomicU8};
@@ -45,7 +45,6 @@ pub enum MachineCommand {
     Flush,
     Descale,
     DirectPump(f32),
-    ProfileFinished, // Sent by hardware when it finishes naturally
     SaveMachine(crate::settings::MachineSettings),
     SavePids(crate::settings::PidSettings, crate::settings::PidSettings),
     SaveWifi(crate::settings::WifiSettings),
@@ -63,7 +62,6 @@ impl defmt::Format for MachineCommand {
             MachineCommand::Flush => defmt::write!(fmt, "Flush"),
             MachineCommand::Descale => defmt::write!(fmt, "Descale"),
             MachineCommand::DirectPump(p) => defmt::write!(fmt, "DirectPump({})", p),
-            MachineCommand::ProfileFinished => defmt::write!(fmt, "ProfileFinished"),
             MachineCommand::SaveMachine(_) => defmt::write!(fmt, "SaveMachine"),
             MachineCommand::SavePids(_, _) => defmt::write!(fmt, "SavePids"),
             MachineCommand::SaveWifi(_) => defmt::write!(fmt, "SaveWifi"),
@@ -73,29 +71,37 @@ impl defmt::Format for MachineCommand {
     }
 }
 
-pub static SIG_COMMAND: Signal<CriticalSectionRawMutex, MachineCommand> = Signal::new();
+/// Commands headed for `coordinator::coordinator_task`.
+///
+/// This is a queue, not a `Signal`, because it has several independent
+/// producers — the button task on core0 and the web API on core1 — and every
+/// one of their commands means something different. A `Signal` holds a single
+/// slot and overwrites it, so two commands issued before the coordinator was
+/// scheduled would silently collapse into one, and a genuinely concurrent
+/// core1 request could destroy a button press outright. Ordering matters too:
+/// a `Stop` followed by a start command must arrive as two separate events.
+///
+/// Depth 4 covers the realistic worst case — all four buttons resolving in one
+/// debounce pass — without spending much RAM on the large `RunProfile` variant.
+static COMMAND_QUEUE: Channel<CriticalSectionRawMutex, MachineCommand, 4> = Channel::new();
 
-/// Commands the coordinator dispatches to `operations::hardware_task`, which
-/// owns the solenoid valve and runs the actual hardware sequences. Kept next to
-/// `MachineCommand` because both are inter-task command channels; `operations`
-/// consumes this one rather than defining it.
-#[derive(Clone)]
-#[allow(clippy::large_enum_variant)]
-pub enum HardwareCommand {
-    RunProfile(crate::profiles::BrewProfile),
-    Steam,
-    Descale,
-    DirectPump(f32),
-    CooldownFlush,
-    HotWater,
+/// Queues a command for the coordinator, dropping it if the queue is full.
+///
+/// Deliberately non-blocking: the callers are the button poller and HTTP
+/// request handlers, which must not stall waiting on the coordinator. A full
+/// queue means the coordinator is wedged, which the warning surfaces instead
+/// of hiding.
+pub fn send_command(cmd: MachineCommand) {
+    if COMMAND_QUEUE.try_send(cmd).is_err() {
+        defmt::warn!("Command queue full — command dropped");
+    }
 }
 
-pub static SIG_HARDWARE_CMD: Signal<CriticalSectionRawMutex, HardwareCommand> = Signal::new();
-
-/// Cancellation channel for whatever hardware operation is currently running.
-/// The coordinator signals it on Stop or on a transition out of a busy state;
-/// `operations::HardwareExecutor` races every operation against it.
-pub static SIG_PROFILE_ABORT: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// Waits for the next queued command. Single-consumer: only the coordinator
+/// calls this.
+pub async fn next_command() -> MachineCommand {
+    COMMAND_QUEUE.receive().await
+}
 
 /// Everything the UI and the LED task need to render the machine, published
 /// as one snapshot. Written by two producers: `adc::adc_task` fills in the

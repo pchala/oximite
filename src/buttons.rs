@@ -1,4 +1,4 @@
-use crate::state::{MachineCommand, SIG_COMMAND};
+use crate::state::{send_command, MachineCommand};
 use embassy_rp::gpio::Input;
 use embassy_time::{Duration, Timer};
 
@@ -75,7 +75,7 @@ pub async fn run_button_task(
         for db in debouncers.iter_mut() {
             if let Some(cmd) = db.poll() {
                 defmt::info!("Button pressed: {:?}", cmd);
-                SIG_COMMAND.signal(cmd);
+                send_command(cmd);
             }
         }
 
