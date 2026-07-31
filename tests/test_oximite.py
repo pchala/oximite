@@ -390,6 +390,10 @@ class TestOximite(unittest.TestCase):
         print("\nRunning: Pump Power Steps Test...")
         results = []
         for pwr in range(0, 105, 5):
+            # DirectPump only starts from Idle, so stop the previous step
+            # first — the firmware no longer injects an implicit stop.
+            self.send_command({"cmd": "stop"})
+            self.wait_for_state(0, timeout=10, title=f"Idle before {pwr}%")
             self.send_command({"cmd": "direct_pump", "power": float(pwr + 0.1)})
 
             # Wait for flow to stabilize
@@ -484,18 +488,6 @@ class TestOximite(unittest.TestCase):
     #     # Should finish after steam_time_limit_s (10s)
     #     self.wait_for_state(0, timeout=20, title="Steam Mode")
     #     self.plot_results("08_Steam_Mode")
-
-    # def test_09_descale_mode(self):
-    #     """Tests descale mode sequence."""
-    #     print("\nRunning: Descale Mode Test...")
-    #     self.send_command({"cmd": "descale"})
-    #     self.__class__.telemetry_history.clear()
-    #     # Descale takes a long time (10 min soak), so for HIL test we might want
-    #     # to just verify it starts and reaches 60 deg, but here we wait for finish.
-    #     # NOTE: In a real HIL test, you'd probably mock the 10min timer or shorten it for tests.
-    #     # For this exercise, I'll set a large timeout.
-    #     self.wait_for_state(0, timeout=15*60, title="Descale Mode")
-    #     self.plot_results("09_Descale_Mode")
 
     # def test_10_safety_timeout(self):
     #     """Verifies that a step with no limits ends at 120s."""

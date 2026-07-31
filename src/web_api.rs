@@ -17,7 +17,9 @@ use crate::profiles::BrewProfile;
 use crate::settings::{
     FlashUpdate, MachineSettings, PidSettings, Settings, WifiSettings, SIG_FLASH_UPDATE,
 };
-use crate::state::{get_state, get_telemetry, send_command, MachineCommand, MachineState};
+use crate::state::{
+    get_session_brew_temp, get_state, get_telemetry, send_command, MachineCommand, MachineState,
+};
 
 static INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 
@@ -38,6 +40,11 @@ struct ApiCommand<'a> {
 struct TelemetryData {
     t: f32,
     tt: f32,
+    /// Session brew temp — what the UI's +/- buttons adjust. Deliberately not
+    /// derived from `tt`: `tt` is the *applied* setpoint, which is a function
+    /// of the machine state (0 °C while sleeping or cooling, steam temp while
+    /// steaming), so stepping from it would send nonsense back.
+    sbt: f32,
     p: f32,
     tp: f32,
     fl: f32,
@@ -84,9 +91,7 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
         "stop" => send_command(MachineCommand::Stop),
         "steam" => send_command(MachineCommand::Steam),
         "flush" => send_command(MachineCommand::Flush),
-        "descale" => send_command(MachineCommand::Descale),
         "direct_pump" => {
-            send_command(MachineCommand::Stop);
             if let Some(p) = payload.power {
                 send_command(MachineCommand::DirectPump(p));
             }
@@ -154,6 +159,7 @@ async fn get_telemetry_json() -> heapless::String<256> {
     let data = TelemetryData {
         t: disp_t,
         tt: disp_tt,
+        sbt: get_session_brew_temp(),
         p: a.pressure_bar,
         tp: a.target_bar,
         fl: f.flow_rate_ml_s,

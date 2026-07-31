@@ -30,7 +30,6 @@ pub static SIG_TARGET_TEMP: Signal<CriticalSectionRawMutex, f32> = Signal::new()
 pub enum TargetTempMode {
     Brew,
     Steam,
-    Descale,
     Off,
 }
 
@@ -39,7 +38,6 @@ pub async fn set_target_temp(mode: TargetTempMode) {
     let temp = match mode {
         TargetTempMode::Brew => crate::state::get_session_brew_temp() + s.machine.temp_offset,
         TargetTempMode::Steam => s.machine.steam_temp,
-        TargetTempMode::Descale => 60.0,
         TargetTempMode::Off => 0.0,
     };
     SIG_TARGET_TEMP.signal(temp);
@@ -100,13 +98,14 @@ impl Drop for PumpGuard {
 
 pub static SIG_BREW_ACTIVE: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
-/// RAII guard marking that a real brew profile (not cooldown flush, descale,
-/// hot water, or a raw direct-pump command) is running. `ac_sync_control_task`
-/// only substitutes `target` for the real measurement (freezing the PID's
-/// output, see the temp-control loop below) while this is armed — those other
-/// operations set an explicit temperature target (often `Off`, to let cold
-/// water cool the boiler as fast as possible) and must keep tracking it via
-/// the normal PID, not have the heater frozen just because the pump is flowing.
+/// RAII guard marking that a real brew profile (not cooldown flush, hot water,
+/// or a raw direct-pump command) is running. `ac_sync_control_task` only
+/// substitutes `target` for the real measurement (freezing the PID's output,
+/// see the temp-control loop below) while this is armed — those other
+/// operations run at the temperature their machine state implies (often `Off`,
+/// to let cold water cool the boiler as fast as possible) and must keep
+/// tracking it via the normal PID, not have the heater frozen just because the
+/// pump is flowing.
 pub struct BrewActiveGuard;
 
 impl BrewActiveGuard {
@@ -354,8 +353,9 @@ pub async fn ac_sync_control_task(
 
         // --- Pump Control (Triac Phase Angle) ---
         let p_output: f32 = match direct_pump {
-            // Direct-pump mode (hot water/cooldown-flush/descale) needs no flow
-            // limiting — it's raw power, not an espresso shot being protected.
+            // Direct-pump mode (hot water / cooldown flush / flush) needs no
+            // flow limiting — it's raw power, not an espresso shot being
+            // protected.
             Some(dp) => dp.clamp(0.0, 100.0),
             None if target_p > 0.0 => {
                 // Accumulator-based flow-limit backoff

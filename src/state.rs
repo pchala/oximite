@@ -5,30 +5,34 @@ use embassy_sync::watch::Watch;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use portable_atomic::{AtomicU32, AtomicU8};
 
+/// Discriminants are a wire contract with the web UI: `web_api` sends the raw
+/// value as telemetry `st`, and `index.html` indexes a positional name array
+/// with it. The HTML is gzipped into the firmware by `build.rs` and the value
+/// is never persisted to flash, so the two always ship together — but renumber
+/// both sides in the same commit.
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, defmt::Format, IntoPrimitive, TryFromPrimitive)]
 pub enum MachineState {
     Idle = 0,
     Brewing = 1,
     Steaming = 2,
-    Descaling = 3,
-    Sleeping = 4,
-    Pumping = 5,
-    Cooling = 6,
-    HotWater = 7,
+    Sleeping = 3,
+    Pumping = 4,
+    Cooling = 5,
+    HotWater = 6,
 }
 
 impl MachineState {
     /// States representing an active hardware operation (profile/steam/pump
-    /// running). Used to decide whether a Stop-like command should abort the
-    /// current operation. Update this in one place when adding new states.
+    /// running). The coordinator treats this as "an operation is in flight",
+    /// so any command that isn't one of `Steaming`'s two onward transitions
+    /// stops the machine. Update this in one place when adding new states.
     pub fn is_busy(self) -> bool {
         matches!(
             self,
             MachineState::Brewing
                 | MachineState::Pumping
                 | MachineState::Cooling
-                | MachineState::Descaling
                 | MachineState::HotWater
                 | MachineState::Steaming
         )
@@ -43,7 +47,6 @@ pub enum MachineCommand {
     Stop,
     Steam,
     Flush,
-    Descale,
     DirectPump(f32),
     SaveMachine(crate::settings::MachineSettings),
     SavePids(crate::settings::PidSettings, crate::settings::PidSettings),
@@ -60,7 +63,6 @@ impl defmt::Format for MachineCommand {
             MachineCommand::Stop => defmt::write!(fmt, "Stop"),
             MachineCommand::Steam => defmt::write!(fmt, "Steam"),
             MachineCommand::Flush => defmt::write!(fmt, "Flush"),
-            MachineCommand::Descale => defmt::write!(fmt, "Descale"),
             MachineCommand::DirectPump(p) => defmt::write!(fmt, "DirectPump({})", p),
             MachineCommand::SaveMachine(_) => defmt::write!(fmt, "SaveMachine"),
             MachineCommand::SavePids(_, _) => defmt::write!(fmt, "SavePids"),

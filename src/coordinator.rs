@@ -9,7 +9,7 @@
 //! abort signal that could outlive its target — both were previously possible.
 //!
 //! Long operations stay responsive because the same `select` that awaits the
-//! operation also serves commands, so a ten-minute descale never blocks a Stop.
+//! operation also serves commands, so a long steam session never blocks a Stop.
 //! Peripheral/task wiring lives in `main.rs`.
 
 use embassy_futures::select::{select, Either};
@@ -24,10 +24,37 @@ use crate::state::{self, MachineCommand, MachineState};
 // ==========================================
 // POWER MANAGEMENT
 // ==========================================
+
+/// The heater setpoint implied by a machine state.
+///
+/// Making this a function rather than a parameter is what keeps the setpoint
+/// and the state from ever disagreeing. It also means an operation can be
+/// cancelled at any point without leaving a stale target behind: the setpoint
+/// belongs to the state, and the state is always restored.
+fn target_for(state: MachineState) -> TargetTempMode {
+    match state {
+        MachineState::Steaming => TargetTempMode::Steam,
+        // Cooling deliberately runs the heater off — it is fighting the
+        // incoming cold water otherwise — and a sleeping machine has no
+        // reason to heat at all.
+        MachineState::Cooling | MachineState::Sleeping => TargetTempMode::Off,
+        MachineState::Idle
+        | MachineState::Brewing
+        | MachineState::Pumping
+        | MachineState::HotWater => TargetTempMode::Brew,
+    }
+}
+
+/// The only way the machine changes state. Applies the setpoint the new state
+/// implies, so no caller can pick one that contradicts it.
+async fn enter(state: MachineState) {
+    state::set_state(state);
+    control::set_target_temp(target_for(state)).await;
+}
+
 async fn go_to_sleep() {
     defmt::info!("Power Management: Going to SLEEP mode.");
-    state::set_state(MachineState::Sleeping);
-    control::set_target_temp(TargetTempMode::Off).await;
+    enter(MachineState::Sleeping).await;
 }
 
 /// Reads the configured sleep timeout (minutes) from settings and converts
@@ -39,25 +66,18 @@ async fn sleep_timeout() -> Duration {
 
 async fn wake_up() {
     defmt::info!("Power Management: WAKING UP.");
-    state::set_state(MachineState::Idle);
-    control::set_target_temp(TargetTempMode::Brew).await;
+    enter(MachineState::Idle).await;
 }
 
 // ==========================================
 // TRANSITION HELPERS
 // ==========================================
 
-/// Enters `new_state`, resets shot volume and sets the target temperature,
-/// then hands `op` back for the caller to run. This is the common shape of
-/// every "start an operation" arm in `handle_command`.
-async fn start(
-    new_state: MachineState,
-    temp_mode: TargetTempMode,
-    op: Operation,
-) -> Option<Operation> {
+/// Enters `new_state` and resets shot volume, then hands `op` back for the
+/// caller to run. This is the shape of every "start an operation" arm.
+async fn start(new_state: MachineState, op: Operation) -> Option<Operation> {
     crate::flow_meter::reset_volume();
-    state::set_state(new_state);
-    control::set_target_temp(temp_mode).await;
+    enter(new_state).await;
     Some(op)
 }
 
@@ -70,8 +90,7 @@ async fn start(
 /// Setting the pump idle here is therefore belt-and-braces, not the mechanism.
 /// Volume is left alone on purpose, so the shot total stays readable.
 async fn stop_to_idle() {
-    state::set_state(MachineState::Idle);
-    control::set_target_temp(TargetTempMode::Brew).await;
+    enter(MachineState::Idle).await;
     control::PumpMode::Idle.apply();
 }
 
@@ -109,14 +128,10 @@ async fn handle_ambient(cmd: &MachineCommand) -> bool {
         }
         MachineCommand::SetSessionTemp(t) => {
             state::set_session_brew_temp(*t);
-            // Instantly apply if we are currently using brew temp target
-            let s = state::get_state();
-            if s == MachineState::Idle
-                || s == MachineState::Brewing
-                || s == MachineState::Pumping
-                || s == MachineState::Cooling
-                || s == MachineState::HotWater
-            {
+            // Apply instantly, but only if the current state actually wants
+            // brew temp — `Steaming` and `Cooling` have their own targets and
+            // must not be overridden.
+            if matches!(target_for(state::get_state()), TargetTempMode::Brew) {
                 control::set_target_temp(TargetTempMode::Brew).await;
             }
         }
@@ -133,122 +148,65 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) -> Option<Oper
     }
 
     match (state, cmd) {
-        // Power toggle
+        // --- Idle: the only state an operation can start from ---
         (MachineState::Idle, MachineCommand::TogglePower) => {
             go_to_sleep().await;
             None
         }
-        (_, MachineCommand::TogglePower) => {
-            // If busy, act as Stop
-            stop_to_idle().await;
-            None
-        }
-
-        // Brew
         (MachineState::Idle, MachineCommand::Brew) => {
             let p = crate::profiles::get_default_profile().await;
-            start(
-                MachineState::Brewing,
-                TargetTempMode::Brew,
-                Operation::Profile(p),
-            )
-            .await
+            start(MachineState::Brewing, Operation::Profile(p)).await
         }
         (MachineState::Idle, MachineCommand::RunProfile(p)) => {
-            start(
-                MachineState::Brewing,
-                TargetTempMode::Brew,
-                Operation::Profile(p),
-            )
-            .await
+            start(MachineState::Brewing, Operation::Profile(p)).await
         }
-
-        // Flush
+        (MachineState::Idle, MachineCommand::Steam) => {
+            control::PumpMode::Idle.apply();
+            start(MachineState::Steaming, Operation::Steam).await
+        }
         (MachineState::Idle, MachineCommand::Flush) => {
             start(
                 MachineState::Pumping,
-                TargetTempMode::Brew,
                 Operation::DirectPump(operations::PUMP_POWER),
             )
             .await
         }
+        (MachineState::Idle, MachineCommand::DirectPump(power)) => {
+            start(MachineState::Pumping, Operation::DirectPump(power)).await
+        }
+        // Stop when already stopped: harmless resync, not a warning.
+        (MachineState::Idle, MachineCommand::Stop) => {
+            stop_to_idle().await;
+            None
+        }
+
+        // --- Steaming: the one state that modifies rather than cancels ---
+        // The user has the wand open; Brew means "hot water out of the wand,
+        // not steam", and Flush means "cool the boiler back down". Both get a
+        // state of their own so the next button press stops them cleanly via
+        // the busy arm below rather than cycling.
+        (MachineState::Steaming, MachineCommand::Brew) => {
+            start(MachineState::HotWater, Operation::HotWater).await
+        }
         (MachineState::Steaming, MachineCommand::Flush) => {
             control::PumpMode::Idle.apply();
-            start(
-                MachineState::Cooling,
-                TargetTempMode::Brew,
-                Operation::CooldownFlush,
-            )
-            .await
+            start(MachineState::Cooling, Operation::CooldownFlush).await
         }
 
-        // Steam
-        (MachineState::Idle, MachineCommand::Steam) => {
-            control::PumpMode::Idle.apply();
-            start(
-                MachineState::Steaming,
-                TargetTempMode::Steam,
-                Operation::Steam,
-            )
-            .await
-        }
-        (MachineState::Steaming, MachineCommand::Steam) => {
+        // --- Any other command while busy stops the machine ---
+        // Nothing is silently ignored: if the machine is doing something and
+        // you ask for anything the two arms above don't cover, it stops.
+        // MachineState::is_busy() is the single definition of "an operation
+        // is running", so a new busy state is covered here automatically.
+        (s, _) if s.is_busy() => {
             stop_to_idle().await;
             None
         }
-
-        // Hot water: while steaming (wand already open by the user), Brew
-        // drops the target back to brew temp and forces the pump on so hot
-        // water — not steam — comes out of the wand. Valve stays closed.
-        // A dedicated HotWater state ensures any button press stops it
-        // cleanly (see the busy-state stop arm below) rather than
-        // restarting/cycling.
-        (MachineState::Steaming, MachineCommand::Brew) => {
-            start(
-                MachineState::HotWater,
-                TargetTempMode::Brew,
-                Operation::HotWater,
-            )
-            .await
-        }
-
-        // Descale
-        (MachineState::Idle, MachineCommand::Descale) => {
-            start(
-                MachineState::Descaling,
-                TargetTempMode::Descale,
-                Operation::Descale,
-            )
-            .await
-        }
-
-        // Direct pump (dev/diagnostic, valid from any state)
-        (_, MachineCommand::DirectPump(power)) => {
-            start(
-                MachineState::Pumping,
-                TargetTempMode::Brew,
-                Operation::DirectPump(power),
-            )
-            .await
-        }
-
-        // Stop: a button press during an active operation, or an explicit
-        // Stop. `MachineState::is_busy()` is the single place that defines
-        // which states count as "an operation is running" — add a new busy
-        // state there and it's automatically covered here.
-        (s, MachineCommand::Brew | MachineCommand::Steam | MachineCommand::Flush)
-            if s.is_busy() =>
-        {
-            stop_to_idle().await;
-            None
-        }
-        (_, MachineCommand::Stop) => {
-            stop_to_idle().await;
-            None
-        }
-
         (state, cmd) => {
-            // Safety catch-all: ignore invalid/dangerous commands
+            // Unreachable in practice — Idle handles every command above, and
+            // Sleeping is intercepted by the auto-wake in `coordinator_task`.
+            // Kept for exhaustiveness so a new state or command shows up in
+            // the log instead of failing to compile somewhere subtler.
             defmt::warn!(
                 "Invalid transition requested while in state {:?} cmd {:?}",
                 state,
@@ -322,11 +280,12 @@ pub async fn coordinator_task(valve: Output<'static>) {
     let mut valve = valve;
     let mut last_activity = embassy_time::Instant::now();
 
-    state::set_state(MachineState::Idle);
     let initial_temp = crate::settings::ControlSettings::current()
         .machine
         .brew_temp;
     state::set_session_brew_temp(initial_temp);
+    // Applies the Idle setpoint now that the session temp is known. `enter()`
+    // is the only writer of MachineState, so this is also what establishes it.
     wake_up().await;
 
     loop {
@@ -357,8 +316,12 @@ pub async fn coordinator_task(valve: Output<'static>) {
             match cmd {
                 MachineCommand::SaveMachine(_)
                 | MachineCommand::SavePids(_, _)
-                | MachineCommand::SaveWifi(_) => {
-                    // fall through — settings save silently without waking
+                | MachineCommand::SaveWifi(_)
+                // Adjusting the brew target must not fire up the boiler, and
+                // must not be discarded either — it is stored and takes effect
+                // on the next wake, when `enter()` reads it.
+                | MachineCommand::SetSessionTemp(_) => {
+                    // fall through — these apply silently without waking
                 }
                 _ => {
                     wake_up().await;
@@ -370,7 +333,7 @@ pub async fn coordinator_task(valve: Output<'static>) {
         if let Some(op) = handle_command(state::get_state(), cmd).await {
             run_operation(op, &mut valve).await;
             // Restart the sleep countdown from the *end* of the operation —
-            // a ten-minute descale would otherwise finish with a stale
+            // a long steam session would otherwise finish with a stale
             // timestamp and drop straight into sleep.
             last_activity = embassy_time::Instant::now();
         }

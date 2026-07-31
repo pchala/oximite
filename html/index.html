@@ -137,12 +137,6 @@
         </div>
 
         <div class="panel">
-            <div class="grid-2">
-                <button onclick="sendCommand('descale')" style="grid-column: span 2;">DESCALE</button>
-            </div>
-        </div>
-
-        <div class="panel">
             <h3>Wi-Fi Configuration</h3>
             <div class="grid-2">
                 <div><label>SSID</label><input type="text" id="set-ssid" placeholder="Network Name"></div>
@@ -211,17 +205,17 @@
             const data = await res.json();
             
             document.getElementById('val-t').innerText = data.t.toFixed(1); 
-            if (data.tt !== undefined) {
-                currentSessionTemp = data.tt;
-                document.getElementById('val-sbt').innerText = data.tt.toFixed(1) + " °C";
+            if (data.sbt !== undefined) {
+                currentSessionTemp = data.sbt;
+                document.getElementById('val-sbt').innerText = data.sbt.toFixed(1) + " °C";
             }
             document.getElementById('val-p').innerText = data.p.toFixed(1);
             document.getElementById('val-fl').innerText = data.fl.toFixed(1); 
             document.getElementById('val-vol').innerText = data.vol.toFixed(1);
-            document.getElementById('machine-state').innerText = ["IDLE", "BREWING", "STEAMING", "DESCALING", "SLEEPING", "PUMPING", "COOLING", "HOT WATER"][data.st] || "UNKNOWN";
+            document.getElementById('machine-state').innerText = ["IDLE", "BREWING", "STEAMING", "SLEEPING", "PUMPING", "COOLING", "HOT WATER"][data.st] || "UNKNOWN";
             
-            if (data.st === 1 || data.st === 5) {
-                if (lastState !== 1 && lastState !== 5) brewStartTime = Date.now();
+            if (data.st === 1 || data.st === 4) {
+                if (lastState !== 1 && lastState !== 4) brewStartTime = Date.now();
                 lastBrewTime = (Date.now() - brewStartTime) / 1000.0;
             }
             document.getElementById('val-time').innerText = lastBrewTime.toFixed(1);

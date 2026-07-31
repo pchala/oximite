@@ -1,5 +1,5 @@
-//! Machine operations (brew profile, steam, descale, cooldown flush, hot
-//! water, raw pump) and the valve-owning dispatcher that runs them.
+//! Machine operations (brew profile, steam, cooldown flush, hot water, raw
+//! pump) and the valve-owning dispatcher that runs them.
 //!
 //! Each operation is a plain future built from the control-loop primitives in
 //! `control.rs`. `coordinator_task` awaits [`execute`] directly, racing it
@@ -7,13 +7,17 @@
 //! completion is that future returning. There is no abort signal and no
 //! "operation finished" message — neither can therefore be applied to the
 //! wrong operation.
+//!
+//! Operations never set the heater target: that is a pure function of
+//! `MachineState`, applied by the coordinator when it enters the state. An
+//! operation therefore cannot leave a setpoint behind when it is cancelled.
 
 use embassy_futures::select::{select, Either};
 use embassy_futures::yield_now;
 use embassy_rp::gpio::Output;
 use embassy_time::{Duration, Timer};
 
-use crate::control::{set_target_temp, BrewActiveGuard, PumpGuard, PumpMode, TargetTempMode};
+use crate::control::{BrewActiveGuard, PumpGuard, PumpMode};
 use crate::profiles::BrewProfile;
 use crate::settings::Settings;
 
@@ -110,18 +114,19 @@ async fn execute_profile(profile: BrewProfile) {
     // PumpMode::Idle to reset pressure target, flow limit, and direct pump.
 }
 
+/// Holds the boiler at steam temperature for the configured limit. The target
+/// itself comes from entering `MachineState::Steaming`; this only bounds how
+/// long the machine stays there.
 async fn execute_steam() {
     let s = Settings::get().await;
-    set_target_temp(TargetTempMode::Steam).await;
     Timer::after(Duration::from_secs(s.machine.steam_time_limit_s as u64)).await;
-    set_target_temp(TargetTempMode::Brew).await;
 }
 
 async fn execute_cooldown_flush() {
     let s = Settings::get().await;
-    // Drop the target to 0 (heater off) instead of brew temp — the heater
-    // fighting the incoming cold water only slows the cooldown down.
-    set_target_temp(TargetTempMode::Off).await;
+    // The heater is already off — `MachineState::Cooling` maps to a 0 °C
+    // target — because the heater fighting the incoming cold water only slows
+    // the cooldown down.
     let _pump = PumpGuard::engage(PumpMode::DirectPump(PUMP_POWER));
 
     let cooled = async {
@@ -140,52 +145,6 @@ async fn execute_cooldown_flush() {
     if let Either::Second(_) = select(cooled, timeout).await {
         defmt::warn!("Cooldown flush hit its {}s safety limit", MAX_PUMP_RUN_S);
     }
-}
-
-async fn execute_descale() {
-    const DESCALE_VOLUME_ML: f32 = 200.0;
-    const DESCALE_SOAK_SECS: u64 = 2 * 60;
-    const FLOW_START_GRACE_SECS: u64 = 1;
-    const FLOW_STALL_THRESHOLD_ML_S: f32 = 0.5;
-
-    set_target_temp(TargetTempMode::Descale).await;
-
-    loop {
-        // --- Pump 200 ml ---
-        crate::flow_meter::reset_volume();
-        let tank_empty = {
-            let _pump = PumpGuard::engage(PumpMode::DirectPump(PUMP_POWER));
-
-            // Allow time for flow to establish before checking for an empty tank.
-            Timer::after(Duration::from_secs(FLOW_START_GRACE_SECS)).await;
-
-            loop {
-                Timer::after(Duration::from_millis(200)).await;
-                let state = crate::flow_meter::get_flow();
-
-                if state.flow_rate_ml_s < FLOW_STALL_THRESHOLD_ML_S {
-                    // Flow stopped while pump is running — tank is empty.
-                    defmt::info!("Descale: no flow detected, tank empty.");
-                    break true;
-                }
-                if state.volume_ml >= DESCALE_VOLUME_ML {
-                    defmt::info!("Descale: {}ml dispensed.", DESCALE_VOLUME_ML);
-                    break false;
-                }
-            }
-            // `_pump` drops here, returning the pump to idle before the soak.
-        };
-
-        if tank_empty {
-            break;
-        }
-
-        // --- Soak ---
-        defmt::info!("Descale: soaking for {} s...", DESCALE_SOAK_SECS);
-        Timer::after(Duration::from_secs(DESCALE_SOAK_SECS)).await;
-    }
-
-    set_target_temp(TargetTempMode::Brew).await;
 }
 
 /// Runs the pump at a fixed power until cancelled, or until `max_run_s` — see
@@ -249,7 +208,6 @@ impl Drop for SolenoidGuard<'_> {
 pub enum Operation {
     Profile(BrewProfile),
     Steam,
-    Descale,
     CooldownFlush,
     DirectPump(f32),
     HotWater,
@@ -260,7 +218,6 @@ impl Operation {
         match self {
             Operation::Profile(_) => "Profile",
             Operation::Steam => "Steam",
-            Operation::Descale => "Descale",
             Operation::CooldownFlush => "Cooldown flush",
             Operation::DirectPump(_) => "Direct pump",
             Operation::HotWater => "Hot water",
@@ -270,10 +227,7 @@ impl Operation {
     fn solenoid(&self) -> Solenoid {
         match self {
             Operation::Profile(_) | Operation::DirectPump(_) => Solenoid::Open,
-            Operation::Steam
-            | Operation::Descale
-            | Operation::CooldownFlush
-            | Operation::HotWater => Solenoid::Closed,
+            Operation::Steam | Operation::CooldownFlush | Operation::HotWater => Solenoid::Closed,
         }
     }
 }
@@ -297,7 +251,6 @@ pub async fn execute(op: Operation, valve: &mut Output<'static>) {
     match op {
         Operation::Profile(p) => execute_profile(p).await,
         Operation::Steam => execute_steam().await,
-        Operation::Descale => execute_descale().await,
         Operation::CooldownFlush => execute_cooldown_flush().await,
         Operation::DirectPump(power) => execute_direct_pump(power, MAX_PUMP_RUN_S).await,
         Operation::HotWater => execute_direct_pump(PUMP_POWER, MAX_HOT_WATER_S).await,
