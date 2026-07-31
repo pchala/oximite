@@ -10,15 +10,10 @@ import unittest
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import serial
 
 # IMPORTANT: Update these to match your RP2040's networking
 TCP_IP = '192.168.1.117'
 TCP_PORT = 8080
-
-# IMPORTANT: Update this to match your RP2040's serial port (e.g., 'COM3' or '/dev/ttyACM0')
-SERIAL_PORT = 'COM5'
-BAUD_RATE = 2_000_000
 
 TIMESTAMP = time.strftime("%Y%m%d_%H%M_")
 
