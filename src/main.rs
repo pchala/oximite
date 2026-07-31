@@ -10,7 +10,6 @@ mod cyw43_nvram;
 mod dhcp;
 mod flow_meter;
 mod leds;
-mod ntc;
 mod operations;
 mod pid;
 mod profiles;
