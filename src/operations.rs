@@ -41,7 +41,12 @@ async fn execute_profile(profile: BrewProfile) {
     let mut pump = PumpGuard::engage(PumpMode::Idle);
     let _brew_active = BrewActiveGuard::engage();
 
-    // Yield once so the flow task can process the SIG_RESET_VOLUME signal
+    // `coordinator::start()` has already signalled SIG_RESET_VOLUME, but the
+    // flow task is the only thing that can act on it — `volume_ml` is a local
+    // in `run_flow_task`, not shared state. Yield so it gets polled and zeroes
+    // the counter before the first step reads it below; otherwise step 1 would
+    // compare its volume target against the *previous* shot's total and could
+    // complete instantly.
     yield_now().await;
 
     for (i, step) in profile.steps.iter().enumerate() {
@@ -87,8 +92,8 @@ async fn execute_profile(profile: BrewProfile) {
         let vol_fut = async {
             if volume > 0.0 {
                 loop {
-                    // volume is cumulative across the whole profile (volume_ml
-                    // is reset to 0 at profile start by transition_state).
+                    // Cumulative across the whole profile, not per step —
+                    // `coordinator::start()` zeroes it once at profile start.
                     if crate::flow_meter::get_flow().volume_ml >= volume {
                         defmt::info!("Step {} volume limit reached", i);
                         break;
