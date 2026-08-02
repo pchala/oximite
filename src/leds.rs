@@ -156,8 +156,8 @@ pub async fn led_update_task() {
             }
 
             MachineState::Steaming => {
-                // LED1: vivid cyan — immediately obvious, unique among all states.
-                (boiler, Rgb::new(0, 255, 255))
+                // LED1: boiler colors.
+                (Rgb::off(), boiler)
             }
 
             // Warmup: only reaches here for inactive states (Idle, Pumping, etc.)
