@@ -137,7 +137,7 @@ async fn execute_cooldown_flush() {
     let cooled = async {
         loop {
             let t_c = crate::state::get_telemetry().temp_c;
-            if t_c <= s.machine.brew_temp + s.machine.temp_offset {
+            if t_c <= s.machine.brew_temp + s.machine.temp_offset * 2.0 { // stop little bit earlier
                 break;
             }
             Timer::after(Duration::from_millis(100)).await;

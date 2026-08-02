@@ -300,7 +300,7 @@ class TestOximite(unittest.TestCase):
             "steps": [
                 {"time_s": 5.0, "pressure": 20.0},
                 {"time_s": 3.0},
-                {"volume": 85.0, "pressure": 9.0, "flow": 3.0},
+                {"volume": 80.0, "pressure": 9.0, "flow": 3.0},
             ]
         }
         
@@ -321,7 +321,7 @@ class TestOximite(unittest.TestCase):
         
         # Step 4: Record one minute after profile finish
         print("Profile finished. Recording...")
-        time.sleep(60.0)
+        time.sleep(30.0)
         
         # Step 5: Plot results
         self.plot_results("PID_Reaction_Test")

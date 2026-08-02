@@ -8,7 +8,7 @@ use embassy_time::{Duration, Timer};
 use fixed::FixedU32;
 use pio::pio_asm;
 
-use crate::flow_meter;
+
 use crate::state::{self, MachineState, MACHINE_STATE};
 
 #[derive(Clone, Copy)]
@@ -91,6 +91,34 @@ pub async fn run_led_task(mut sm: StateMachine<'static, embassy_rp::peripherals:
 }
 
 // ==========================================
+// LED COLOR HELPERS
+// ==========================================
+
+/// Blue (cold/low) → Green (on target) → Red (hot/high), with a ±`window` crossfade zone.
+fn temp_color(current: f32, target: f32, window: f32) -> Rgb {
+    let (r, g, b) = if current <= target {
+        let lower_bound = target - window;
+        if current <= lower_bound {
+            (0.0_f32, 0.0_f32, 255.0_f32)
+        } else {
+            let g = 255.0 * (current - lower_bound) / window;
+            (0.0, g, 255.0 - g)
+        }
+    } else {
+        let upper_bound = target + window;
+        if current >= upper_bound {
+            (255.0_f32, 0.0_f32, 0.0_f32)
+        } else {
+            let r = 255.0 * (current - target) / window;
+            (r, 255.0 - r, 0.0)
+        }
+    };
+
+    Rgb::new(r as u8, g as u8, b as u8)
+}
+
+
+// ==========================================
 // DECOUPLED LED UI TASK
 // ==========================================
 #[embassy_executor::task]
@@ -102,56 +130,49 @@ pub async fn led_update_task() {
     loop {
         let current_state = state::get_state();
 
+        // Track wakeup time so we can detect the 6-minute warmup window.
         if was_sleeping && current_state != MachineState::Sleeping {
             last_wakeup = embassy_time::Instant::now();
         }
         was_sleeping = current_state == MachineState::Sleeping;
 
         let a = state::get_telemetry();
-        let f = flow_meter::get_flow();
+        let boiler = temp_color(a.temp_c, a.target_temp, 10.0);
 
-        let mut temp_color = if a.temp_c < a.target_temp - 1.0 {
-            Rgb::new(0, 0, 255) // Blue  — heating
-        } else if a.temp_c > a.target_temp + 1.0 {
-            Rgb::new(255, 0, 0) // Red   — over-temp
-        } else {
-            Rgb::new(0, 255, 0) // Green — at target
-        };
-
-        let is_warming_up = last_wakeup.elapsed() < Duration::from_secs(6 * 60);
-        let blink_off = (embassy_time::Instant::now().as_millis() / 500).is_multiple_of(2);
-
-        if is_warming_up && blink_off && current_state != MachineState::Sleeping {
-            temp_color = Rgb::off();
-        }
-
-        let (l1, l2) = if current_state == MachineState::Sleeping {
-            // Sleep indicator: magenta on LED1, LED2 off
-            (Rgb::new(255, 0, 255), Rgb::off())
-        } else if current_state == MachineState::Steaming || current_state == MachineState::HotWater
-        {
-            // LED1 off, LED2 shows steam/hot-water temperature progress
-            (Rgb::off(), temp_color)
-        } else {
-            // LED1 shows brew temperature, LED2 shows pressure/flow
-            let mut pressure_color = Rgb::off();
-            if current_state == MachineState::Brewing && a.target_bar > 0.0 {
-                if a.flow_limit_ml_s > 0.0 && f.flow_rate_ml_s >= a.flow_limit_ml_s {
-                    pressure_color = Rgb::new(255, 128, 0); // Orange — flow limit
-                } else if (a.pressure_bar - a.target_bar).abs() < 0.2 {
-                    pressure_color = Rgb::new(0, 255, 0); // Green  — on target
-                } else if a.pressure_bar < a.target_bar {
-                    pressure_color = Rgb::new(0, 0, 255); // Blue   — building
-                } else {
-                    pressure_color = Rgb::new(255, 0, 0); // Red    — over pressure
-                }
+        let (led0, led1) = match current_state {
+            MachineState::Sleeping => {
+                // Both LEDs magenta in sleep.
+                (Rgb::new(255, 0, 255), Rgb::new(255, 0, 255))
             }
-            (temp_color, pressure_color)
+
+            MachineState::Brewing => {
+                // LED1: pressure crossfade vs target.
+                let pressure = if a.target_bar > 0.0 {
+                    temp_color(a.pressure_bar, a.target_bar, 2.0)
+                } else {
+                    Rgb::off()
+                };
+                (boiler, pressure)
+            }
+
+            MachineState::Steaming => {
+                // LED1: vivid cyan — immediately obvious, unique among all states.
+                (boiler, Rgb::new(0, 255, 255))
+            }
+
+            // Warmup: only reaches here for inactive states (Idle, Pumping, etc.)
+            _ if last_wakeup.elapsed() < Duration::from_secs(6 * 60) => {
+                // LED1: red brightness proportional to heater power (0–100% → 0–255).
+                let r = (a.heater_duty.clamp(0.0, 100.0) * 2.55) as u8;
+                (boiler, Rgb::new(r, 0, 0))
+            }
+
+            _ => (boiler, Rgb::off()),
         };
 
-        set_leds([l1, l2]).await;
+        set_leds([led0, led1]).await;
 
-        // Refresh LEDs dynamically, or immediately if the state changes
+        // Refresh at ~10 Hz or immediately when the state changes.
         let _ = select(Timer::after(Duration::from_millis(100)), state_rx.changed()).await;
     }
 }
