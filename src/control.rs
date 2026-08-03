@@ -99,13 +99,18 @@ impl Drop for PumpGuard {
 pub static SIG_BREW_ACTIVE: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
 /// RAII guard marking that a real brew profile (not cooldown flush, hot water,
-/// or a raw direct-pump command) is running. `ac_sync_control_task` only
-/// substitutes `target` for the real measurement (freezing the PID's output,
-/// see the temp-control loop below) while this is armed — those other
-/// operations run at the temperature their machine state implies (often `Off`,
-/// to let cold water cool the boiler as fast as possible) and must keep
-/// tracking it via the normal PID, not have the heater frozen just because the
-/// pump is flowing.
+/// or a raw direct-pump command) is running. While it is armed,
+/// `ac_sync_control_task` adds a flow-proportional feed-forward term to the
+/// *temperature setpoint* (see the temp-control loop below): cold water
+/// entering the boiler at `flow_rate_ml_s` drags the measured temperature down
+/// faster than feedback alone can answer, so the target is raised in
+/// proportion to the flow to compensate. The PID itself keeps running
+/// normally; only its setpoint moves.
+///
+/// The other pumping operations deliberately do not get that boost. They run
+/// at the temperature their machine state implies — often `Off`, to let cold
+/// water cool the boiler as fast as possible — and raising their setpoint just
+/// because the pump is flowing would fight the point of the operation.
 pub struct BrewActiveGuard;
 
 impl BrewActiveGuard {

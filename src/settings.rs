@@ -16,8 +16,12 @@ pub struct MachineSettings {
     pub steam_time_limit_s: f32,
     /// Minutes of inactivity while Idle before the machine auto-sleeps.
     pub sleep_timeout_min: f32,
-    /// °C offset between boiler sensor and group head / puck at shot start.
-    /// Also used as the maximum boiler target drop by end of shot.
+    /// °C offset between the boiler sensor and the group head / puck. Added to
+    /// the session brew temperature to form the boiler setpoint
+    /// (`control::set_target_temp`) and subtracted again for display
+    /// (`Telemetry::display_temps`). `operations::execute_cooldown_flush` also
+    /// uses it to stop early, once the boiler reaches
+    /// `brew_temp + 2 * temp_offset`.
     pub temp_offset: f32,
     pub flow_pulses_per_liter: f32,
     /// Flow-limit backoff gain: bar per (ml/s of flow error), added to an
@@ -28,9 +32,15 @@ pub struct MachineSettings {
     /// range 8.8 bar), targeting a full-range correction in ~2s at max
     /// error: kp = 8.8 / (50Hz * 3.5ml/s * 2s) ~= 0.025
     pub flow_limit_kp: f32,
-    /// Tau (ml) for the volume-based boiler target decay during a shot.
-    /// Lower = faster drop. At vol = tau, ~63% of temp_offset is applied.
-    /// At vol = 3*tau, ~95% is applied. Tune to match group head warm-up.
+    /// Scales the flow-proportional temperature feed-forward applied during a
+    /// brew, as a percentage of the built-in nominal gain: 100 = nominal,
+    /// 0 = disabled.
+    ///
+    /// Only active while `control::BrewActiveGuard` is armed. The setpoint
+    /// boost is `CONST_FF * (this / 100) * (target_t - 20) * flow_ml_s`,
+    /// clamped to +20 °C — it scales with both the flow rate and the
+    /// boiler-to-ambient delta. Raise it if the first seconds of a shot sag,
+    /// lower it if the boiler overshoots once flow starts.
     pub feed_forward_percents: f32,
 }
 
