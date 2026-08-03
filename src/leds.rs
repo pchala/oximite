@@ -2,9 +2,7 @@ use embassy_futures::select::select;
 use embassy_rp::pio::{
     Common, Config, Direction, FifoJoin, Instance, Pin, ShiftDirection, StateMachine,
 };
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use fixed::FixedU32;
 use pio::pio_asm;
 
@@ -25,12 +23,6 @@ impl Rgb {
     pub const fn off() -> Self {
         Self::new(0, 0, 0)
     }
-}
-
-static LED_DATA: Mutex<CriticalSectionRawMutex, [Rgb; 2]> = Mutex::new([Rgb::off(), Rgb::off()]);
-
-pub async fn set_leds(leds: [Rgb; 2]) {
-    *LED_DATA.lock().await = leds;
 }
 
 pub fn setup_ws2812_sm<P: Instance, const SM: usize>(
@@ -69,24 +61,23 @@ pub fn setup_ws2812_sm<P: Instance, const SM: usize>(
     sm.set_enable(true);
 }
 
-#[embassy_executor::task]
-pub async fn run_led_task(mut sm: StateMachine<'static, embassy_rp::peripherals::PIO2, 1>) {
+type LedSm = StateMachine<'static, embassy_rp::peripherals::PIO2, 1>;
+
+/// Clocks one frame out to the strip. Both words go into the FIFO back-to-back
+/// with no `await` between them, so the PIO never stalls mid-frame — a stall
+/// forces the line low and would latch the pixels early.
+fn write_frame(sm: &mut LedSm, leds: &[Rgb; 2]) {
     const BRIGHTNESS: u32 = 30; // ~20% (50/255)
 
-    loop {
-        let leds = *LED_DATA.lock().await;
-        for led in leds.iter() {
-            // Apply brightness scaling
-            let r = (led.r as u32 * BRIGHTNESS) >> 8;
-            let g = (led.g as u32 * BRIGHTNESS) >> 8;
-            let b = (led.b as u32 * BRIGHTNESS) >> 8;
+    for led in leds {
+        // Apply brightness scaling
+        let r = (led.r as u32 * BRIGHTNESS) >> 8;
+        let g = (led.g as u32 * BRIGHTNESS) >> 8;
+        let b = (led.b as u32 * BRIGHTNESS) >> 8;
 
-            // WS2812 expects GRB format (MSB first)
-            // We push a 32-bit word, the PIO will pull it and use the top 24 bits
-            let word = (g << 24) | (r << 16) | (b << 8);
-            sm.tx().push(word);
-        }
-        embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+        // WS2812 expects GRB format (MSB first)
+        // We push a 32-bit word, the PIO will pull it and use the top 24 bits
+        sm.tx().push((g << 24) | (r << 16) | (b << 8));
     }
 }
 
@@ -119,12 +110,18 @@ fn temp_color(current: f32, target: f32, window: f32) -> Rgb {
 
 
 // ==========================================
-// DECOUPLED LED UI TASK
+// LED UI TASK
 // ==========================================
+
+/// Renders the machine state onto the two WS2812s and clocks the frame out.
+/// Redraws on every state change and at 10 Hz otherwise. WS2812s latch and
+/// hold their colour indefinitely, so the periodic redraw is not required to
+/// keep them lit — it is insurance against a frame corrupted by the triac
+/// switching mains right next to the data line.
 #[embassy_executor::task]
-pub async fn led_update_task() {
+pub async fn led_task(mut sm: LedSm) {
     let mut state_rx = MACHINE_STATE.receiver().unwrap();
-    let mut last_wakeup = embassy_time::Instant::now();
+    let mut last_wakeup = Instant::now();
     let mut was_sleeping = false;
 
     loop {
@@ -132,7 +129,7 @@ pub async fn led_update_task() {
 
         // Track wakeup time so we can detect the 6-minute warmup window.
         if was_sleeping && current_state != MachineState::Sleeping {
-            last_wakeup = embassy_time::Instant::now();
+            last_wakeup = Instant::now();
         }
         was_sleeping = current_state == MachineState::Sleeping;
 
@@ -170,7 +167,7 @@ pub async fn led_update_task() {
             _ => (boiler, Rgb::off()),
         };
 
-        set_leds([led0, led1]).await;
+        write_frame(&mut sm, &[led0, led1]);
 
         // Refresh at ~10 Hz or immediately when the state changes.
         let _ = select(Timer::after(Duration::from_millis(100)), state_rx.changed()).await;

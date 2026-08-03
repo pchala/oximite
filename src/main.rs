@@ -186,7 +186,7 @@ async fn main(spawner: Spawner) {
 
     let led_pin = common2.make_pio_pin(p.PIN_9);
     leds::setup_ws2812_sm(&mut common2, &mut sm2_1, led_pin);
-    spawner.spawn(leds::run_led_task(sm2_1).unwrap());
+    spawner.spawn(leds::led_task(sm2_1).unwrap());
 
     // The PIO peripherals stay configured for the whole program, but `main`
     // returns once everything is spawned, which would drop these `Common`
@@ -219,7 +219,6 @@ async fn main(spawner: Spawner) {
     spawner.spawn(buttons::run_button_task(btn_power, btn_brew, btn_steam, btn_flush).unwrap());
 
     // Spawn the decoupled architectural tasks
-    spawner.spawn(leds::led_update_task().unwrap());
     spawner.spawn(settings::flash_update_task(flash).unwrap());
     spawner.spawn(coordinator::coordinator_task(valve_output).unwrap());
 }
