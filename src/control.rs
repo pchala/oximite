@@ -23,7 +23,7 @@ use pio::pio_asm;
 
 use crate::pid::PidController;
 use crate::settings::Settings;
-use crate::state::TELEMETRY_WATCH;
+use crate::state::{Telemetry, TELEMETRY_WATCH};
 
 pub static SIG_TARGET_TEMP: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 
@@ -309,9 +309,9 @@ pub async fn ac_sync_control_task(
         }
 
         // --- Sensor Data Retrieval (From ADC Watch) ---
-        let state = TELEMETRY_WATCH.try_get().unwrap_or_default();
-        let p_ema = state.pressure_bar;
-        let t_ema = state.temp_c;
+        let sensors = crate::state::get_sensors();
+        let p_ema = sensors.pressure_bar;
+        let t_ema = sensors.temp_c;
 
         let s = crate::settings::ControlSettings::current();
 
@@ -345,18 +345,14 @@ pub async fn ac_sync_control_task(
             feed_forward = CONST_FF * (s.machine.feed_forward_percents / 100.0) * (target_t - 20.0);
         }
 
-        // --- Global Telemetry Update ---
-        let mut new_state = state;
-        new_state.target_bar = target_p;
-        new_state.flow_limit_ml_s = flow_limit;
-        new_state.target_temp = target_t;
-        new_state.heater_duty = heater_duty;
-        TELEMETRY_WATCH.sender().send(new_state);
-
         // --- Get flow readings ---
         let f = crate::flow_meter::get_flow();
 
         // --- Pump Control (Triac Phase Angle) ---
+        // Setpoint the pressure PID actually chased, kept at 0 whenever the
+        // pressure loop isn't running so telemetry never reports a stale
+        // target left over from the previous shot.
+        let mut active_target_p = 0.0;
         let p_output: f32 = match direct_pump {
             // Direct-pump mode (hot water / cooldown flush / flush) needs no
             // flow limiting — it's raw power, not an espresso shot being
@@ -371,6 +367,7 @@ pub async fn ac_sync_control_task(
                 } else {
                     effective_target_p = target_p;
                 }
+                active_target_p = effective_target_p;
                 press_pid.update(effective_target_p, p_ema)
             }
             None => 0.0,
@@ -383,12 +380,15 @@ pub async fn ac_sync_control_task(
         }
 
         // --- TEMPERATURE PID (Runs 5 times a second -> every 10 ticks at 50Hz) ---
+        // The effective target is recomputed every tick even though the PID
+        // consumes it every tenth, so telemetry reports the setpoint implied by
+        // the current flow rather than one up to 200 ms stale.
+        let effective_target_t = if brew_active {
+            target_t + (f.flow_rate_ml_s * feed_forward).clamp(0.0, 20.0)
+        } else {
+            target_t
+        };
         if tick.is_multiple_of(10) {
-            let effective_target_t = if brew_active {
-                target_t + (f.flow_rate_ml_s * feed_forward).clamp(0.0, 20.0)
-            } else {
-                target_t
-            };
             heater_duty = temp_pid.update(effective_target_t, t_ema);
         }
 
@@ -398,6 +398,21 @@ pub async fn ac_sync_control_task(
             heater_accumulator -= 100.0;
             sm_heater.tx().push(1); // Flag: fire heater for this chunk
         }
+
+        // --- Global Telemetry Update ---
+        // Published at the end of the tick
+        TELEMETRY_WATCH.sender().send(Telemetry {
+            tick,
+            pressure_bar: p_ema,
+            temp_c: t_ema,
+            target_bar: target_p,
+            effective_target_bar: active_target_p,
+            flow_limit_ml_s: flow_limit,
+            target_temp: target_t,
+            effective_target_temp: effective_target_t,
+            heater_duty,
+            pump_duty: p_output,
+        });
 
         tick = tick.wrapping_add(1);
     }

@@ -8,7 +8,7 @@
 
 use core::str::from_utf8;
 use embassy_net::tcp::TcpSocket;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::Write;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,7 @@ use crate::settings::{
 };
 use crate::state::{
     get_session_brew_temp, get_state, get_telemetry, send_command, MachineCommand, MachineState,
+    Telemetry, TELEMETRY_WATCH,
 };
 
 static INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
@@ -38,8 +39,14 @@ struct ApiCommand<'a> {
 
 #[derive(Serialize)]
 struct TelemetryData {
+    /// Monotonic sample counter
+    seq: u32,
+    /// Device uptime in milliseconds.
+    ms: u32,
     t: f32,
     tt: f32,
+    /// Applied temperature setpoint including the brew-flow feed-forward.
+    ett: f32,
     /// Session brew temp — what the UI's +/- buttons adjust. Deliberately not
     /// derived from `tt`: `tt` is the *applied* setpoint, which is a function
     /// of the machine state (0 °C while sleeping or cooling, steam temp while
@@ -47,9 +54,15 @@ struct TelemetryData {
     sbt: f32,
     p: f32,
     tp: f32,
+    /// Setpoint the pressure PID chased, after flow limiting.
+    etp: f32,
     fl: f32,
+    /// Active flow limit, 0 when unlimited.
+    fll: f32,
     vol: f32,
     hp: f32,
+    /// Pump triac duty, 0-100.
+    pump: f32,
     st: u32,
 }
 
@@ -147,30 +160,49 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
     }
 }
 
-async fn get_telemetry_json() -> heapless::String<256> {
-    let a = get_telemetry();
+async fn get_telemetry_json(a: Telemetry) -> heapless::String<384> {
     let f = get_flow();
     let st_val = get_state();
     let s = Settings::get().await;
 
-    let (disp_t, disp_tt) =
+    let (disp_t, disp_tt, disp_ett) =
         a.display_temps(s.machine.temp_offset, st_val == MachineState::Steaming);
 
+    // Sensor resolution is nowhere near f32 precision, and the serializer
+    // prints every digit it is given. Rounding to 2 dp roughly halves the
+    // payload, which is what makes room for the diagnostic fields above.
+    // `f32::round` needs std, so this rounds half away from zero by hand.
+    let r2 = |v: f32| {
+        let bias = if v < 0.0 { -0.5 } else { 0.5 };
+        ((v * 100.0 + bias) as i32) as f32 / 100.0
+    };
+
     let data = TelemetryData {
-        t: disp_t,
-        tt: disp_tt,
-        sbt: get_session_brew_temp(),
-        p: a.pressure_bar,
-        tp: a.target_bar,
-        fl: f.flow_rate_ml_s,
-        vol: f.volume_ml,
-        hp: a.heater_duty,
+        seq: a.tick,
+        ms: Instant::now().as_millis() as u32,
+        t: r2(disp_t),
+        tt: r2(disp_tt),
+        ett: r2(disp_ett),
+        sbt: r2(get_session_brew_temp()),
+        p: r2(a.pressure_bar),
+        tp: r2(a.target_bar),
+        etp: r2(a.effective_target_bar),
+        fl: r2(f.flow_rate_ml_s),
+        fll: r2(a.flow_limit_ml_s),
+        vol: r2(f.volume_ml),
+        hp: r2(a.heater_duty),
+        pump: r2(a.pump_duty),
         st: st_val as u32,
     };
 
-    let mut json_str = heapless::String::<256>::new();
-    if let Ok(js) = serde_json_core::to_string::<_, 256>(&data) {
-        let _ = json_str.push_str(js.as_str());
+    let mut json_str = heapless::String::<384>::new();
+    match serde_json_core::to_string::<_, 384>(&data) {
+        Ok(js) => {
+            let _ = json_str.push_str(js.as_str());
+        }
+        // Silently sending nothing would look like a dropped connection, and
+        // the cause (one field wider than expected) would be invisible.
+        Err(_) => defmt::warn!("Telemetry JSON exceeded buffer; sample dropped"),
     }
     json_str
 }
@@ -199,9 +231,9 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                     let _ = socket.write_all(headers.as_bytes()).await;
                     let _ = socket.write_all(INDEX_HTML_GZ).await;
                 } else if request.starts_with("GET /api/telemetry") {
-                    let json_str = get_telemetry_json().await;
+                    let json_str = get_telemetry_json(get_telemetry()).await;
                     if !json_str.is_empty() {
-                        let mut resp = heapless::String::<512>::new();
+                        let mut resp = heapless::String::<640>::new();
                         let _ = resp.push_str(JSON_OK_HEADER);
                         let _ = resp.push_str(json_str.as_str());
                         let _ = socket.write_all(resp.as_bytes()).await;
@@ -272,10 +304,13 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
 #[embassy_executor::task]
 pub async fn tcp_telemetry_task(stack: &'static embassy_net::Stack<'static>) {
     use embassy_futures::select::{select, Either};
-    use embassy_time::Ticker;
 
     let mut rx_buffer = [0; 1024];
     let mut tx_buffer = [0; 1024];
+
+    // Taken once, outside the accept loop: the watch has a fixed number of
+    // receiver slots and re-taking one per connection would exhaust them.
+    let mut telemetry_rx = defmt::unwrap!(TELEMETRY_WATCH.receiver());
 
     loop {
         let mut socket = TcpSocket::new(*stack, &mut rx_buffer, &mut tx_buffer);
@@ -290,18 +325,17 @@ pub async fn tcp_telemetry_task(stack: &'static embassy_net::Stack<'static>) {
             socket.remote_endpoint()
         );
 
-        let mut ticker = Ticker::every(Duration::from_millis(20));
         let mut line_buf = [0u8; 1024];
         let mut line_pos = 0;
 
         loop {
             let mut read_buf = [0u8; 128];
             let read_fut = socket.read(&mut read_buf);
-            let tick_fut = ticker.next();
+            let tick_fut = telemetry_rx.changed();
 
             match select(tick_fut, read_fut).await {
-                Either::First(_) => {
-                    let mut json_str = get_telemetry_json().await;
+                Either::First(a) => {
+                    let mut json_str = get_telemetry_json(a).await;
                     if !json_str.is_empty() {
                         let _ = json_str.push_str("\n");
                         if socket.write_all(json_str.as_bytes()).await.is_err() {

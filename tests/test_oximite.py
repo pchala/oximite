@@ -25,6 +25,7 @@ class TestOximite(unittest.TestCase):
     sock_file = None
     read_thread = None
     running = True
+    parse_errors = 0
 
     @classmethod
     def setUpClass(cls):
@@ -56,7 +57,14 @@ class TestOximite(unittest.TestCase):
             try:
                 line = cls.sock_file.readline().strip()
                 if line:
-                    data = json.loads(line)
+                    try:
+                        data = json.loads(line)
+                    except ValueError:
+                        # Counted, not swallowed: a dropped line here would
+                        # otherwise look identical to a device-side skip when
+                        # the 'seq' attribution runs.
+                        cls.parse_errors += 1
+                        continue
                     cls.telemetry_history.append(data)
                     cls.current_state = data.get('st', 0)
             except Exception as e:
@@ -108,55 +116,117 @@ class TestOximite(unittest.TestCase):
             print(f"No data collected for {title}")
             return
 
-        x = [i * 0.02 for i in range(len(history))]  # 50Hz = 20ms steps
-        p = [d.get('p', 0) for d in history]
-        tp = [d.get('tp', 0) for d in history]
-        vol = [d.get('vol', 0) for d in history]
-        fl = [d.get('fl', 0) for d in history]
-        hp = [d.get('hp', 0) for d in history]
-        t = [d.get('t', 0) for d in history]
-        tt = [d.get('tt', 0) for d in history]
+        # Prefer the device clock: the stream emits one row per control tick
+        # and skips rows whenever the TCP write blocks, so assuming a uniform
+        # 20 ms per sample quietly compresses time across any dropout.
+        if all('ms' in d for d in history):
+            t0 = history[0]['ms']
+            x = [(d['ms'] - t0) / 1000.0 for d in history]
+        else:
+            print("  NOTE: no 'ms' field, assuming uniform 20 ms sampling")
+            x = [i * 0.02 for i in range(len(history))]
 
-        fig, (ax_temp, ax_press) = plt.subplots(2, 1, figsize=(12, 9), sharex=True)
+        # 'seq' is the control-loop tick, so the stream is one row per tick by
+        # construction. TCP cannot lose bytes, so a break is a control frame
+        # the device computed but never transmitted, and a repeat would mean
+        # the same frame was serialised twice.
+        seqs = [d['seq'] for d in history] if all('seq' in d for d in history) else None
+        if seqs:
+            missed = sum(seqs[i] - seqs[i - 1] - 1
+                         for i in range(1, len(seqs)) if seqs[i] > seqs[i - 1])
+            dupes = sum(1 for i in range(1, len(seqs)) if seqs[i] == seqs[i - 1])
+            print(f"  {len(history)} samples, {missed} control frame(s) not sent")
+            if self.__class__.parse_errors:
+                print(f"  WARNING: {self.__class__.parse_errors} unparseable "
+                      f"line(s) — some skips above are client-side")
+            if dupes:
+                print(f"  WARNING: {dupes} duplicate seq — the same control "
+                      f"frame was sent more than once")
+            stalled = sum(1 for i in range(1, len(x))
+                          if seqs[i] - seqs[i - 1] == 1
+                          and abs((x[i] - x[i - 1]) - 0.02) > 0.01)
+            if stalled:
+                print(f"  WARNING: {stalled} control tick(s) off nominal "
+                      f"20 ms — mains-lock jitter or a stalled control loop")
+
+        gaps = [(i, x[i] - x[i - 1]) for i in range(1, len(x))
+                if x[i] - x[i - 1] > 0.05]
+        if gaps:
+            print(f"  WARNING: {len(gaps)} telemetry gap(s) > 50 ms, "
+                  f"{sum(g for _, g in gaps):.2f}s total missing")
+            for i, g in gaps[:5]:
+                if seqs is None:
+                    who = ""
+                elif seqs[i] - seqs[i - 1] > 1:
+                    who = f"  [{seqs[i] - seqs[i - 1] - 1} frames not sent]"
+                else:
+                    who = "  [control loop stalled, no frames lost]"
+                print(f"    gap of {g * 1000:.0f} ms at t={x[i - 1]:.2f}s{who}")
+
+        def col(k):
+            return [d.get(k, 0) for d in history]
+
+        p, tp, etp = col('p'), col('tp'), col('etp')
+        vol, fl, fll = col('vol'), col('fl'), col('fll')
+        hp, pump = col('hp'), col('pump')
+        t, tt, ett = col('t'), col('tt'), col('ett')
+
+        fig, (ax_temp, ax_press, ax_flow) = plt.subplots(
+            3, 1, figsize=(12, 12), sharex=True)
 
         # --- Top Panel: Temperature ---
         ax_temp.set_title(title.replace('_', ' '), fontweight='bold', fontsize=14)
         ax_temp.set_ylabel("Temperature (°C)", color='tab:red', fontweight='bold')
         line_tt = ax_temp.plot(x, tt, label="Target Temp", linestyle="--", color='grey')
+        line_ett = ax_temp.plot(x, ett, label="Applied Target (+flow FF)",
+                                linestyle=":", color='tab:green', linewidth=2)
         line_t = ax_temp.plot(x, t, label="Actual Temp", color='tab:red', linewidth=2)
-        
+
         ax_hp = ax_temp.twinx()
         ax_hp.set_ylabel("Heater Power (%)", color='tab:orange', fontweight='bold')
         line_hp = ax_hp.plot(x, hp, label="Heater Power", color='tab:orange', alpha=0.5)
         ax_hp.set_ylim(-5, 105)
-        
-        lines_top = line_tt + line_t + line_hp
+
+        lines_top = line_tt + line_ett + line_t + line_hp
         labels_top = [l.get_label() for l in lines_top]
         ax_temp.legend(lines_top, labels_top, loc='upper left')
         ax_temp.grid(True, alpha=0.3)
 
-        # --- Bottom Panel: Pressure ---
+        # --- Middle Panel: Pressure vs the duty that produced it ---
         color_p = 'tab:blue'
-        ax_press.set_xlabel("Time (Seconds)", fontweight='bold')
         ax_press.set_ylabel("Pressure (Bar)", color=color_p, fontweight='bold')
-        line1 = ax_press.plot(x, tp, label="Target Pressure", linestyle="--", color='grey')
-        line2 = ax_press.plot(x, p, label="Actual Pressure", color=color_p)
+        line1 = ax_press.plot(x, tp, label="Profile Target", linestyle="--", color='grey')
+        line_etp = ax_press.plot(x, etp, label="Applied Target (flow-limited)",
+                                 linestyle=":", color='tab:green', linewidth=2)
+        line2 = ax_press.plot(x, p, label="Actual Pressure", color=color_p, linewidth=2)
         ax_press.tick_params(axis='y', labelcolor=color_p)
         ax_press.set_ylim(bottom=0)
 
-        # --- Bottom Panel: Flow (Twin Axis) ---
-        ax_flow = ax_press.twinx()
+        ax_pump = ax_press.twinx()
+        ax_pump.set_ylabel("Pump Power (%)", color='tab:brown', fontweight='bold')
+        line_pump = ax_pump.plot(x, pump, label="Pump Power", color='tab:brown', alpha=0.6)
+        ax_pump.set_ylim(-5, 105)
+
+        lines_mid = line1 + line_etp + line2 + line_pump
+        ax_press.legend(lines_mid, [l.get_label() for l in lines_mid], loc='upper left')
+        ax_press.grid(True, alpha=0.3)
+
+        # --- Bottom Panel: Flow against its limit, plus volume ---
         color_f = 'tab:purple'
+        ax_flow.set_xlabel("Time (Seconds)", fontweight='bold')
         ax_flow.set_ylabel("Flow Rate (ml/s)", color=color_f, fontweight='bold')
-        line3 = ax_flow.plot(x, fl, label="Flow Rate (ml/s)", color=color_f, linewidth=2)
+        line3 = ax_flow.plot(x, fl, label="Flow Rate", color=color_f, linewidth=2)
+        line_fll = ax_flow.plot(x, fll, label="Flow Limit", linestyle="--", color='grey')
         ax_flow.tick_params(axis='y', labelcolor=color_f)
         ax_flow.set_ylim(bottom=0)
 
-        # Combine legends
-        lines = line1 + line2 + line3
-        labels = [l.get_label() for l in lines]
-        ax_press.legend(lines, labels, loc='upper left')
-        ax_press.grid(True, alpha=0.3)
+        ax_vol = ax_flow.twinx()
+        ax_vol.set_ylabel("Volume (ml)", color='tab:cyan', fontweight='bold')
+        line_vol = ax_vol.plot(x, vol, label="Volume", color='tab:cyan', alpha=0.7)
+
+        lines_bot = line3 + line_fll + line_vol
+        ax_flow.legend(lines_bot, [l.get_label() for l in lines_bot], loc='upper left')
+        ax_flow.grid(True, alpha=0.3)
 
         fig.tight_layout()
 
@@ -305,8 +375,12 @@ class TestOximite(unittest.TestCase):
         }
         
         print("Starting profile...")
-        self.send_command({"cmd": "profile", "profile": profile})
+        # Cleared before the command, not after: the reader thread is already
+        # appending, and clearing afterwards discards the first frames of the
+        # shot — including the tick where the flow limiter seeds its setpoint
+        # from current pressure, which is the moment worth seeing.
         self.__class__.telemetry_history.clear()
+        self.send_command({"cmd": "profile", "profile": profile})
         
         # Wait for machine to enter BREWING state (1)
         start = time.time()

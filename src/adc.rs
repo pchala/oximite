@@ -1,11 +1,11 @@
 //! Analog sensor acquisition: oversamples the pressure and boiler-temperature
 //! channels, filters them, converts to physical units, and publishes the
-//! result into `state::TELEMETRY_WATCH` for every other task to read.
+//! result into `state::SENSOR_WATCH` for every other task to read.
 
 use embassy_rp::adc::{Adc, Async, Channel};
 use embassy_time::Duration;
 
-use crate::state::TELEMETRY_WATCH;
+use crate::state::{SensorReading, SENSOR_WATCH};
 
 /// Raw ADC counts to boiler temperature in °C, by linear interpolation between
 /// the two `NTC_LUT` entries that bracket the reading.
@@ -88,11 +88,10 @@ pub async fn adc_task(
         let p_bar = get_pressure_from_adc(p_ema);
         let t_c = get_temp_from_adc(t_ema);
 
-        // Fetch current state, update it, and broadcast
-        let mut state = TELEMETRY_WATCH.try_get().unwrap_or_default();
-        state.pressure_bar = p_bar;
-        state.temp_c = t_c;
-        TELEMETRY_WATCH.sender().send(state);
+        SENSOR_WATCH.sender().send(SensorReading {
+            pressure_bar: p_bar,
+            temp_c: t_c,
+        });
 
         ticker.next().await;
     }

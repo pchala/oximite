@@ -105,36 +105,76 @@ pub async fn next_command() -> MachineCommand {
     COMMAND_QUEUE.receive().await
 }
 
-/// Everything the UI and the LED task need to render the machine, published
-/// as one snapshot. Written by two producers: `adc::adc_task` fills in the
-/// measured `pressure_bar`/`temp_c`, and `control::ac_sync_control_task` fills
-/// in the setpoints and heater duty it derives from them. Both run on core0's
-/// executor and neither awaits between reading and sending, so the
-/// read-modify-write is atomic with respect to the other.
-#[derive(Clone, Copy, Default)]
-pub struct Telemetry {
+/// Filtered analog readings, published by `adc::adc_task`.
+#[derive(Clone, Copy)]
+pub struct SensorReading {
     pub pressure_bar: f32,
     pub temp_c: f32,
+}
+
+impl Default for SensorReading {
+    fn default() -> Self {
+        // Not derived: a 0 °C boiler is a huge error to the temperature PID,
+        // and this default is what the control loop reads on the first ticks
+        // after boot, before the ADC has published anything.
+        Self {
+            pressure_bar: 0.0,
+            temp_c: 20.0,
+        }
+    }
+}
+
+pub static SENSOR_WATCH: Watch<CriticalSectionRawMutex, SensorReading, 4> = Watch::new();
+
+/// The latest filtered sensor reading, or a plausible cold-machine reading if
+/// the ADC has not published yet.
+pub fn get_sensors() -> SensorReading {
+    SENSOR_WATCH.try_get().unwrap_or_default()
+}
+
+/// Everything the UI and the LED task need to render the machine, published
+/// as one snapshot by `control::ac_sync_control_task`, once per 50 Hz control
+/// tick. Single producer: the measured values are copied in from
+/// `SENSOR_WATCH` rather than written by the ADC task directly, so every field
+/// in a given snapshot describes the same tick.
+#[derive(Clone, Copy, Default)]
+pub struct Telemetry {
+    /// Control-loop tick this snapshot describes. Lets a consumer tell a
+    /// duplicate sample from a fresh one, and count frames it never saw.
+    pub tick: u32,
+    pub pressure_bar: f32,
+    pub temp_c: f32,
+    /// Setpoint the profile asked for. `effective_target_bar` is what the PID
+    /// was actually given, which the flow limiter drags below this.
     pub target_bar: f32,
+    /// Setpoint the pressure PID chased this tick, or 0 when the pressure loop
+    /// isn't running. Without it the flow limiter is invisible in a log, since
+    /// `target_bar` stays flat for a whole profile step.
+    pub effective_target_bar: f32,
     pub target_temp: f32,
+    /// `target_temp` plus the brew-flow feed-forward — what the temperature PID
+    /// actually chased. Diverges from `target_temp` by several degrees during a
+    /// shot, which otherwise reads as unexplained overshoot.
+    pub effective_target_temp: f32,
     pub flow_limit_ml_s: f32,
     pub heater_duty: f32,
+    /// Triac duty the pump was driven at this tick, 0-100.
+    pub pump_duty: f32,
 }
 
 impl Telemetry {
-    /// Returns `(display_temp, display_target_temp)` with the boiler offset
-    /// subtracted for non-steam modes.
-    pub fn display_temps(&self, offset: f32, is_steaming: bool) -> (f32, f32) {
+    /// Returns `(display_temp, display_target_temp, display_effective_target)`
+    /// with the boiler offset subtracted for non-steam modes.
+    pub fn display_temps(&self, offset: f32, is_steaming: bool) -> (f32, f32, f32) {
         if is_steaming {
-            (self.temp_c, self.target_temp)
+            (self.temp_c, self.target_temp, self.effective_target_temp)
         } else {
-            let t = self.temp_c - offset;
-            let tt = if self.target_temp > 0.0 {
-                self.target_temp - offset
-            } else {
-                0.0
-            };
-            (t, tt)
+            let adj = |v: f32| if v > 0.0 { v - offset } else { 0.0 };
+            (
+                self.temp_c - offset,
+                adj(self.target_temp),
+                adj(self.effective_target_temp),
+            )
         }
     }
 }
@@ -146,12 +186,16 @@ pub static TELEMETRY_WATCH: Watch<CriticalSectionRawMutex, Telemetry, 4> = Watch
 /// the first few milliseconds after boot and act on it.
 pub fn get_telemetry() -> Telemetry {
     TELEMETRY_WATCH.try_get().unwrap_or(Telemetry {
+        tick: 0,
         pressure_bar: 0.0,
         temp_c: 20.0,
         target_bar: 0.0,
+        effective_target_bar: 0.0,
         target_temp: 20.0,
+        effective_target_temp: 20.0,
         flow_limit_ml_s: 0.0,
         heater_duty: 0.0,
+        pump_duty: 0.0,
     })
 }
 
