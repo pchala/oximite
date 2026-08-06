@@ -400,25 +400,45 @@ class TestOximite(unittest.TestCase):
         # Step 5: Plot results
         self.plot_results("PID_Reaction_Test")
 
-    def test_flow_extraction(self):
-        """Two-stage, purely flow-controlled shot — no pressure target at all.
+    def test_sweet_extraction(self):
+        """Four-stage declining flow profile — no pressure target at all.
 
         Sized for 18.5 g of coffee: 80 ml through the machine yields ~40 g in
-        the cup, and the two stages are balanced to put water in contact with
-        the puck for ~30 s total.
+        the cup. Roughly 37 s of pump time, ~33 s of water/puck contact once
+        the headspace has filled.
 
+          1. Pre-infusion 2.5 ml/s, 15 ml  (6 s)  fill headspace, wet the top
+          2. Soak        1.0 ml/s, 10 ml (10 s)  capillary down through the bed
+          3. Extraction  3.2 ml/s, 35 ml (11 s)  body, crema, sugars
+          4. Taper       2.0 ml/s, 20 ml (10 s)  gentle finish, avoid channels
+
+        Stage 3 is deliberately held at 3.2 rather than the ~5.5 ml/s a pump
+        can free-flow: above what the puck passes, duty pins at 100% and the
+        loop stops regulating. That matters most at the 3->4 boundary — see
+        the note there.
         """
-        print("\nRunning: Flow Extraction Test...")
+        print("\nRunning: Sweet Extraction Test...")
 
         # `volume` is cumulative across the whole profile — `coordinator::start`
-        # zeroes the counter once at profile start, not per step — so stage 2
-        # asks for 80 to add a further 65 ml on top of stage 1's 15 ml.
+        # zeroes the counter once at profile start, not per step — so these are
+        # running totals (15, +10, +35, +20), not per-step amounts.
         # No `time_s`: the stages are defined by volume alone.
+        #
+        # The step 3 -> 4 setpoint drop (3.2 -> 2.0) is handled by the PID's
+        # own unwinding, and its speed is set by the flow error at the
+        # boundary: i_term sheds at ki*error, so the 1.2 ml/s error here
+        # unwinds ~18 %/s and settles in ~2 s. Asking 5.5 in stage 3 would
+        # saturate the pump, leaving actual flow at whatever the puck passes
+        # (~2.5) — an error of only 0.5, which unwinds at 7.5 %/s and would
+        # spend half the taper still coming down. Keeping stage 3 reachable is
+        # what makes the transition clean; no firmware change is needed.
         profile = {
-            "name": "Flow Extraction",
+            "name": "Sweet Extraction",
             "steps": [
-                {"volume": 15.0, "flow": 1.5},
-                {"volume": 80.0, "flow": 3.25},
+                {"volume": 15.0, "flow": 2.5},
+                {"volume": 25.0, "flow": 1.0},
+                {"volume": 60.0, "flow": 3.2},
+                {"volume": 80.0, "flow": 2.0},
             ],
         }
 
@@ -434,13 +454,13 @@ class TestOximite(unittest.TestCase):
                 break
             time.sleep(0.05)
 
-        self.wait_for_state(0, timeout=150, title="Flow_Extraction")
+        self.wait_for_state(0, timeout=150, title="Sweet_Extraction")
 
         print("Profile finished. Recording tail...")
         time.sleep(10.0)
 
-        self.report_flow_tracking("Flow_Extraction")
-        self.plot_results("Flow_Extraction")
+        self.report_flow_tracking("Sweet_Extraction")
+        self.plot_results("Sweet_Extraction")
 
     def report_flow_tracking(self, title):
         """Prints per-stage flow tracking quality for a flow-controlled shot.
@@ -463,7 +483,7 @@ class TestOximite(unittest.TestCase):
             runs[-1][1].append(d)
 
         print(f"  {title}: flow tracking by stage")
-        for sp, rows in runs:
+        for idx, (sp, rows) in enumerate(runs):
             if len(rows) < 10:
                 continue
             t0 = rows[0].get('ms', 0)
@@ -483,6 +503,19 @@ class TestOximite(unittest.TestCase):
                   f"| mean|err| {err:4.2f} | duty {min(duties):3.0f}-"
                   f"{max(duties):3.0f}% ({pinned:3.0f}% pinned) "
                   f"| peak {max(press):4.1f} bar")
+            # Stage 1 starts from a standing stop, so its "settle time" is just
+            # the initial fill and says nothing about the loop. Every later
+            # stage is a setpoint step, which is where the integral has to
+            # unwind — that is the number worth watching.
+            if idx > 0:
+                t_settle = self._settle_time(rows, sp)
+                frac = f" ({t_settle / span * 100:.0f}% of the stage)" \
+                    if t_settle is not None and span > 0 else ""
+                shown = f"{t_settle:4.1f}s" if t_settle is not None \
+                    else "never (stage ended still off-target)"
+                prev_sp = runs[idx - 1][0]
+                print(f"         step {prev_sp:.1f} -> {sp:.1f}: "
+                      f"settled in {shown}{frac}")
 
         span_all = (rows_all[-1].get('ms', 0) - rows_all[0].get('ms', 0)) / 1000.0
         vol_all = rows_all[-1].get('vol', 0.0) - rows_all[0].get('vol', 0.0)
@@ -490,12 +523,40 @@ class TestOximite(unittest.TestCase):
         print(f"    total {span_all:5.1f}s contact, {vol_all:5.1f} ml through "
               f"the machine, {avg:4.2f} ml/s average")
 
-        if any(r.get('pump', 0.0) >= 99.0 for r in rows_all):
-            print("    pump saturated at 100% — pressure there is whatever the "
-                  "OPV allows, and flow below setpoint is expected")
+        pinned_stages = [sp for sp, rows in runs
+                         if any(r.get('pump', 0.0) >= 99.0 for r in rows)]
+        if pinned_stages:
+            print(f"    duty pinned at 100% during stage(s) targeting "
+                  f"{', '.join(f'{sp:.1f}' for sp in pinned_stages)} ml/s — the "
+                  f"loop is not regulating there (pressure is whatever the OPV "
+                  f"allows) and the following setpoint step will settle slowly")
         else:
-            print("    pump never saturated — raise the second-stage flow "
-                  "target to push the machine into the OPV")
+            print("    duty never pinned — every stage stayed within the "
+                  "pump's authority, which is what makes the steps track")
+
+    def _settle_time(self, rows, sp):
+        """Seconds from the start of a stage until flow reaches and holds its
+        setpoint, or None if it never does.
+
+        "Holds" means within tolerance for a continuous 500 ms — a bare
+        first-crossing test would report the moment an overshoot sweeps past
+        the setpoint on its way somewhere else.
+        """
+        tol = max(0.15 * sp, 0.15)
+        t0 = rows[0].get('ms', 0)
+        for i, r in enumerate(rows):
+            if abs(r.get('fl', 0.0) - sp) > tol:
+                continue
+            held = True
+            for r2 in rows[i:]:
+                if r2.get('ms', 0) - r.get('ms', 0) > 500:
+                    break
+                if abs(r2.get('fl', 0.0) - sp) > tol:
+                    held = False
+                    break
+            if held:
+                return (r.get('ms', 0) - t0) / 1000.0
+        return None
 
     def test_sweet_profile(self):
         profile = {
