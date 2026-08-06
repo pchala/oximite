@@ -33,6 +33,15 @@ impl PidController {
             self.reset();
         }
     }
+    /// Seeds the integral term so the very next `update(target, measurement)`
+    /// returns `output`, making activation bumpless: a loop taking over the
+    /// actuator starts from the duty already applied instead of stepping from
+    /// zero and letting the integral crawl back up.
+    pub fn preload(&mut self, output: f32, target: f32, measurement: f32) {
+        self.prev_measurement = measurement;
+        self.last_time = None;
+        self.i_term = (output - self.kp * (target - measurement)).clamp(-20.0, 100.0);
+    }
     pub fn set_coeffs(&mut self, kp: f32, ki: f32, kd: f32) {
         self.kp = kp;
         self.ki = ki;

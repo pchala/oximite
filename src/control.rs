@@ -276,12 +276,21 @@ pub async fn ac_sync_control_task(
         initial_s.temp_pid.kd,
     );
 
+    // Drives pump duty straight from the flow error. Takes over from the
+    // pressure loop entirely whenever a step asks for a flow rate — the OPV is
+    // the pressure backstop in that mode, not the sensor.
+    let mut flow_pid = PidController::new(
+        initial_s.flow_pid.kp,
+        initial_s.flow_pid.ki,
+        initial_s.flow_pid.kd,
+    );
+
     // Dynamic targets
     let mut mode = PumpMode::Idle;
-    let mut effective_target_p: f32 = 0.0;
     let mut target_t = initial_s.machine.brew_temp;
     let mut feed_forward: f32 = 0.0;
     let mut brew_active = false;
+    let mut last_pump_duty: f32 = 0.0;
 
     let mut tick: u32 = 0;
     let mut heater_duty = 0.0;
@@ -315,16 +324,29 @@ pub async fn ac_sync_control_task(
 
         let s = crate::settings::ControlSettings::current();
 
+        // --- Get flow readings ---
+        // Read before the command block so an activating flow step can seed its
+        // PID from the flow measured this tick.
+        let f = crate::flow_meter::get_flow();
+
         // --- Command & Signal Processing ---
         let (mut target_p, mut flow_limit) = mode.pressure_and_flow_limit();
         if let Some(new_mode) = SIG_PUMP_MODE.try_take() {
             let (new_bar, new_fl) = new_mode.pressure_and_flow_limit();
             press_pid.set_coeffs(s.press_pid.kp, s.press_pid.ki, s.press_pid.kd);
             press_pid.reset_if_reactivated(target_p, new_bar);
-            // Reseed the flow-limit accumulator exactly when flow-limited
-            // pressure control transitions inactive -> active
-            if new_bar > 0.0 && new_fl > 0.0 && !(target_p > 0.0 && flow_limit > 0.0) {
-                effective_target_p = p_ema;
+            flow_pid.set_coeffs(s.flow_pid.kp, s.flow_pid.ki, s.flow_pid.kd);
+            // Entering flow control: if the pump is already turning, start the
+            // integral at the duty in use so it doesn't drop out and crawl
+            // back. From a standstill, start clean instead — preloading to
+            // zero duty would park the integral at -kp*error and stall the
+            // pump for the half second it takes to climb back out.
+            if new_fl > 0.0 && flow_limit == 0.0 {
+                if last_pump_duty > 0.0 {
+                    flow_pid.preload(last_pump_duty, new_fl, f.flow_rate_ml_s);
+                } else {
+                    flow_pid.reset();
+                }
             }
             mode = new_mode;
             target_p = new_bar;
@@ -345,33 +367,27 @@ pub async fn ac_sync_control_task(
             feed_forward = CONST_FF * (s.machine.feed_forward_percents / 100.0) * (target_t - 20.0);
         }
 
-        // --- Get flow readings ---
-        let f = crate::flow_meter::get_flow();
-
         // --- Pump Control (Triac Phase Angle) ---
         // Setpoint the pressure PID actually chased, kept at 0 whenever the
         // pressure loop isn't running so telemetry never reports a stale
         // target left over from the previous shot.
         let mut active_target_p = 0.0;
+        let flow_controlled = direct_pump.is_none() && flow_limit > 0.0;
         let p_output: f32 = match direct_pump {
             // Direct-pump mode (hot water / cooldown flush / flush) needs no
-            // flow limiting — it's raw power, not an espresso shot being
-            // protected.
+            // flow control — it's raw power, not an espresso shot.
             Some(dp) => dp.clamp(0.0, 100.0),
+            // A requested flow rate takes the pump outright: the PID output is
+            // the duty. Any pressure target on the same step is ignored, so
+            // maximum pressure is whatever the OPV allows.
+            None if flow_limit > 0.0 => flow_pid.update(flow_limit, f.flow_rate_ml_s),
             None if target_p > 0.0 => {
-                // Accumulator-based flow-limit backoff
-                if flow_limit > 0.0 {
-                    let flow_error = f.flow_rate_ml_s - flow_limit;
-                    effective_target_p -= s.machine.flow_limit_kp * flow_error;
-                    effective_target_p = effective_target_p.clamp(0.2, target_p);
-                } else {
-                    effective_target_p = target_p;
-                }
-                active_target_p = effective_target_p;
-                press_pid.update(effective_target_p, p_ema)
+                active_target_p = target_p;
+                press_pid.update(target_p, p_ema)
             }
             None => 0.0,
         };
+        last_pump_duty = p_output;
 
         // If output is set, push the phase delay to the Triac PIO
         if p_output > 0.0 {
@@ -408,6 +424,7 @@ pub async fn ac_sync_control_task(
             target_bar: target_p,
             effective_target_bar: active_target_p,
             flow_limit_ml_s: flow_limit,
+            flow_controlled,
             target_temp: target_t,
             effective_target_temp: effective_target_t,
             heater_duty,

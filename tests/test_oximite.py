@@ -196,7 +196,7 @@ class TestOximite(unittest.TestCase):
         color_p = 'tab:blue'
         ax_press.set_ylabel("Pressure (Bar)", color=color_p, fontweight='bold')
         line1 = ax_press.plot(x, tp, label="Profile Target", linestyle="--", color='grey')
-        line_etp = ax_press.plot(x, etp, label="Applied Target (flow-limited)",
+        line_etp = ax_press.plot(x, etp, label="Applied Target (pressure loop)",
                                  linestyle=":", color='tab:green', linewidth=2)
         line2 = ax_press.plot(x, p, label="Actual Pressure", color=color_p, linewidth=2)
         ax_press.tick_params(axis='y', labelcolor=color_p)
@@ -216,7 +216,7 @@ class TestOximite(unittest.TestCase):
         ax_flow.set_xlabel("Time (Seconds)", fontweight='bold')
         ax_flow.set_ylabel("Flow Rate (ml/s)", color=color_f, fontweight='bold')
         line3 = ax_flow.plot(x, fl, label="Flow Rate", color=color_f, linewidth=2)
-        line_fll = ax_flow.plot(x, fll, label="Flow Limit", linestyle="--", color='grey')
+        line_fll = ax_flow.plot(x, fll, label="Flow Setpoint", linestyle="--", color='grey')
         ax_flow.tick_params(axis='y', labelcolor=color_f)
         ax_flow.set_ylim(bottom=0)
 
@@ -399,6 +399,103 @@ class TestOximite(unittest.TestCase):
         
         # Step 5: Plot results
         self.plot_results("PID_Reaction_Test")
+
+    def test_flow_extraction(self):
+        """Two-stage, purely flow-controlled shot — no pressure target at all.
+
+        Sized for 18.5 g of coffee: 80 ml through the machine yields ~40 g in
+        the cup, and the two stages are balanced to put water in contact with
+        the puck for ~30 s total.
+
+        """
+        print("\nRunning: Flow Extraction Test...")
+
+        # `volume` is cumulative across the whole profile — `coordinator::start`
+        # zeroes the counter once at profile start, not per step — so stage 2
+        # asks for 80 to add a further 65 ml on top of stage 1's 15 ml.
+        # No `time_s`: the stages are defined by volume alone.
+        profile = {
+            "name": "Flow Extraction",
+            "steps": [
+                {"volume": 15.0, "flow": 1.5},
+                {"volume": 80.0, "flow": 3.25},
+            ],
+        }
+
+        print("Starting profile...")
+        self.__class__.telemetry_history.clear()
+        self.send_command({"cmd": "profile", "profile": profile})
+
+        # Wait for the machine to leave Idle
+        start = time.time()
+        while self.__class__.current_state == 0:
+            if time.time() - start > 5.0:
+                print("Timeout waiting for command to start!")
+                break
+            time.sleep(0.05)
+
+        self.wait_for_state(0, timeout=150, title="Flow_Extraction")
+
+        print("Profile finished. Recording tail...")
+        time.sleep(10.0)
+
+        self.report_flow_tracking("Flow_Extraction")
+        self.plot_results("Flow_Extraction")
+
+    def report_flow_tracking(self, title):
+        """Prints per-stage flow tracking quality for a flow-controlled shot.
+
+        The plot shows the shape; this puts numbers on it, so the effect of a
+        gain change can be judged without eyeballing two PNGs side by side.
+        """
+        rows_all = [d for d in self.__class__.telemetry_history if d.get('fc')]
+        if not rows_all:
+            print(f"  {title}: no flow-controlled samples — either no step set "
+                  f"a flow target, or the firmware predates the 'fc' field")
+            return
+
+        # Split into contiguous runs of one setpoint: one run per profile step.
+        runs = []
+        for d in rows_all:
+            sp = d.get('fll', 0.0)
+            if not runs or runs[-1][0] != sp:
+                runs.append((sp, []))
+            runs[-1][1].append(d)
+
+        print(f"  {title}: flow tracking by stage")
+        for sp, rows in runs:
+            if len(rows) < 10:
+                continue
+            t0 = rows[0].get('ms', 0)
+            span = (rows[-1].get('ms', 0) - t0) / 1000.0
+            duties = [r.get('pump', 0.0) for r in rows]
+            press = [r.get('p', 0.0) for r in rows]
+            # Drop the first second: the loop is slewing to the new setpoint
+            # there by design, and including it smears the steady-state error
+            # that each stage is actually judged on.
+            settled = [r for r in rows if r.get('ms', 0) - t0 > 1000]
+            flows = [r.get('fl', 0.0) for r in settled] or \
+                    [r.get('fl', 0.0) for r in rows]
+            mean_f = sum(flows) / len(flows)
+            err = sum(abs(v - sp) for v in flows) / len(flows)
+            pinned = sum(1 for v in duties if v >= 99.0) / len(duties) * 100.0
+            print(f"    {sp:>4.1f} ml/s for {span:5.1f}s | mean {mean_f:4.2f} "
+                  f"| mean|err| {err:4.2f} | duty {min(duties):3.0f}-"
+                  f"{max(duties):3.0f}% ({pinned:3.0f}% pinned) "
+                  f"| peak {max(press):4.1f} bar")
+
+        span_all = (rows_all[-1].get('ms', 0) - rows_all[0].get('ms', 0)) / 1000.0
+        vol_all = rows_all[-1].get('vol', 0.0) - rows_all[0].get('vol', 0.0)
+        avg = vol_all / span_all if span_all else 0.0
+        print(f"    total {span_all:5.1f}s contact, {vol_all:5.1f} ml through "
+              f"the machine, {avg:4.2f} ml/s average")
+
+        if any(r.get('pump', 0.0) >= 99.0 for r in rows_all):
+            print("    pump saturated at 100% — pressure there is whatever the "
+                  "OPV allows, and flow below setpoint is expected")
+        else:
+            print("    pump never saturated — raise the second-stage flow "
+                  "target to push the machine into the OPV")
 
     def test_sweet_profile(self):
         profile = {

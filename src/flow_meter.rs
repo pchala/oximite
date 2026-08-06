@@ -43,7 +43,10 @@ pub fn setup_flow_sm(
     // CYCLES_PER_LOOP = 2 (jmp x-- + jmp pin, one 2-cycle iteration each).
     let prg = pio_asm!(
         ".wrap_target",
+        "jmp pin high_phase", // pin HIGH — time the HIGH phase
+        "jmp low_phase",      // pin LOW  — time the LOW phase
         // --- 1. MEASURE HIGH PHASE ---
+        "high_phase:",
         "mov x, !null",
         "high_loop:",
         "jmp x-- next_high", // 1 cycle
@@ -52,6 +55,7 @@ pub fn setup_flow_sm(
         "mov isr, !x",       // pin went LOW — push HIGH duration
         "push noblock",
         // --- 2. MEASURE LOW PHASE ---
+        "low_phase:",
         "mov x, !null",
         "low_loop:",
         "jmp pin low_done", // 1 cycle: exit when HIGH
@@ -76,6 +80,10 @@ pub fn setup_flow_sm(
 #[embassy_executor::task]
 pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
     let mut volume_ml: f32 = 0.0;
+    // A half-period that spans an idle gap (start of a shot, or any pause
+    // longer than the 200 ms timeout) carries a stale tick count. Drop its
+    // *rate*; the edge itself is a real pulse and still counts towards volume.
+    let mut skip_stale_rate = false;
 
     let s = crate::settings::Settings::get().await;
     let pulses_per_liter = if s.machine.flow_pulses_per_liter > 0.0 {
@@ -98,30 +106,35 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
                 let mut last_valid_ticks: u32 = 0;
                 let mut total_pulses = 1;
 
-                let mut process_pulse = |val: u32| {
-                    if val > 0 {
-                        let raw_flow = flow_numerator / (val as f32);
-                        if raw_flow <= 50.0 {
-                            valid_pulses += 1;
-                            last_valid_ticks = val;
-                        } else {
-                            defmt::warn!("Ignored noise pulse ({} ml/s)", raw_flow);
-                        }
-                    } else {
+                let mut process_pulse = |val: u32, use_for_rate: bool| {
+                    if val == 0 {
                         defmt::warn!("PIO return 0 for flow");
+                        return;
+                    }
+                    if !use_for_rate {
+                        defmt::info!("Skipped stale flow rate sample from idle state");
+                        valid_pulses += 1;
+                        return;
+                    }
+                    let raw_flow = flow_numerator / (val as f32);
+                    if raw_flow <= 50.0 {
+                        valid_pulses += 1;
+                        last_valid_ticks = val;
+                    } else {
+                        defmt::warn!("Ignored noise pulse ({} ml/s)", raw_flow);
                     }
                 };
 
-                process_pulse(first_val);
+                process_pulse(first_val, !skip_stale_rate);
+                skip_stale_rate = false;
 
                 // Drain any extra entries that piled up in the FIFO.
                 while let Some(val) = sm.rx().try_pull() {
                     total_pulses += 1;
-                    process_pulse(val);
+                    process_pulse(val, true);
                 }
 
                 if valid_pulses > 0 {
-                    let raw_flow_ml_s = flow_numerator / (last_valid_ticks as f32);
                     if total_pulses > 1 {
                         defmt::warn!("PIO FIFO had {} entries!", total_pulses);
                     }
@@ -130,12 +143,15 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
 
                     let mut state = FLOW_WATCH.try_get().unwrap_or_default();
 
-                    const ALPHA: f32 = 0.3; // EMA filter coefficient
-                    if state.flow_rate_ml_s == 0.0 {
-                        state.flow_rate_ml_s = raw_flow_ml_s;
-                    } else {
-                        state.flow_rate_ml_s =
-                            state.flow_rate_ml_s + ALPHA * (raw_flow_ml_s - state.flow_rate_ml_s);
+                    if last_valid_ticks > 0 {
+                        let raw_flow_ml_s = flow_numerator / (last_valid_ticks as f32);
+                        const ALPHA: f32 = 0.3; // EMA filter coefficient
+                        if state.flow_rate_ml_s == 0.0 {
+                            state.flow_rate_ml_s = raw_flow_ml_s;
+                        } else {
+                            state.flow_rate_ml_s = state.flow_rate_ml_s
+                                + ALPHA * (raw_flow_ml_s - state.flow_rate_ml_s);
+                        }
                     }
 
                     state.volume_ml = volume_ml;
@@ -144,12 +160,14 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
             }
             Ok(Either::Second(_)) => {
                 volume_ml = 0.0;
+                skip_stale_rate = true;
                 let mut state = FLOW_WATCH.try_get().unwrap_or_default();
                 state.volume_ml = 0.0;
                 state.flow_rate_ml_s = 0.0;
                 FLOW_WATCH.sender().send(state);
             }
             Err(_) => {
+                skip_stale_rate = true;
                 let mut state = FLOW_WATCH.try_get().unwrap_or_default();
                 state.flow_rate_ml_s = 0.0;
                 FLOW_WATCH.sender().send(state);

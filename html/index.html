@@ -133,6 +133,12 @@
                 <div><label>Ki</label><input type="number" id="set-pki" value="0.1" step="0.01"></div>
                 <div><label>Kd</label><input type="number" id="set-pkd" value="0.5" step="0.1"></div>
             </div>
+            <h3>PID: Flow</h3>
+            <div class="grid-3">
+                <div><label>Kp</label><input type="number" id="set-fkp" value="8.0" step="0.1"></div>
+                <div><label>Ki</label><input type="number" id="set-fki" value="15.0" step="0.1"></div>
+                <div><label>Kd</label><input type="number" id="set-fkd" value="0.0" step="0.1"></div>
+            </div>
             <button onclick="savePids()" style="width: 100%; margin-top: 15px;">Save PID Tuning</button>
         </div>
 
@@ -262,6 +268,11 @@
                 kp: parseFloat(document.getElementById('set-pkp').value),
                 ki: parseFloat(document.getElementById('set-pki').value),
                 kd: parseFloat(document.getElementById('set-pkd').value),
+            },
+            flow_pid: {
+                kp: parseFloat(document.getElementById('set-fkp').value),
+                ki: parseFloat(document.getElementById('set-fki').value),
+                kd: parseFloat(document.getElementById('set-fkd').value),
             }
         });
         alert("PID Settings Saved!");
@@ -298,6 +309,11 @@
                 if (data.press_pid.kp !== undefined) document.getElementById('set-pkp').value = data.press_pid.kp;
                 if (data.press_pid.ki !== undefined) document.getElementById('set-pki').value = data.press_pid.ki;
                 if (data.press_pid.kd !== undefined) document.getElementById('set-pkd').value = data.press_pid.kd;
+            }
+            if (data.flow_pid) {
+                if (data.flow_pid.kp !== undefined) document.getElementById('set-fkp').value = data.flow_pid.kp;
+                if (data.flow_pid.ki !== undefined) document.getElementById('set-fki').value = data.flow_pid.ki;
+                if (data.flow_pid.kd !== undefined) document.getElementById('set-fkd').value = data.flow_pid.kd;
             }
             if (data.wifi) {
                 if (data.wifi.ssid !== undefined) document.getElementById('set-ssid').value = data.wifi.ssid;

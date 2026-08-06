@@ -49,7 +49,11 @@ pub enum MachineCommand {
     Flush,
     DirectPump(f32),
     SaveMachine(crate::settings::MachineSettings),
-    SavePids(crate::settings::PidSettings, crate::settings::PidSettings),
+    SavePids(
+        crate::settings::PidSettings,
+        crate::settings::PidSettings,
+        Option<crate::settings::PidSettings>,
+    ),
     SaveWifi(crate::settings::WifiSettings),
     TogglePower,
     SetSessionTemp(f32),
@@ -65,7 +69,7 @@ impl defmt::Format for MachineCommand {
             MachineCommand::Flush => defmt::write!(fmt, "Flush"),
             MachineCommand::DirectPump(p) => defmt::write!(fmt, "DirectPump({})", p),
             MachineCommand::SaveMachine(_) => defmt::write!(fmt, "SaveMachine"),
-            MachineCommand::SavePids(_, _) => defmt::write!(fmt, "SavePids"),
+            MachineCommand::SavePids(_, _, _) => defmt::write!(fmt, "SavePids"),
             MachineCommand::SaveWifi(_) => defmt::write!(fmt, "SaveWifi"),
             MachineCommand::TogglePower => defmt::write!(fmt, "TogglePower"),
             MachineCommand::SetSessionTemp(t) => defmt::write!(fmt, "SetSessionTemp({})", t),
@@ -144,12 +148,11 @@ pub struct Telemetry {
     pub tick: u32,
     pub pressure_bar: f32,
     pub temp_c: f32,
-    /// Setpoint the profile asked for. `effective_target_bar` is what the PID
-    /// was actually given, which the flow limiter drags below this.
+    /// Setpoint the profile asked for. 0 whenever the pump is under flow
+    /// control, which ignores pressure entirely.
     pub target_bar: f32,
     /// Setpoint the pressure PID chased this tick, or 0 when the pressure loop
-    /// isn't running. Without it the flow limiter is invisible in a log, since
-    /// `target_bar` stays flat for a whole profile step.
+    /// isn't running (idle, direct pump, or flow control).
     pub effective_target_bar: f32,
     pub target_temp: f32,
     /// `target_temp` plus the brew-flow feed-forward — what the temperature PID
@@ -157,6 +160,9 @@ pub struct Telemetry {
     /// shot, which otherwise reads as unexplained overshoot.
     pub effective_target_temp: f32,
     pub flow_limit_ml_s: f32,
+    /// True while the flow PID owns the pump. Without it a log can't tell a
+    /// flow-controlled step from a pressure step that happens to be flowing.
+    pub flow_controlled: bool,
     pub heater_duty: f32,
     /// Triac duty the pump was driven at this tick, 0-100.
     pub pump_duty: f32,
@@ -194,6 +200,7 @@ pub fn get_telemetry() -> Telemetry {
         target_temp: 20.0,
         effective_target_temp: 20.0,
         flow_limit_ml_s: 0.0,
+        flow_controlled: false,
         heater_duty: 0.0,
         pump_duty: 0.0,
     })

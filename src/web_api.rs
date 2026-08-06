@@ -32,6 +32,7 @@ struct ApiCommand<'a> {
     machine: Option<MachineSettings>,
     temp_pid: Option<PidSettings>,
     press_pid: Option<PidSettings>,
+    flow_pid: Option<PidSettings>,
     wifi: Option<WifiSettings>,
     power: Option<f32>,
     temp: Option<f32>,
@@ -57,8 +58,10 @@ struct TelemetryData {
     /// Setpoint the pressure PID chased, after flow limiting.
     etp: f32,
     fl: f32,
-    /// Active flow limit, 0 when unlimited.
+    /// Active flow setpoint, 0 when the pump isn't flow-controlled.
     fll: f32,
+    /// 1 while the flow PID is driving the pump duty directly.
+    fc: u8,
     vol: f32,
     hp: f32,
     /// Pump triac duty, 0-100.
@@ -121,7 +124,7 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
         }
         "save_pids" => {
             if let (Some(t), Some(p)) = (payload.temp_pid, payload.press_pid) {
-                send_command(MachineCommand::SavePids(t, p));
+                send_command(MachineCommand::SavePids(t, p, payload.flow_pid));
             }
         }
         "save_wifi" => {
@@ -189,6 +192,7 @@ async fn get_telemetry_json(a: Telemetry) -> heapless::String<384> {
         etp: r2(a.effective_target_bar),
         fl: r2(f.flow_rate_ml_s),
         fll: r2(a.flow_limit_ml_s),
+        fc: a.flow_controlled as u8,
         vol: r2(f.volume_ml),
         hp: r2(a.heater_duty),
         pump: r2(a.pump_duty),

@@ -143,12 +143,15 @@ async fn handle_ambient(cmd: &MachineCommand) -> bool {
             Settings::update_ram(s).await;
             SIG_FLASH_UPDATE.signal(FlashUpdate::SaveMachine(*m));
         }
-        MachineCommand::SavePids(t, p) => {
+        MachineCommand::SavePids(t, p, f) => {
             let mut s = Settings::get().await;
             s.temp_pid = *t;
             s.press_pid = *p;
+            if let Some(f) = f {
+                s.flow_pid = *f;
+            }
             Settings::update_ram(s).await;
-            SIG_FLASH_UPDATE.signal(FlashUpdate::SavePids(*t, *p));
+            SIG_FLASH_UPDATE.signal(FlashUpdate::SavePids(*t, *p, *f));
         }
         MachineCommand::SaveWifi(w) => {
             defmt::info!("Settings: New SSID: {}", w.ssid.as_str());
@@ -295,7 +298,7 @@ async fn serve(cmd: MachineCommand, last_activity: &mut Instant) -> Outcome {
     if state::get_state() == MachineState::Sleeping {
         match cmd {
             MachineCommand::SaveMachine(_)
-            | MachineCommand::SavePids(_, _)
+            | MachineCommand::SavePids(_, _, _)
             | MachineCommand::SaveWifi(_)
             // Adjusting the brew target must not fire up the boiler, and
             // must not be discarded either — it is stored and takes effect
