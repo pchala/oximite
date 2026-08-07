@@ -6,7 +6,6 @@ use embassy_time::{Duration, Instant, Timer};
 use fixed::FixedU32;
 use pio::pio_asm;
 
-
 use crate::state::{self, MachineState, MACHINE_STATE};
 
 #[derive(Clone, Copy)]
@@ -107,7 +106,6 @@ fn temp_color(current: f32, target: f32, window: f32) -> Rgb {
 
     Rgb::new(r as u8, g as u8, b as u8)
 }
-
 
 // ==========================================
 // LED UI TASK

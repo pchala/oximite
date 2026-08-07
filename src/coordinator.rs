@@ -364,13 +364,7 @@ pub async fn coordinator_task(valve: Output<'static>) {
         let mut running = core::pin::pin!(operation_or_idle(current.take(), &mut valve));
 
         loop {
-            match select3(
-                running.as_mut(),
-                state::next_command(),
-                housekeeping.next(),
-            )
-            .await
-            {
+            match select3(running.as_mut(), state::next_command(), housekeeping.next()).await {
                 // Only reachable with an operation in the slot: the idle slot
                 // never completes.
                 Either3::First(()) => {
@@ -402,4 +396,3 @@ pub async fn coordinator_task(valve: Output<'static>) {
         }
     }
 }
-

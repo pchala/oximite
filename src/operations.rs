@@ -13,7 +13,6 @@
 //! operation therefore cannot leave a setpoint behind when it is cancelled.
 
 use embassy_futures::select::{select, Either};
-use embassy_futures::yield_now;
 use embassy_rp::gpio::Output;
 use embassy_time::{Duration, Timer};
 
@@ -40,14 +39,6 @@ async fn execute_profile(profile: BrewProfile) {
     defmt::info!("Executing profile: {}", profile.name.as_str());
     let mut pump = PumpGuard::engage(PumpMode::Idle);
     let _brew_active = BrewActiveGuard::engage();
-
-    // `coordinator::start()` has already signalled SIG_RESET_VOLUME, but the
-    // flow task is the only thing that can act on it — `volume_ml` is a local
-    // in `run_flow_task`, not shared state. Yield so it gets polled and zeroes
-    // the counter before the first step reads it below; otherwise step 1 would
-    // compare its volume target against the *previous* shot's total and could
-    // complete instantly.
-    yield_now().await;
 
     for (i, step) in profile.steps.iter().enumerate() {
         let mut time_s = step.time_s.unwrap_or(120.0);
@@ -94,7 +85,9 @@ async fn execute_profile(profile: BrewProfile) {
                 loop {
                     // Cumulative across the whole profile, not per step —
                     // `coordinator::start()` zeroes it once at profile start.
-                    if crate::flow_meter::get_flow().volume_ml >= volume {
+                    // Read the counter itself, not the published watch, so a
+                    // reset is visible here without waiting on the flow task.
+                    if crate::flow_meter::shot_volume_ml() >= volume {
                         defmt::info!("Step {} volume limit reached", i);
                         break;
                     }
@@ -135,9 +128,15 @@ async fn execute_cooldown_flush() {
     let _pump = PumpGuard::engage(PumpMode::DirectPump(PUMP_POWER));
 
     let cooled = async {
+        let stop_at = s.machine.brew_temp + s.machine.temp_offset * 2.0;
+        defmt::info!(
+            "Cooldown flush: boiler {} C, stopping at {} C",
+            crate::state::get_telemetry().temp_c,
+            stop_at
+        );
         loop {
             let t_c = crate::state::get_telemetry().temp_c;
-            if t_c <= s.machine.brew_temp + s.machine.temp_offset * 2.0 { // stop little bit earlier
+            if t_c <= stop_at {
                 break;
             }
             Timer::after(Duration::from_millis(100)).await;

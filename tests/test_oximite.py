@@ -18,6 +18,20 @@ TCP_PORT = 8080
 TIMESTAMP = time.strftime("%Y%m%d_%H%M_")
 
 
+def _detrend(vals, half=5):
+    """Residual of `vals` after subtracting a centred moving average.
+
+    Removes the setpoint level and any slow drift (rising puck resistance,
+    a valve being adjusted mid-run) so what is left is cycle-to-cycle
+    variation, which is what a per-cycle disturbance would show up in.
+    """
+    out = []
+    for i in range(len(vals)):
+        lo, hi = max(0, i - half), min(len(vals), i + half + 1)
+        out.append(vals[i] - sum(vals[lo:hi]) / (hi - lo))
+    return out
+
+
 class TestOximite(unittest.TestCase):
     telemetry_history = []
     current_state = 0
@@ -404,18 +418,20 @@ class TestOximite(unittest.TestCase):
         """Four-stage declining flow profile — no pressure target at all.
 
         Sized for 18.5 g of coffee: 80 ml through the machine yields ~40 g in
-        the cup. Roughly 37 s of pump time, ~33 s of water/puck contact once
+        the cup. Roughly 40 s of pump time, ~36 s of water/puck contact once
         the headspace has filled.
 
           1. Pre-infusion 2.5 ml/s, 15 ml  (6 s)  fill headspace, wet the top
           2. Soak        1.0 ml/s, 10 ml (10 s)  capillary down through the bed
-          3. Extraction  3.2 ml/s, 35 ml (11 s)  body, crema, sugars
+          3. Extraction  2.5 ml/s, 35 ml (14 s)  body, crema, sugars
           4. Taper       2.0 ml/s, 20 ml (10 s)  gentle finish, avoid channels
 
-        Stage 3 is deliberately held at 3.2 rather than the ~5.5 ml/s a pump
-        can free-flow: above what the puck passes, duty pins at 100% and the
-        loop stops regulating. That matters most at the 3->4 boundary — see
-        the note there.
+        Stage 3 is capped at 2.5, not the 5.5 ml/s a pump free-flows and not
+        the 3.2 tried earlier. Ten bench runs measured the ceiling at 100 %
+        duty: 3.07 ml/s at 7-8 bar, 2.51 at 9-10, 2.04 at 10-11. Anything
+        above ~2.5 is unreachable against a real puck, and an unreachable
+        setpoint doesn't merely run slow — it pins duty at 100 % and the loop
+        stops regulating entirely.
         """
         print("\nRunning: Sweet Extraction Test...")
 
@@ -424,20 +440,18 @@ class TestOximite(unittest.TestCase):
         # running totals (15, +10, +35, +20), not per-step amounts.
         # No `time_s`: the stages are defined by volume alone.
         #
-        # The step 3 -> 4 setpoint drop (3.2 -> 2.0) is handled by the PID's
-        # own unwinding, and its speed is set by the flow error at the
-        # boundary: i_term sheds at ki*error, so the 1.2 ml/s error here
-        # unwinds ~18 %/s and settles in ~2 s. Asking 5.5 in stage 3 would
-        # saturate the pump, leaving actual flow at whatever the puck passes
-        # (~2.5) — an error of only 0.5, which unwinds at 7.5 %/s and would
-        # spend half the taper still coming down. Keeping stage 3 reachable is
-        # what makes the transition clean; no firmware change is needed.
+        # The 3 -> 4 boundary used to be the hard one: the integral had to
+        # unwind from the old stage's duty, and in saturated runs it never did
+        # — duty stayed above 70 % for the whole taper. It is now reseeded from
+        # the pump map at every setpoint change (`control::flow_ff_duty`), so
+        # each stage starts at its own predicted duty rather than inheriting
+        # the previous one's.
         profile = {
             "name": "Sweet Extraction",
             "steps": [
                 {"volume": 15.0, "flow": 2.5},
-                {"volume": 25.0, "flow": 1.0},
-                {"volume": 60.0, "flow": 3.2},
+                {"volume": 17.0, "flow": 1.0},
+                {"volume": 60.0, "flow": 2.5},
                 {"volume": 80.0, "flow": 2.0},
             ],
         }
@@ -460,7 +474,109 @@ class TestOximite(unittest.TestCase):
         time.sleep(10.0)
 
         self.report_flow_tracking("Sweet_Extraction")
+        self.report_heater_flow_coupling("Sweet_Extraction")
         self.plot_results("Sweet_Extraction")
+
+    def report_heater_flow_coupling(self, title):
+        """Tests whether heater conduction disturbs pump flow.
+
+        Heater and pump are driven from different optocouplers: the heater from
+        a zero-cross type, which defers turn-on to the next true mains zero
+        crossing, and the pump from a random-phase type that fires the instant
+        the gate pulse arrives. So their *switching* never coincides — that part
+        is by design and is not what this looks for.
+
+        What survives is a steady-state effect. A latched heater chunk conducts
+        for a whole mains cycle, drawing kW-scale current the whole time, and
+        the resulting line sag reaches the pump. A vibratory pump's stroke
+        energy goes as V^2, so a sagged cycle delivers a weaker stroke and less
+        intake through the sensor.
+
+        The signature is at **lag +1 cycle**, not lag 0: the chunk only latches
+        at the zero crossing *after* the firmware raises the pin, by which time
+        the current cycle's stroke has already fired. So it is the next stroke
+        that sees the sag.
+
+        This matters because the heater is a confounder for everything else
+        measured here. The runs the flow filtering, the pump map and the PID
+        gains were derived from all had `hp = 0` — a cold bench boiler — so if
+        this coupling is real, none of those characterisations saw it.
+        """
+        rows = self.__class__.telemetry_history
+        if not rows:
+            print(f"  {title}: no telemetry captured")
+            return
+
+        if not any(r.get('hp', 0.0) > 0 for r in rows):
+            print(f"  {title}: heater never fired (hp = 0 in all "
+                  f"{len(rows)} samples) — coupling untestable from this run. "
+                  f"Re-run at real brew temperature to exercise it; a cold "
+                  f"boiler leaves the heater off and hides the effect.")
+            return
+
+        # Replay control.rs: acc += heater_duty; if acc >= 100 { acc -= 100;
+        # push flag }. One telemetry row is one control tick is one mains
+        # cycle, so this recovers the per-cycle firing pattern exactly (up to
+        # the unknown initial accumulator, which only shifts the phase).
+        flags, acc = [], 0.0
+        for r in rows:
+            acc += r.get('hp', 0.0)
+            fired = acc >= 100.0
+            if fired:
+                acc -= 100.0
+            flags.append(fired)
+
+        segs, cur = [], []
+        for i, r in enumerate(rows):
+            steady = (r.get('fll', 0.0) > 0 and 0 < r.get('pump', 0.0) < 99.0
+                      and 0 < r.get('hp', 0.0) < 100.0)
+            contiguous = i > 0 and r.get('seq', -1) == rows[i - 1].get('seq', -2) + 1
+            if steady and contiguous and cur and \
+                    r.get('fll') == rows[i - 1].get('fll'):
+                cur.append(i)
+            else:
+                if len(cur) >= 40:
+                    segs.append(cur)
+                cur = [i] if steady else []
+        if len(cur) >= 40:
+            segs.append(cur)
+
+        if not segs:
+            print(f"  {title}: heater fired, but no steady unsaturated "
+                  f"flow-controlled segment long enough to test against")
+            return
+
+        print(f"  {title}: heater/pump line-sag coupling "
+              f"({len(segs)} segments, {sum(len(s) for s in segs)} cycles)")
+        print("      lag |  n_on  n_off | mean dev ON  mean dev OFF |"
+              "    diff | sigma")
+        for lag in (0, 1, 2, 3):
+            on, off = [], []
+            for seg in segs:
+                flows = [rows[i].get('fl', 0.0) for i in seg]
+                dev = _detrend(flows)
+                for k, i in enumerate(seg):
+                    # The effect follows the cause: pair this cycle's heater
+                    # flag with the deviation `lag` cycles *later*.
+                    j = k + lag
+                    if 0 <= j < len(dev):
+                        (on if flags[i] else off).append(dev[j])
+            if len(on) < 30 or len(off) < 30:
+                continue
+            m_on = sum(on) / len(on)
+            m_off = sum(off) / len(off)
+            v_on = sum((x - m_on) ** 2 for x in on) / len(on)
+            v_off = sum((x - m_off) ** 2 for x in off) / len(off)
+            se = math.sqrt(v_on / len(on) + v_off / len(off))
+            sigma = (m_on - m_off) / se if se else 0.0
+            mark = "  <-- predicted" if lag == 1 else ""
+            print(f"      {lag:>3} | {len(on):5d} {len(off):6d} | "
+                  f"{m_on:+11.5f} {m_off:+13.5f} | {m_on - m_off:+7.4f} |"
+                  f" {sigma:+5.1f}{mark}")
+
+        print("    A real coupling shows a negative diff (heater-on cycles "
+              "pump less) peaking at lag 1, at several sigma. Noise alone "
+              "stays under about 2 sigma at every lag.")
 
     def report_flow_tracking(self, title):
         """Prints per-stage flow tracking quality for a flow-controlled shot.

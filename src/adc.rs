@@ -97,7 +97,6 @@ pub async fn adc_task(
     }
 }
 
-
 /// Boiler temperature in C at each of the 1025 quarter-scale ADC steps, so
 /// index `n` corresponds to a raw reading of `n * 4`.
 pub const NTC_LUT: [f32; 1025] = [

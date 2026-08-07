@@ -290,7 +290,6 @@ pub async fn ac_sync_control_task(
     let mut target_t = initial_s.machine.brew_temp;
     let mut feed_forward: f32 = 0.0;
     let mut brew_active = false;
-    let mut last_pump_duty: f32 = 0.0;
 
     let mut tick: u32 = 0;
     let mut heater_duty = 0.0;
@@ -324,10 +323,9 @@ pub async fn ac_sync_control_task(
 
         let s = crate::settings::ControlSettings::current();
 
-        // --- Get flow readings ---
-        // Read before the command block so an activating flow step can seed its
-        // PID from the flow measured this tick.
-        let f = crate::flow_meter::get_flow();
+        // Read once and reused for the rest of the tick, so the control
+        // decision and the telemetry row describe the same instant.
+        let flow_ml_s = crate::flow_meter::flow_rate_ml_s();
 
         // --- Command & Signal Processing ---
         let (mut target_p, mut flow_limit) = mode.pressure_and_flow_limit();
@@ -336,18 +334,8 @@ pub async fn ac_sync_control_task(
             press_pid.set_coeffs(s.press_pid.kp, s.press_pid.ki, s.press_pid.kd);
             press_pid.reset_if_reactivated(target_p, new_bar);
             flow_pid.set_coeffs(s.flow_pid.kp, s.flow_pid.ki, s.flow_pid.kd);
-            // Entering flow control: if the pump is already turning, start the
-            // integral at the duty in use so it doesn't drop out and crawl
-            // back. From a standstill, start clean instead — preloading to
-            // zero duty would park the integral at -kp*error and stall the
-            // pump for the half second it takes to climb back out.
-            if new_fl > 0.0 && flow_limit == 0.0 {
-                if last_pump_duty > 0.0 {
-                    flow_pid.preload(last_pump_duty, new_fl, f.flow_rate_ml_s);
-                } else {
-                    flow_pid.reset();
-                }
-            }
+            // Only the start of a shot clears the integral.
+            flow_pid.reset_if_reactivated(flow_limit, new_fl);
             mode = new_mode;
             target_p = new_bar;
             flow_limit = new_fl;
@@ -380,14 +368,13 @@ pub async fn ac_sync_control_task(
             // A requested flow rate takes the pump outright: the PID output is
             // the duty. Any pressure target on the same step is ignored, so
             // maximum pressure is whatever the OPV allows.
-            None if flow_limit > 0.0 => flow_pid.update(flow_limit, f.flow_rate_ml_s),
+            None if flow_limit > 0.0 => flow_pid.update(flow_limit, flow_ml_s),
             None if target_p > 0.0 => {
                 active_target_p = target_p;
                 press_pid.update(target_p, p_ema)
             }
             None => 0.0,
         };
-        last_pump_duty = p_output;
 
         // If output is set, push the phase delay to the Triac PIO
         if p_output > 0.0 {
@@ -400,7 +387,7 @@ pub async fn ac_sync_control_task(
         // consumes it every tenth, so telemetry reports the setpoint implied by
         // the current flow rather than one up to 200 ms stale.
         let effective_target_t = if brew_active {
-            target_t + (f.flow_rate_ml_s * feed_forward).clamp(0.0, 20.0)
+            target_t + (flow_ml_s * feed_forward).clamp(0.0, 20.0)
         } else {
             target_t
         };
@@ -424,6 +411,8 @@ pub async fn ac_sync_control_task(
             target_bar: target_p,
             effective_target_bar: active_target_p,
             flow_limit_ml_s: flow_limit,
+            flow_rate_ml_s: flow_ml_s,
+            volume_ml: crate::flow_meter::shot_volume_ml(),
             flow_controlled,
             target_temp: target_t,
             effective_target_temp: effective_target_t,

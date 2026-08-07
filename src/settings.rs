@@ -92,12 +92,10 @@ const DEFAULT_SETTINGS: Settings = Settings {
         ki: 20.0,
         kd: 0.0,
     },
-    // Static gain is roughly 20 % duty per ml/s, and the loop only re-fires the
-    // triac at 50Hz, so keep kp modest and let the integral do the work — kd
-    // stays 0 because flow is quantised to one sensor half-period per sample.
+
     flow_pid: PidSettings {
-        kp: 8.0,
-        ki: 15.0,
+        kp: 4.0,
+        ki: 30.0,
         kd: 0.0,
     },
     wifi: WifiSettings {

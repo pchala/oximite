@@ -12,7 +12,6 @@ use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::Write;
 use serde::{Deserialize, Serialize};
 
-use crate::flow_meter::get_flow;
 use crate::profiles::BrewProfile;
 use crate::settings::{
     FlashUpdate, MachineSettings, PidSettings, Settings, WifiSettings, SIG_FLASH_UPDATE,
@@ -164,7 +163,6 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
 }
 
 async fn get_telemetry_json(a: Telemetry) -> heapless::String<384> {
-    let f = get_flow();
     let st_val = get_state();
     let s = Settings::get().await;
 
@@ -190,10 +188,10 @@ async fn get_telemetry_json(a: Telemetry) -> heapless::String<384> {
         p: r2(a.pressure_bar),
         tp: r2(a.target_bar),
         etp: r2(a.effective_target_bar),
-        fl: r2(f.flow_rate_ml_s),
+        fl: r2(a.flow_rate_ml_s),
         fll: r2(a.flow_limit_ml_s),
         fc: a.flow_controlled as u8,
-        vol: r2(f.volume_ml),
+        vol: r2(a.volume_ml),
         hp: r2(a.heater_duty),
         pump: r2(a.pump_duty),
         st: st_val as u32,

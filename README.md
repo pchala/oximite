@@ -49,6 +49,93 @@ The firmware is written in Rust and utilizes the `embassy-rp` asynchronous frame
 | **GP40** | ADC (A0) | Analog In | **Pressure Sensor:** Reads analog voltage from the pressure transducer. |
 | **GP41** | ADC (A1) | Analog In | **Temp Sensor:** Reads analog voltage from the thermistor/thermocouple. |
 
+## AC Actuator Timing
+
+The pump has an internal diode, so its coil is only energised on one half-wave
+of the mains — one stroke per full cycle. The control loop therefore runs at
+50 Hz, locked to the mains rather than to a software timer.
+
+The zero-cross input is an open-collector output: it is pulled LOW actively
+(sharp edge) during positive AC wave and released HIGH through a pull-up (an RC ramp) during negative wave. The falling edge is therefore the only precise timing reference, and everything is referenced to it. `ZC LOW` is the conducting half-wave.
+
+### Zero-cross detection
+
+One ZC pin feeds three state machines, each clocked for its own job:
+
+| SM | Clock | Counts | Role |
+| :-- | :-- | :-- | :-- |
+| trigger (SM1) | 2 MHz | 2 instr/loop = **1 µs** per count | measures the LOW window, paces the control loop |
+| triac (SM2) | 1 MHz | 1 instr/loop = **1 µs** per count | fires the pump gate at an offset from the falling edge |
+| heater (SM0) | 16 kHz | `nop [31]` = **2 ms** | latches the heater bit clear of the crossing |
+
+**The trigger SM defines the control tick.** It aligns on `wait 1` then `wait 0`,
+counts while the pin stays LOW, and pushes at the *rising* edge — one word per
+full mains cycle, which is what makes the loop 50 Hz rather than 100 Hz. The
+pushed value is the LOW window in µs, not the mains half-period; the two differ
+by the opto's conduction angle.
+
+That distinction does not matter, because the triac SM starts its own count from
+the *same* falling edge and the LUT is expressed as a fraction of that same
+window. Firing angle is therefore stated in units that cancel: `delay =
+fraction(duty) x ac_ema`, with the LUT running 0.6 at 0 % down to 0.2 at 100 %.
+Nothing in the chain assumes 50 Hz, so 60 Hz mains and cycle-to-cycle wander are
+tracked for free.
+
+The control task guards that measurement three ways: it drains the FIFO and
+keeps only the newest word, so a late tick cannot act on a stale period; it
+accepts only 7 500-11 500 µs, which brackets both 50 and 60 Hz while rejecting
+noise-triggered edges; and it smooths what survives with an EMA (`alpha = 0.10`,
+~10-cycle time constant). A 25 ms timeout on the pull keeps the loop spinning if
+mains is absent, so the firmware still runs with no AC connected.
+
+The heater SM waits for the falling edge, then idles a fixed 2 ms before
+latching. That clears the race around the true crossing regardless of
+transformer lag, so the bit is stable well before the zero-cross MOC acts on it.
+Its `pull noblock` reads 0 when the FIFO is empty, and 0 means OFF — if the
+control task ever stops feeding it, the heater fails safe in hardware without
+needing a watchdog.
+
+Four consecutive cycles, with `Dn` the pump duty and `Hn` the heater bit decided
+on cycle *n*:
+
+| t (ms) | ZC | Half-wave | Control task | Pump triac (random-phase MOC) | Piston / water | Heater (zero-cross MOC) |
+| ---: | :--: | :-- | :-- | :-- | :-- | :-- |
+| 0  | ↑ | HIGH | wake; sample ADC + flow; compute `D1`,`H1`; push both FIFOs | SM parked in `wait 0` holding `D1` | delivering the previous stroke | — |
+| 10 | ↓ | **LOW** | idle | edge seen → delay `d(D1)` → gate at `10+d1` | **intake** — spring compressing, *flow sensor sees this* | `wait 0` → `nop [31]` |
+| 20 | ↑ | HIGH | wake; compute `D2`,`H2` | mains current zero → triac commutates off | **delivery** of `D1` into the puck | `H1` latched at 12 ms; MOC turns on here for one full cycle |
+| 30 | ↓ | **LOW** | idle | gate at `30+d2` | intake for `D2` | `H2` latched at 32 ms |
+| 40 | ↑ | HIGH | wake; compute `D3`,`H3` | off | delivery of `D2` | `H2` conducts |
+| 50 | ↓ | **LOW** | idle | gate at `50+d3` | intake for `D3` | `H3` latched at 52 ms |
+| 60 | ↑ | HIGH | wake; compute `D4`,`H4` | off | delivery of `D3` | `H3` conducts |
+| 70 | ↓ | **LOW** | idle | gate at `70+d4` | intake for `D4` | `H4` latched at 72 ms |
+| 80 | ↑ | HIGH | wake; compute `D5`,`H5` | off | delivery of `D4` | `H4` conducts |
+
+Consequences of this layout:
+
+*   **A decision takes one full cycle to reach the water.** `Dn` is computed at
+    `20n` and delivered at `20n+20`.
+*   **The two triacs never switch together.** The pump uses a random-phase MOC
+    and fires at its gate pulse mid-half-wave; the heater uses a zero-cross MOC
+    which defers turn-on to the next true mains crossing. Switching transients
+    from one cannot land on the other's measurement.
+*   **`pull block` precedes the edge waits deliberately.** With the pump off the
+    state machine parks *before* consuming an edge, so the first word pushed
+    after a start syncs to a fresh cycle instead of firing at an arbitrary angle.
+
+## Flow Signal
+
+The flow meter is a Hall-effect turbine; the PIO times each HIGH and LOW phase
+separately, giving two edges per magnet pass.
+
+**The rotor is a mechanical low-pass filter, and it dominates the loop.** The
+sensor sits on the pump *inlet*, and a positive-displacement pump blocks its own
+inlet when it stops (the three-way valve also isolates the boiler downstream),
+so once the pump stops there is no path for water to move at all — yet the
+sensor keeps emitting edges. Across ten bench runs it coasted a median of
+**0.18 ml over ~240 ms**, and identically whether it stopped at 0.18 bar or at
+10.7 bar.
+
+
 ## Getting Started
 
 ### 1. Build & Flash

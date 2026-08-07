@@ -160,6 +160,12 @@ pub struct Telemetry {
     /// shot, which otherwise reads as unexplained overshoot.
     pub effective_target_temp: f32,
     pub flow_limit_ml_s: f32,
+    /// Flow reading the controller acted on this tick. Carried here so a log
+    /// row is one coherent snapshot; the web task runs on the other core and
+    /// would otherwise sample flow at a different instant than pressure.
+    pub flow_rate_ml_s: f32,
+    /// Shot volume as of this tick, for the same reason.
+    pub volume_ml: f32,
     /// True while the flow PID owns the pump. Without it a log can't tell a
     /// flow-controlled step from a pressure step that happens to be flowing.
     pub flow_controlled: bool,
@@ -200,6 +206,8 @@ pub fn get_telemetry() -> Telemetry {
         target_temp: 20.0,
         effective_target_temp: 20.0,
         flow_limit_ml_s: 0.0,
+        flow_rate_ml_s: 0.0,
+        volume_ml: 0.0,
         flow_controlled: false,
         heater_duty: 0.0,
         pump_duty: 0.0,
