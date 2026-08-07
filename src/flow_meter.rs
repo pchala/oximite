@@ -5,7 +5,7 @@ use embassy_time::{with_timeout, Duration};
 use fixed::FixedU32;
 use pio::pio_asm;
 
-use core::cell::{Cell, RefCell};
+use core::cell::Cell;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::signal::Signal;
@@ -39,13 +39,19 @@ pub fn reset_volume() {
     SIG_RESET_VOLUME.signal(());
 }
 
-/// Number of edges averaged for the rate. Must be even: a HIGH plus a LOW span
-/// exactly one magnet pass, so an even count cancels the sensor's duty
-/// asymmetry instead of alternating a bias into the reading.
+/// Number of half-period samples averaged for the rate.
+///
+/// A single half-period is already a usable reading, so this is purely a
+/// noise/lag trade: more samples smooth the sensor's quantisation and, once
+/// the window spans whole pulses (a HIGH plus a LOW is one magnet pass),
+/// cancel its duty asymmetry. Four is the sweet spot. Free to tune — neither
+/// an even count nor a power of two is required.
 const RATE_EDGES: usize = 4;
-const RATE_EDGES_MASK: usize = RATE_EDGES - 1;
 
 /// The last few half-period measurements, averaged to give the flow rate.
+///
+/// Task-local to `run_flow_task`, which is its only writer; only the resulting
+/// rate is shared, via [`RATE_ML_S`].
 struct RateWindow {
     ticks: [u32; RATE_EDGES],
     head: usize,
@@ -53,7 +59,7 @@ struct RateWindow {
 }
 
 impl RateWindow {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             ticks: [0; RATE_EDGES],
             head: 0,
@@ -61,87 +67,62 @@ impl RateWindow {
         }
     }
 
-    /// Drops the window when a gap makes the buffered periods stale.
+    /// Drops the window when a gap makes the buffered periods stale. The last
+    /// published rate stands until the next sample refills it: a cleared
+    /// window must not read as zero flow and step the PID.
     fn clear(&mut self) {
         self.head = 0;
         self.len = 0;
     }
 
+    /// The pump really stopped — drop the window *and* report zero.
+    fn stop(&mut self) {
+        self.clear();
+        publish_rate(0.0);
+    }
+
     fn push(&mut self, ticks: u32) {
         self.ticks[self.head] = ticks;
-        self.head = (self.head + 1) & RATE_EDGES_MASK;
-        if self.len < RATE_EDGES {
-            self.len += 1;
-        }
+        self.head = (self.head + 1) % RATE_EDGES;
+        self.len = (self.len + 1).min(RATE_EDGES);
     }
 
+    /// `clear` resets `head` to 0, so a partial window always occupies
+    /// `ticks[..len]` and a full one the whole array
+    /// `None` only when the window is empty: a pushed sample is never 0.
     fn rate(&self, flow_numerator: f32) -> Option<f32> {
-        // Round down to an even count so a part-filled buffer stays unbiased.
-        let n = self.len & !1;
-        if n == 0 {
-            return None;
+        let s = &self.ticks[..self.len];
+        let sum: u64 = s.iter().map(|&t| t as u64).sum();
+        (sum > 0).then(|| flow_numerator * s.len() as f32 / sum as f32)
+    }
+
+    fn push_and_publish(&mut self, ticks: u32, flow_numerator: f32) {
+        self.push(ticks);
+        if let Some(rate) = self.rate(flow_numerator) {
+            publish_rate(rate);
         }
-        let mut sum: u64 = 0;
-        for k in 0..n {
-            sum += self.ticks[(self.head + RATE_EDGES - 1 - k) & RATE_EDGES_MASK] as u64;
-        }
-        if sum == 0 {
-            return None;
-        }
-        Some(flow_numerator * n as f32 / sum as f32)
     }
 }
 
-struct RateState {
-    window: RateWindow,
-    /// `tick_rate_hz * ml_per_edge`; set once the flow task has read settings.
-    numerator: f32,
-    /// Last computed rate, held while the buffer is refilling after a `clear`.
-    /// A cleared window must not read as zero flow and step the PID; only the
-    /// timeout and a reset mean "not flowing".
-    last: f32,
-}
-
-static RATE: BlockingMutex<CriticalSectionRawMutex, RefCell<RateState>> =
-    BlockingMutex::new(RefCell::new(RateState {
-        window: RateWindow::new(),
-        numerator: 0.0,
-        last: 0.0,
-    }));
-
-/// The current flow rate in ml/s, evaluated at the moment of the call.
+/// The flow rate in ml/s, republished by the flow task on every accepted edge.
 ///
-/// Pulled once per control tick rather than pushed on every edge, so the value
-/// the controller acts on is the one telemetry logs.
+/// Holding the last value rather than recomputing on read is what lets a
+/// cleared window keep reporting the previous rate: nothing overwrites this
+/// until a sample refills the window, and only [`RateWindow::stop`] zeroes it.
+static RATE_ML_S: BlockingMutex<CriticalSectionRawMutex, Cell<f32>> =
+    BlockingMutex::new(Cell::new(0.0));
+
+/// The current flow rate in ml/s.
+///
+/// Read once per control tick and reused for both the control decision and the
+/// telemetry row, so the value the controller acts on is the one that gets
+/// logged.
 pub fn flow_rate_ml_s() -> f32 {
-    RATE.lock(|r| {
-        let r = &mut *r.borrow_mut();
-        match r.window.rate(r.numerator) {
-            Some(v) => {
-                r.last = v;
-                v
-            }
-            None => r.last,
-        }
-    })
+    RATE_ML_S.lock(|r| r.get())
 }
 
-fn window_push(ticks: u32) {
-    RATE.lock(|r| r.borrow_mut().window.push(ticks));
-}
-
-/// Drops the buffered periods but keeps the last reported rate.
-fn window_clear() {
-    RATE.lock(|r| r.borrow_mut().window.clear());
-}
-
-/// Clears the window and reports zero, for cases where the pump really stopped.
-fn window_reset() {
-    RATE.lock(|r| {
-        let r = &mut *r.borrow_mut();
-        r.window.clear();
-        r.last = 0.0;
-    });
+fn publish_rate(ml_s: f32) {
+    RATE_ML_S.lock(|r| r.set(ml_s));
 }
 
 pub fn setup_flow_sm(
@@ -204,7 +185,7 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
     };
     let ml_per_pulse: f32 = 1000.0 / pulses_per_liter;
     let flow_numerator: f32 = (crate::board::SYS_CLK_HZ / CYCLES_PER_LOOP) * ml_per_pulse;
-    RATE.lock(|r| r.borrow_mut().numerator = flow_numerator);
+    let mut window = RateWindow::new();
 
     loop {
         match with_timeout(
@@ -215,41 +196,42 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
         {
             Ok(Either::First(first_val)) => {
                 let mut valid_pulses: u32 = 0;
-                let mut total_pulses = 1;
+                let mut total_pulses: u32 = 0;
+                // Only the first sample of the burst can span an idle gap.
+                let mut use_for_rate = !core::mem::replace(&mut skip_stale_rate, false);
+                let mut val = first_val;
 
-                let mut process_pulse = |val: u32, use_for_rate: bool| {
+                loop {
+                    total_pulses += 1;
+
                     // A runt or an implausibly short interval means a spurious
                     // edge split a real pulse, so the samples either side of it
                     // are corrupt too — drop the whole window rather than
                     // average a poisoned neighbourhood.
                     if val == 0 {
                         defmt::warn!("PIO return 0 for flow");
-                        window_clear();
-                        return;
-                    }
-                    if !use_for_rate {
+                        window.clear();
+                    } else if !use_for_rate {
                         defmt::info!("Skipped stale flow rate sample from idle state");
                         valid_pulses += 1;
-                        return;
-                    }
-                    let ticks = val + PIO_TICK_OFFSET;
-                    let raw_flow = flow_numerator / (ticks as f32);
-                    if raw_flow <= 50.0 {
-                        valid_pulses += 1;
-                        window_push(ticks);
                     } else {
-                        defmt::warn!("Ignored noise pulse ({} ml/s)", raw_flow);
-                        window_clear();
+                        let ticks = val + PIO_TICK_OFFSET;
+                        let raw_flow = flow_numerator / (ticks as f32);
+                        if raw_flow <= 50.0 {
+                            valid_pulses += 1;
+                            window.push_and_publish(ticks, flow_numerator);
+                        } else {
+                            defmt::warn!("Ignored noise pulse ({} ml/s)", raw_flow);
+                            window.clear();
+                        }
                     }
-                };
+                    use_for_rate = true;
 
-                process_pulse(first_val, !skip_stale_rate);
-                skip_stale_rate = false;
-
-                // Drain any extra entries that piled up in the FIFO.
-                while let Some(val) = sm.rx().try_pull() {
-                    total_pulses += 1;
-                    process_pulse(val, true);
+                    // Drain any extra entries that piled up in the FIFO.
+                    match sm.rx().try_pull() {
+                        Some(next) => val = next,
+                        None => break,
+                    }
                 }
 
                 if valid_pulses > 0 {
@@ -266,11 +248,11 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
                 // the state only this task owns: dropping the half-period that
                 // spans the gap.
                 skip_stale_rate = true;
-                window_reset();
+                window.stop();
             }
             Err(_) => {
                 skip_stale_rate = true;
-                window_reset();
+                window.stop();
             }
         }
     }
