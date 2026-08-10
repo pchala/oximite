@@ -84,6 +84,12 @@ fn write_frame(sm: &mut LedSm, leds: &[Rgb; 2]) {
 // LED COLOR HELPERS
 // ==========================================
 
+/// Pump duty the brew LED treats as "on target", and the ±span of the
+/// crossfade around it: solid blue at or below 60%, green at 80%, solid red at
+/// 100%.
+const PUMP_TARGET_DUTY: f32 = 80.0;
+const PUMP_DUTY_WINDOW: f32 = 20.0;
+
 /// Blue (cold/low) → Green (on target) → Red (hot/high), with a ±`window` crossfade zone.
 fn temp_color(current: f32, target: f32, window: f32) -> Rgb {
     let (r, g, b) = if current <= target {
@@ -141,13 +147,13 @@ pub async fn led_task(mut sm: LedSm) {
             }
 
             MachineState::Brewing => {
-                // LED1: pressure crossfade vs target.
-                let pressure = if a.target_bar > 0.0 {
-                    temp_color(a.pressure_bar, a.target_bar, 2.0)
+                // LED1: pump-power crossfade vs the 80% target.
+                let pump = if a.pump_duty > 0.0 {
+                    temp_color(a.pump_duty, PUMP_TARGET_DUTY, PUMP_DUTY_WINDOW)
                 } else {
                     Rgb::off()
                 };
-                (boiler, pressure)
+                (boiler, pump)
             }
 
             MachineState::Steaming => {
