@@ -3,6 +3,7 @@ import math
 import os
 import re
 import socket
+import struct
 import threading
 import time
 import unittest
@@ -17,19 +18,60 @@ TCP_PORT = 8080
 
 TIMESTAMP = time.strftime("%Y%m%d_%H%M_")
 
+# ==========================================
+# DIAGNOSTIC WIRE FORMAT (port 8080)
+# ==========================================
+# The device serialises `DiagHeader` once, then one `DiagFrame` per control
+# tick, using postcard with `fixint` integers. Fixed-width integers are the
+# whole reason these records have a constant size: postcard's default varints
+# would shrink the frame at low tick counts and grow it as uptime rose, which
+# a fixed-size reader cannot survive.
+#
+# Field order must match `src/web_api.rs`. DIAG_VER is bumped on any change,
+# and both the header magic and every frame's version byte are checked, so a
+# firmware/test mismatch fails loudly instead of decoding garbage at plausible
+# offsets. Commands still go the other way as newline-delimited JSON.
+DIAG_VER = 1
+DIAG_MAGIC = 0x4449584F  # "OXID"
 
-def _detrend(vals, half=5):
-    """Residual of `vals` after subtracting a centred moving average.
+DIAG_HEADER_FMT = '<IBB12f'
+DIAG_HEADER_FIELDS = [
+    'magic', 'ver', 'frame_len',
+    'temp_offset', 'brew_temp', 'steam_temp',
+    'temp_kp', 'temp_ki', 'temp_kd',
+    'press_kp', 'press_ki', 'press_kd',
+    'flow_kp', 'flow_ki', 'flow_kd',
+]
+DIAG_HEADER_LEN = struct.calcsize(DIAG_HEADER_FMT)
 
-    Removes the setpoint level and any slow drift (rising puck resistance,
-    a valve being adjusted mid-run) so what is left is cycle-to-cycle
-    variation, which is what a per-cycle disturbance would show up in.
-    """
-    out = []
-    for i in range(len(vals)):
-        lo, hi = max(0, i - half), min(len(vals), i + half + 1)
-        out.append(vals[i] - sum(vals[lo:hi]) / (hi - lo))
-    return out
+DIAG_FRAME_FMT = '<BII11fBB'
+DIAG_FRAME_FIELDS = [
+    'ver', 'seq', 'ms',
+    't', 'tt', 'ett',
+    'p', 'tp', 'etp',
+    'fl', 'fll', 'vol', 'hp', 'pump',
+    'fc', 'st',
+]
+DIAG_FRAME_LEN = struct.calcsize(DIAG_FRAME_FMT)
+
+
+def decode_diag_header(raw):
+    hdr = dict(zip(DIAG_HEADER_FIELDS, struct.unpack(DIAG_HEADER_FMT, raw)))
+    if hdr['magic'] != DIAG_MAGIC:
+        raise ValueError(f"bad diag magic {hdr['magic']:#010x}, expected {DIAG_MAGIC:#010x}")
+    if hdr['ver'] != DIAG_VER:
+        raise ValueError(f"diag protocol v{hdr['ver']}, this suite speaks v{DIAG_VER}")
+    if hdr['frame_len'] != DIAG_FRAME_LEN:
+        raise ValueError(
+            f"device frames are {hdr['frame_len']} bytes, decoder expects {DIAG_FRAME_LEN}")
+    return hdr
+
+
+def decode_diag_frame(raw):
+    row = dict(zip(DIAG_FRAME_FIELDS, struct.unpack(DIAG_FRAME_FMT, raw)))
+    if row['ver'] != DIAG_VER:
+        raise ValueError(f"frame v{row['ver']} in a v{DIAG_VER} stream — reader lost alignment")
+    return row
 
 
 class TestOximite(unittest.TestCase):
@@ -40,6 +82,7 @@ class TestOximite(unittest.TestCase):
     read_thread = None
     running = True
     parse_errors = 0
+    diag_header = None
 
     @classmethod
     def setUpClass(cls):
@@ -49,7 +92,6 @@ class TestOximite(unittest.TestCase):
             cls.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cls.sock.settimeout(5.0)
             cls.sock.connect((TCP_IP, TCP_PORT))
-            cls.sock_file = cls.sock.makefile('rw', encoding='utf-8')
             cls.read_thread = threading.Thread(target=cls.read_socket)
             cls.read_thread.start()
         except Exception as e:
@@ -60,36 +102,73 @@ class TestOximite(unittest.TestCase):
         cls.running = False
         if cls.read_thread:
             cls.read_thread.join()
-        if cls.sock_file:
-            cls.sock_file.close()
         if cls.sock:
             cls.sock.close()
 
     @classmethod
-    def read_socket(cls):
-        while cls.running:
+    def recv_exactly(cls, n):
+        """Reads exactly `n` bytes, or returns None once the stream ends.
+
+        Records are fixed-size and undelimited, so a short read must be
+        completed rather than treated as a record — TCP is free to split a
+        55-byte frame across segments.
+        """
+        buf = bytearray()
+        while len(buf) < n and cls.running:
             try:
-                line = cls.sock_file.readline().strip()
-                if line:
-                    try:
-                        data = json.loads(line)
-                    except ValueError:
-                        # Counted, not swallowed: a dropped line here would
-                        # otherwise look identical to a device-side skip when
-                        # the 'seq' attribution runs.
-                        cls.parse_errors += 1
-                        continue
-                    cls.telemetry_history.append(data)
-                    cls.current_state = data.get('st', 0)
-            except Exception as e:
-                time.sleep(0.01)
-                pass
+                chunk = cls.sock.recv(n - len(buf))
+            except socket.timeout:
+                continue
+            except OSError:
+                return None
+            if not chunk:
+                return None
+            buf += chunk
+        return bytes(buf) if len(buf) == n else None
+
+    @classmethod
+    def read_socket(cls):
+        raw = cls.recv_exactly(DIAG_HEADER_LEN)
+        if raw is None:
+            return
+        try:
+            cls.diag_header = decode_diag_header(raw)
+        except ValueError as e:
+            print(f"Diagnostic stream rejected: {e}")
+            return
+
+        while cls.running:
+            raw = cls.recv_exactly(DIAG_FRAME_LEN)
+            if raw is None:
+                break
+            try:
+                row = decode_diag_frame(raw)
+            except (ValueError, struct.error):
+                # Counted, not swallowed: a bad frame means the reader is off
+                # a record boundary, which every later sample inherits.
+                cls.parse_errors += 1
+                continue
+            cls.telemetry_history.append(row)
+            cls.current_state = row['st']
 
     def setUp(self):
         self.__class__.telemetry_history.clear()
 
+    @classmethod
+    def snapshot_history(cls):
+        """Copy of the telemetry collected so far.
+
+        The reader thread keeps appending while a plot is being built, so
+        reading the live list more than once yields different lengths and
+        matplotlib rejects the frame with "x and y must have same first
+        dimension". `list()` copies in a single bytecode, so the snapshot
+        cannot tear, and the saved JSON then describes exactly the rows the
+        PNG was drawn from.
+        """
+        return list(cls.telemetry_history)
+
     def send_command(self, cmd_dict):
-        if self.sock and self.sock_file:
+        if self.sock:
             msg = json.dumps(cmd_dict) + "\n"
             try:
                 self.sock.sendall(msg.encode('utf-8'))
@@ -125,57 +204,17 @@ class TestOximite(unittest.TestCase):
         self.plot_results(title)
 
     def plot_results(self, title):
-        history = self.__class__.telemetry_history
+        history = self.snapshot_history()
         if not history:
             print(f"No data collected for {title}")
             return
 
-        # Prefer the device clock: the stream emits one row per control tick
-        # and skips rows whenever the TCP write blocks, so assuming a uniform
-        # 20 ms per sample quietly compresses time across any dropout.
-        if all('ms' in d for d in history):
-            t0 = history[0]['ms']
-            x = [(d['ms'] - t0) / 1000.0 for d in history]
-        else:
-            print("  NOTE: no 'ms' field, assuming uniform 20 ms sampling")
-            x = [i * 0.02 for i in range(len(history))]
-
-        # 'seq' is the control-loop tick, so the stream is one row per tick by
-        # construction. TCP cannot lose bytes, so a break is a control frame
-        # the device computed but never transmitted, and a repeat would mean
-        # the same frame was serialised twice.
-        seqs = [d['seq'] for d in history] if all('seq' in d for d in history) else None
-        if seqs:
-            missed = sum(seqs[i] - seqs[i - 1] - 1
-                         for i in range(1, len(seqs)) if seqs[i] > seqs[i - 1])
-            dupes = sum(1 for i in range(1, len(seqs)) if seqs[i] == seqs[i - 1])
-            print(f"  {len(history)} samples, {missed} control frame(s) not sent")
-            if self.__class__.parse_errors:
-                print(f"  WARNING: {self.__class__.parse_errors} unparseable "
-                      f"line(s) — some skips above are client-side")
-            if dupes:
-                print(f"  WARNING: {dupes} duplicate seq — the same control "
-                      f"frame was sent more than once")
-            stalled = sum(1 for i in range(1, len(x))
-                          if seqs[i] - seqs[i - 1] == 1
-                          and abs((x[i] - x[i - 1]) - 0.02) > 0.01)
-            if stalled:
-                print(f"  WARNING: {stalled} control tick(s) off nominal "
-                      f"20 ms — mains-lock jitter or a stalled control loop")
-
-        gaps = [(i, x[i] - x[i - 1]) for i in range(1, len(x))
-                if x[i] - x[i - 1] > 0.05]
-        if gaps:
-            print(f"  WARNING: {len(gaps)} telemetry gap(s) > 50 ms, "
-                  f"{sum(g for _, g in gaps):.2f}s total missing")
-            for i, g in gaps[:5]:
-                if seqs is None:
-                    who = ""
-                elif seqs[i] - seqs[i - 1] > 1:
-                    who = f"  [{seqs[i] - seqs[i - 1] - 1} frames not sent]"
-                else:
-                    who = "  [control loop stalled, no frames lost]"
-                print(f"    gap of {g * 1000:.0f} ms at t={x[i - 1]:.2f}s{who}")
+        # Every frame carries the device clock. The stream emits one row per
+        # control tick and skips rows whenever the TCP write blocks, so
+        # assuming a uniform 20 ms per sample would quietly compress time
+        # across any dropout.
+        t0 = history[0]['ms']
+        x = [(d['ms'] - t0) / 1000.0 for d in history]
 
         def col(k):
             return [d.get(k, 0) for d in history]
@@ -183,6 +222,9 @@ class TestOximite(unittest.TestCase):
         p, tp, etp = col('p'), col('tp'), col('etp')
         vol, fl, fll = col('vol'), col('fl'), col('fll')
         hp, pump = col('hp'), col('pump')
+        # Raw boiler-side values, exactly as the controller saw them — no
+        # display offset applied. `temp_offset` is in the saved header if a
+        # group-head number is ever wanted.
         t, tt, ett = col('t'), col('tt'), col('ett')
 
         fig, (ax_temp, ax_press, ax_flow) = plt.subplots(
@@ -191,10 +233,10 @@ class TestOximite(unittest.TestCase):
         # --- Top Panel: Temperature ---
         ax_temp.set_title(title.replace('_', ' '), fontweight='bold', fontsize=14)
         ax_temp.set_ylabel("Temperature (°C)", color='tab:red', fontweight='bold')
-        line_tt = ax_temp.plot(x, tt, label="Target Temp", linestyle="--", color='grey')
+        line_tt = ax_temp.plot(x, tt, label="Target Boiler Temp", linestyle="--", color='grey')
         line_ett = ax_temp.plot(x, ett, label="Applied Target (+flow FF)",
                                 linestyle=":", color='tab:green', linewidth=2)
-        line_t = ax_temp.plot(x, t, label="Actual Temp", color='tab:red', linewidth=2)
+        line_t = ax_temp.plot(x, t, label="Boiler Temp", color='tab:red', linewidth=2)
 
         ax_hp = ax_temp.twinx()
         ax_hp.set_ylabel("Heater Power (%)", color='tab:orange', fontweight='bold')
@@ -252,9 +294,22 @@ class TestOximite(unittest.TestCase):
         print(f"Saved plot: {filepath}")
 
         # Save telemetry JSON
+        self.save_telemetry_json(history, safe_title)
+
+    def save_telemetry_json(self, history, safe_title):
+        """Writes newline-delimited JSON: the session header, then raw frames.
+
+        The rows are exactly what came off the wire — raw boiler values, full
+        f32 precision — and the leading header line records the `temp_offset`
+        and PID gains they were captured under, so the tuning context stays
+        recoverable from the file alone.
+        """
         telemetry_filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.json")
         try:
             with open(telemetry_filepath, 'w') as f:
+                if self.__class__.diag_header:
+                    json.dump({'hdr': self.__class__.diag_header}, f)
+                    f.write("\n")
                 for rep in history:
                     json.dump(rep, f)
                     f.write("\n")
@@ -263,17 +318,19 @@ class TestOximite(unittest.TestCase):
             print(f"Failed to save telemetry JSON: {e}")
 
     def plot_stability_results(self, title):
-        history = self.__class__.telemetry_history
+        history = self.snapshot_history()
         if not history:
             print(f"No data collected for {title}")
             return
 
-        # Extract temperature data
-        temps = [d.get('t', 0) for d in history]
-        targets = [d.get('tt', 0) for d in history]
+        # Raw boiler readings, as measured
+        temps = [d['t'] for d in history]
+        targets = [d['tt'] for d in history]
 
-        # Use 50Hz sample rate (0.02s)
-        times = [i * 0.02 / 60.0 for i in range(len(temps))]  # In minutes
+        # Device clock rather than an assumed sample rate — the control loop is
+        # mains-locked, so its real period is whatever `ms` says.
+        t0 = history[0]['ms']
+        times = [(d['ms'] - t0) / 60000.0 for d in history]  # In minutes
 
         # Calculate statistics
         mean_t = sum(temps) / len(temps)
@@ -284,8 +341,8 @@ class TestOximite(unittest.TestCase):
 
         # Create plot
         fig, ax = plt.subplots(figsize=(12, 7))
-        ax.plot(times, targets, label="Target Temp (°C)", linestyle="--", color='grey', alpha=0.7)
-        ax.plot(times, temps, label="Actual Temp (°C)", color='tab:red', linewidth=1.5)
+        ax.plot(times, targets, label="Target Boiler Temp (°C)", linestyle="--", color='grey', alpha=0.7)
+        ax.plot(times, temps, label="Boiler Temp (°C)", color='tab:red', linewidth=1.5)
 
         ax.set_title(f"Boiler Temperature Stability", fontweight='bold', fontsize=16)
         ax.set_xlabel("Time (Minutes)", fontweight='bold')
@@ -319,15 +376,7 @@ class TestOximite(unittest.TestCase):
         print(f"Saved stability plot: {filepath}")
 
         # Save telemetry JSON
-        telemetry_filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.json")
-        try:
-            with open(telemetry_filepath, 'w') as f:
-                for rep in history:
-                    json.dump(rep, f)
-                    f.write("\n")
-            print(f"Saved telemetry: {telemetry_filepath}")
-        except Exception as e:
-            print(f"Failed to save telemetry JSON: {e}")
+        self.save_telemetry_json(history, safe_title)
 
     # =========================================================
     # TESTS
@@ -473,206 +522,7 @@ class TestOximite(unittest.TestCase):
         print("Profile finished. Recording tail...")
         time.sleep(10.0)
 
-        self.report_flow_tracking("Sweet_Extraction")
-        self.report_heater_flow_coupling("Sweet_Extraction")
         self.plot_results("Sweet_Extraction")
-
-    def report_heater_flow_coupling(self, title):
-        """Tests whether heater conduction disturbs pump flow.
-
-        Heater and pump are driven from different optocouplers: the heater from
-        a zero-cross type, which defers turn-on to the next true mains zero
-        crossing, and the pump from a random-phase type that fires the instant
-        the gate pulse arrives. So their *switching* never coincides — that part
-        is by design and is not what this looks for.
-
-        What survives is a steady-state effect. A latched heater chunk conducts
-        for a whole mains cycle, drawing kW-scale current the whole time, and
-        the resulting line sag reaches the pump. A vibratory pump's stroke
-        energy goes as V^2, so a sagged cycle delivers a weaker stroke and less
-        intake through the sensor.
-
-        The signature is at **lag +1 cycle**, not lag 0: the chunk only latches
-        at the zero crossing *after* the firmware raises the pin, by which time
-        the current cycle's stroke has already fired. So it is the next stroke
-        that sees the sag.
-
-        This matters because the heater is a confounder for everything else
-        measured here. The runs the flow filtering, the pump map and the PID
-        gains were derived from all had `hp = 0` — a cold bench boiler — so if
-        this coupling is real, none of those characterisations saw it.
-        """
-        rows = self.__class__.telemetry_history
-        if not rows:
-            print(f"  {title}: no telemetry captured")
-            return
-
-        if not any(r.get('hp', 0.0) > 0 for r in rows):
-            print(f"  {title}: heater never fired (hp = 0 in all "
-                  f"{len(rows)} samples) — coupling untestable from this run. "
-                  f"Re-run at real brew temperature to exercise it; a cold "
-                  f"boiler leaves the heater off and hides the effect.")
-            return
-
-        # Replay control.rs: acc += heater_duty; if acc >= 100 { acc -= 100;
-        # push flag }. One telemetry row is one control tick is one mains
-        # cycle, so this recovers the per-cycle firing pattern exactly (up to
-        # the unknown initial accumulator, which only shifts the phase).
-        flags, acc = [], 0.0
-        for r in rows:
-            acc += r.get('hp', 0.0)
-            fired = acc >= 100.0
-            if fired:
-                acc -= 100.0
-            flags.append(fired)
-
-        segs, cur = [], []
-        for i, r in enumerate(rows):
-            steady = (r.get('fll', 0.0) > 0 and 0 < r.get('pump', 0.0) < 99.0
-                      and 0 < r.get('hp', 0.0) < 100.0)
-            contiguous = i > 0 and r.get('seq', -1) == rows[i - 1].get('seq', -2) + 1
-            if steady and contiguous and cur and \
-                    r.get('fll') == rows[i - 1].get('fll'):
-                cur.append(i)
-            else:
-                if len(cur) >= 40:
-                    segs.append(cur)
-                cur = [i] if steady else []
-        if len(cur) >= 40:
-            segs.append(cur)
-
-        if not segs:
-            print(f"  {title}: heater fired, but no steady unsaturated "
-                  f"flow-controlled segment long enough to test against")
-            return
-
-        print(f"  {title}: heater/pump line-sag coupling "
-              f"({len(segs)} segments, {sum(len(s) for s in segs)} cycles)")
-        print("      lag |  n_on  n_off | mean dev ON  mean dev OFF |"
-              "    diff | sigma")
-        for lag in (0, 1, 2, 3):
-            on, off = [], []
-            for seg in segs:
-                flows = [rows[i].get('fl', 0.0) for i in seg]
-                dev = _detrend(flows)
-                for k, i in enumerate(seg):
-                    # The effect follows the cause: pair this cycle's heater
-                    # flag with the deviation `lag` cycles *later*.
-                    j = k + lag
-                    if 0 <= j < len(dev):
-                        (on if flags[i] else off).append(dev[j])
-            if len(on) < 30 or len(off) < 30:
-                continue
-            m_on = sum(on) / len(on)
-            m_off = sum(off) / len(off)
-            v_on = sum((x - m_on) ** 2 for x in on) / len(on)
-            v_off = sum((x - m_off) ** 2 for x in off) / len(off)
-            se = math.sqrt(v_on / len(on) + v_off / len(off))
-            sigma = (m_on - m_off) / se if se else 0.0
-            mark = "  <-- predicted" if lag == 1 else ""
-            print(f"      {lag:>3} | {len(on):5d} {len(off):6d} | "
-                  f"{m_on:+11.5f} {m_off:+13.5f} | {m_on - m_off:+7.4f} |"
-                  f" {sigma:+5.1f}{mark}")
-
-        print("    A real coupling shows a negative diff (heater-on cycles "
-              "pump less) peaking at lag 1, at several sigma. Noise alone "
-              "stays under about 2 sigma at every lag.")
-
-    def report_flow_tracking(self, title):
-        """Prints per-stage flow tracking quality for a flow-controlled shot.
-
-        The plot shows the shape; this puts numbers on it, so the effect of a
-        gain change can be judged without eyeballing two PNGs side by side.
-        """
-        rows_all = [d for d in self.__class__.telemetry_history if d.get('fc')]
-        if not rows_all:
-            print(f"  {title}: no flow-controlled samples — either no step set "
-                  f"a flow target, or the firmware predates the 'fc' field")
-            return
-
-        # Split into contiguous runs of one setpoint: one run per profile step.
-        runs = []
-        for d in rows_all:
-            sp = d.get('fll', 0.0)
-            if not runs or runs[-1][0] != sp:
-                runs.append((sp, []))
-            runs[-1][1].append(d)
-
-        print(f"  {title}: flow tracking by stage")
-        for idx, (sp, rows) in enumerate(runs):
-            if len(rows) < 10:
-                continue
-            t0 = rows[0].get('ms', 0)
-            span = (rows[-1].get('ms', 0) - t0) / 1000.0
-            duties = [r.get('pump', 0.0) for r in rows]
-            press = [r.get('p', 0.0) for r in rows]
-            # Drop the first second: the loop is slewing to the new setpoint
-            # there by design, and including it smears the steady-state error
-            # that each stage is actually judged on.
-            settled = [r for r in rows if r.get('ms', 0) - t0 > 1000]
-            flows = [r.get('fl', 0.0) for r in settled] or \
-                    [r.get('fl', 0.0) for r in rows]
-            mean_f = sum(flows) / len(flows)
-            err = sum(abs(v - sp) for v in flows) / len(flows)
-            pinned = sum(1 for v in duties if v >= 99.0) / len(duties) * 100.0
-            print(f"    {sp:>4.1f} ml/s for {span:5.1f}s | mean {mean_f:4.2f} "
-                  f"| mean|err| {err:4.2f} | duty {min(duties):3.0f}-"
-                  f"{max(duties):3.0f}% ({pinned:3.0f}% pinned) "
-                  f"| peak {max(press):4.1f} bar")
-            # Stage 1 starts from a standing stop, so its "settle time" is just
-            # the initial fill and says nothing about the loop. Every later
-            # stage is a setpoint step, which is where the integral has to
-            # unwind — that is the number worth watching.
-            if idx > 0:
-                t_settle = self._settle_time(rows, sp)
-                frac = f" ({t_settle / span * 100:.0f}% of the stage)" \
-                    if t_settle is not None and span > 0 else ""
-                shown = f"{t_settle:4.1f}s" if t_settle is not None \
-                    else "never (stage ended still off-target)"
-                prev_sp = runs[idx - 1][0]
-                print(f"         step {prev_sp:.1f} -> {sp:.1f}: "
-                      f"settled in {shown}{frac}")
-
-        span_all = (rows_all[-1].get('ms', 0) - rows_all[0].get('ms', 0)) / 1000.0
-        vol_all = rows_all[-1].get('vol', 0.0) - rows_all[0].get('vol', 0.0)
-        avg = vol_all / span_all if span_all else 0.0
-        print(f"    total {span_all:5.1f}s contact, {vol_all:5.1f} ml through "
-              f"the machine, {avg:4.2f} ml/s average")
-
-        pinned_stages = [sp for sp, rows in runs
-                         if any(r.get('pump', 0.0) >= 99.0 for r in rows)]
-        if pinned_stages:
-            print(f"    duty pinned at 100% during stage(s) targeting "
-                  f"{', '.join(f'{sp:.1f}' for sp in pinned_stages)} ml/s — the "
-                  f"loop is not regulating there (pressure is whatever the OPV "
-                  f"allows) and the following setpoint step will settle slowly")
-        else:
-            print("    duty never pinned — every stage stayed within the "
-                  "pump's authority, which is what makes the steps track")
-
-    def _settle_time(self, rows, sp):
-        """Seconds from the start of a stage until flow reaches and holds its
-        setpoint, or None if it never does.
-
-        "Holds" means within tolerance for a continuous 500 ms — a bare
-        first-crossing test would report the moment an overshoot sweeps past
-        the setpoint on its way somewhere else.
-        """
-        tol = max(0.15 * sp, 0.15)
-        t0 = rows[0].get('ms', 0)
-        for i, r in enumerate(rows):
-            if abs(r.get('fl', 0.0) - sp) > tol:
-                continue
-            held = True
-            for r2 in rows[i:]:
-                if r2.get('ms', 0) - r.get('ms', 0) > 500:
-                    break
-                if abs(r2.get('fl', 0.0) - sp) > tol:
-                    held = False
-                    break
-            if held:
-                return (r.get('ms', 0) - t0) / 1000.0
-        return None
 
     def test_sweet_profile(self):
         profile = {
@@ -743,7 +593,7 @@ class TestOximite(unittest.TestCase):
             time.sleep(3.0)
 
             # Get latest telemetry
-            history = self.__class__.telemetry_history
+            history = self.snapshot_history()
             if history:
                 latest = history[-1]
                 flow = latest.get('fl', 0.0)
@@ -752,7 +602,6 @@ class TestOximite(unittest.TestCase):
                 flow = 0.0
                 pressure = 0.0
 
-            print(f"Power: {pwr}%, Flow: {flow:.2f} ml/s, Pressure: {pressure:.2f} bar")
             results.append((pwr, flow, pressure))
 
         self.send_command({"cmd": "stop"})
@@ -866,17 +715,20 @@ class TestOximite(unittest.TestCase):
     #     print("Settings restored.")
 
     def plot_step_response(self, title):
-        history = self.__class__.telemetry_history
+        history = self.snapshot_history()
         if not history:
             print(f"No data collected for {title}")
             return
 
-        temps = [d.get('t', 0) for d in history]
-        targets = [d.get('tt', 0) for d in history]
-        times = [i * 0.02 for i in range(len(temps))]  # 50Hz = 0.02s
+        temps = [d['t'] for d in history]
+        targets = [d['tt'] for d in history]
+        t0 = history[0]['ms']
+        times = [(d['ms'] - t0) / 1000.0 for d in history]
 
-        # Determine index for last 60 seconds (50Hz * 60s = 3000 samples)
-        last_60_idx = max(0, len(temps) - 3000)
+        # Index of the first sample within 60 s of the end, by device clock
+        # rather than a sample count that assumes a fixed tick rate.
+        cutoff = times[-1] - 60.0
+        last_60_idx = next((i for i, tv in enumerate(times) if tv >= cutoff), 0)
         times_60 = times[last_60_idx:]
         temps_60 = temps[last_60_idx:]
         targets_60 = targets[last_60_idx:]
@@ -884,8 +736,8 @@ class TestOximite(unittest.TestCase):
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
 
         # Main plot
-        ax1.plot(times, targets, label="Target Temp (°C)", linestyle="--", color='grey', alpha=0.7)
-        ax1.plot(times, temps, label="Actual Temp (°C)", color='tab:red', linewidth=2)
+        ax1.plot(times, targets, label="Target Boiler Temp (°C)", linestyle="--", color='grey', alpha=0.7)
+        ax1.plot(times, temps, label="Boiler Temp (°C)", color='tab:red', linewidth=2)
         ax1.set_title(f"Step Response: {title.replace('_', ' ')}", fontweight='bold', fontsize=14)
         ax1.set_xlabel("Time (Seconds)", fontweight='bold')
         ax1.set_ylabel("Temperature (°C)", fontweight='bold')
@@ -893,8 +745,8 @@ class TestOximite(unittest.TestCase):
         ax1.legend(loc='lower right')
 
         # Amplified plot of last 60 seconds
-        ax2.plot(times_60, targets_60, label="Target Temp (°C)", linestyle="--", color='grey', alpha=0.7)
-        ax2.plot(times_60, temps_60, label="Actual Temp (°C)", color='tab:red', linewidth=2)
+        ax2.plot(times_60, targets_60, label="Target Boiler Temp (°C)", linestyle="--", color='grey', alpha=0.7)
+        ax2.plot(times_60, temps_60, label="Boiler Temp (°C)", color='tab:red', linewidth=2)
         ax2.set_title("Zoomed View: Last 60 Seconds", fontweight='bold', fontsize=12)
         ax2.set_xlabel("Time (Seconds)", fontweight='bold')
         ax2.set_ylabel("Temperature (°C)", fontweight='bold')
@@ -976,14 +828,15 @@ class TestOximite(unittest.TestCase):
         print("\nSweep Complete.")
 
     def plot_pressure_step_response(self, title):
-        history = self.__class__.telemetry_history
+        history = self.snapshot_history()
         if not history:
             print(f"No data collected for {title}")
             return
 
         pressures = [d.get('p', 0) for d in history]
         targets = [d.get('tp', 0) for d in history]
-        times = [i * 0.02 for i in range(len(pressures))]  # 50Hz = 0.02s
+        t0 = history[0]['ms']
+        times = [(d['ms'] - t0) / 1000.0 for d in history]
 
         fig, ax = plt.subplots(figsize=(10, 5))
 

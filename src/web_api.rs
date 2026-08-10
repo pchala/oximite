@@ -1,10 +1,27 @@
 //! HTTP and line-oriented TCP interfaces to the machine.
 //!
 //! `wifi_server_task` serves the gzipped web UI plus a small JSON REST API on
-//! port 80; `tcp_telemetry_task` streams the same telemetry at 50 Hz on port
-//! 8080 and accepts the same commands as newline-delimited JSON. Both are pure
+//! port 80; `tcp_telemetry_task` streams binary diagnostic telemetry at 50 Hz
+//! on port 8080 and accepts commands as newline-delimited JSON. Both are pure
 //! protocol handling -- every command is forwarded to the coordinator as a
 //! `MachineCommand` rather than acted on here.
+//!
+//! # Two telemetry channels, deliberately different
+//!
+//! The browser and the HIL test rig want different things, so they get
+//! different payloads rather than one union of both:
+//!
+//! * **Port 80, `GET /api/telemetry`** -- [`UiTelemetry`] as JSON. Six fields,
+//!   ~60 bytes, offset-corrected and rounded for display. Polled at ~4 Hz by a
+//!   browser that has no decoder, so human-readable JSON is the right call.
+//! * **Port 8080** -- [`DiagFrame`] as postcard. Fifteen fields, 55 bytes,
+//!   *raw* controller values at the full 50 Hz control rate. Binary because at
+//!   50 Hz the JSON float formatting was the dominant cost on this path and a
+//!   blocked TCP write costs a control frame.
+//!
+//! The diag stream opens with one [`DiagHeader`] carrying the constants a log
+//! can't reconstruct (temperature offset, PID gains, tick rate), so the frames
+//! themselves stay fixed-size and free of anything that never changes.
 
 use core::str::from_utf8;
 use embassy_net::tcp::TcpSocket;
@@ -37,21 +54,98 @@ struct ApiCommand<'a> {
     temp: Option<f32>,
 }
 
+/// What the browser renders, and nothing else.
+///
+/// Every field here is read by `index.html`; anything it doesn't display
+/// belongs on the diagnostic stream instead. Temperatures are offset-corrected
+/// and everything is rounded to 2 dp, because this is a display payload rather
+/// than a measurement.
 #[derive(Serialize)]
-struct TelemetryData {
-    /// Monotonic sample counter
+struct UiTelemetry {
+    /// Group-head temperature, i.e. boiler minus `temp_offset`.
+    t: f32,
+    /// Session brew temp — what the UI's +/- buttons adjust. Deliberately not
+    /// derived from the applied setpoint, which is a function of machine state
+    /// (0 °C while sleeping or cooling, steam temp while steaming), so
+    /// stepping from it would send nonsense back.
+    sbt: f32,
+    p: f32,
+    fl: f32,
+    vol: f32,
+    st: u32,
+}
+
+/// Wire-format version for the port 8080 stream.
+///
+/// Bump on any change to [`DiagHeader`] or [`DiagFrame`] field order or type.
+/// The client checks it on the header and on every frame, so a firmware /
+/// test-suite mismatch surfaces as a clear error instead of plausible-looking
+/// numbers decoded at the wrong offsets.
+const DIAG_VER: u8 = 1;
+
+/// "OXID" in little-endian byte order — lets the client confirm it is talking
+/// to this protocol before it trusts any offsets.
+const DIAG_MAGIC: u32 = 0x4449_584F;
+
+/// Serialized size of [`DiagFrame`]. Constant only because the `u32`s use
+/// `fixint` rather than postcard's default varints, which would shrink the
+/// frame at low tick counts and grow it later — silently desynchronising a
+/// client that reads fixed-size records. `postcard::to_slice` is checked
+/// against this at runtime.
+const DIAG_FRAME_LEN: usize = 55;
+
+/// Serialized size of [`DiagHeader`], sent exactly once per connection.
+const DIAG_HEADER_LEN: usize = 54;
+
+/// Sent once when a client connects, before any frames.
+///
+/// Carries the constants needed to interpret the stream that would otherwise
+/// be repeated 50 times a second or, worse, guessed by the analysis scripts.
+/// The tick rate is deliberately absent: the control loop is mains-locked, so
+/// its real rate is whatever the `ms` deltas say rather than a constant.
+#[derive(Serialize)]
+struct DiagHeader {
+    #[serde(with = "postcard::fixint::le")]
+    magic: u32,
+    ver: u8,
+    /// Size of each following record, so a client can validate its own
+    /// unpacking against the firmware instead of assuming.
+    frame_len: u8,
+    /// Boiler-to-group offset. The frames carry raw boiler values; this is
+    /// what converts them to the group-head numbers the UI shows.
+    temp_offset: f32,
+    brew_temp: f32,
+    steam_temp: f32,
+    temp_kp: f32,
+    temp_ki: f32,
+    temp_kd: f32,
+    press_kp: f32,
+    press_ki: f32,
+    press_kd: f32,
+    flow_kp: f32,
+    flow_ki: f32,
+    flow_kd: f32,
+}
+
+/// One control tick, exactly as the controller saw it.
+///
+/// Values are raw: no display offset, no rounding. A test analysing loop
+/// behaviour wants the number the PID acted on, and `temp_offset` in the
+/// header makes the display conversion recoverable anyway.
+#[derive(Serialize)]
+struct DiagFrame {
+    ver: u8,
+    /// Control-loop tick. Gaps mean the device computed a frame it never sent.
+    #[serde(with = "postcard::fixint::le")]
     seq: u32,
     /// Device uptime in milliseconds.
+    #[serde(with = "postcard::fixint::le")]
     ms: u32,
+    /// Raw boiler temperature — *not* offset-corrected, unlike `UiTelemetry.t`.
     t: f32,
     tt: f32,
     /// Applied temperature setpoint including the brew-flow feed-forward.
     ett: f32,
-    /// Session brew temp — what the UI's +/- buttons adjust. Deliberately not
-    /// derived from `tt`: `tt` is the *applied* setpoint, which is a function
-    /// of the machine state (0 °C while sleeping or cooling, steam temp while
-    /// steaming), so stepping from it would send nonsense back.
-    sbt: f32,
     p: f32,
     tp: f32,
     /// Setpoint the pressure PID chased, after flow limiting.
@@ -59,13 +153,13 @@ struct TelemetryData {
     fl: f32,
     /// Active flow setpoint, 0 when the pump isn't flow-controlled.
     fll: f32,
-    /// 1 while the flow PID is driving the pump duty directly.
-    fc: u8,
     vol: f32,
     hp: f32,
     /// Pump triac duty, 0-100.
     pump: f32,
-    st: u32,
+    /// 1 while the flow PID is driving the pump duty directly.
+    fc: u8,
+    st: u8,
 }
 
 #[derive(Serialize)]
@@ -162,51 +256,84 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
     }
 }
 
-async fn get_telemetry_json(a: Telemetry) -> heapless::String<384> {
+async fn get_ui_telemetry_json(a: Telemetry) -> heapless::String<192> {
     let st_val = get_state();
     let s = Settings::get().await;
 
-    let (disp_t, disp_tt, disp_ett) =
-        a.display_temps(s.machine.temp_offset, st_val == MachineState::Steaming);
+    let (disp_t, _, _) = a.display_temps(s.machine.temp_offset, st_val == MachineState::Steaming);
 
-    // Sensor resolution is nowhere near f32 precision, and the serializer
-    // prints every digit it is given. Rounding to 2 dp roughly halves the
-    // payload, which is what makes room for the diagnostic fields above.
-    // `f32::round` needs std, so this rounds half away from zero by hand.
+    // Sensor resolution is nowhere near f32 precision and the serializer
+    // prints every digit it is given, so 2 dp roughly halves the payload with
+    // no visible loss. `f32::round` needs std, so this rounds half away from
+    // zero by hand.
     let r2 = |v: f32| {
         let bias = if v < 0.0 { -0.5 } else { 0.5 };
         ((v * 100.0 + bias) as i32) as f32 / 100.0
     };
 
-    let data = TelemetryData {
-        seq: a.tick,
-        ms: Instant::now().as_millis() as u32,
+    let data = UiTelemetry {
         t: r2(disp_t),
-        tt: r2(disp_tt),
-        ett: r2(disp_ett),
         sbt: r2(get_session_brew_temp()),
         p: r2(a.pressure_bar),
-        tp: r2(a.target_bar),
-        etp: r2(a.effective_target_bar),
         fl: r2(a.flow_rate_ml_s),
-        fll: r2(a.flow_limit_ml_s),
-        fc: a.flow_controlled as u8,
         vol: r2(a.volume_ml),
-        hp: r2(a.heater_duty),
-        pump: r2(a.pump_duty),
         st: st_val as u32,
     };
 
-    let mut json_str = heapless::String::<384>::new();
-    match serde_json_core::to_string::<_, 384>(&data) {
+    let mut json_str = heapless::String::<192>::new();
+    match serde_json_core::to_string::<_, 192>(&data) {
         Ok(js) => {
             let _ = json_str.push_str(js.as_str());
         }
         // Silently sending nothing would look like a dropped connection, and
         // the cause (one field wider than expected) would be invisible.
-        Err(_) => defmt::warn!("Telemetry JSON exceeded buffer; sample dropped"),
+        Err(_) => defmt::warn!("UI telemetry JSON exceeded buffer; sample dropped"),
     }
     json_str
+}
+
+/// Packs one control tick into the fixed-size diagnostic record.
+///
+/// Returns `None` if the encoding is not exactly [`DIAG_FRAME_LEN`] bytes,
+/// which can only happen if the struct changed without `DIAG_FRAME_LEN` and
+/// `DIAG_VER` being updated with it. Sending a short frame would slide every
+/// following field on the client by the difference, so the sample is dropped
+/// and the cause logged instead.
+fn encode_diag_frame(a: &Telemetry, buf: &mut [u8; DIAG_FRAME_LEN]) -> Option<usize> {
+    let frame = DiagFrame {
+        ver: DIAG_VER,
+        seq: a.tick,
+        ms: Instant::now().as_millis() as u32,
+        t: a.temp_c,
+        tt: a.target_temp,
+        ett: a.effective_target_temp,
+        p: a.pressure_bar,
+        tp: a.target_bar,
+        etp: a.effective_target_bar,
+        fl: a.flow_rate_ml_s,
+        fll: a.flow_limit_ml_s,
+        vol: a.volume_ml,
+        hp: a.heater_duty,
+        pump: a.pump_duty,
+        fc: a.flow_controlled as u8,
+        st: get_state() as u8,
+    };
+
+    match postcard::to_slice(&frame, buf) {
+        Ok(used) if used.len() == DIAG_FRAME_LEN => Some(used.len()),
+        Ok(used) => {
+            defmt::error!(
+                "Diag frame is {} bytes, expected {} — update DIAG_FRAME_LEN/DIAG_VER",
+                used.len(),
+                DIAG_FRAME_LEN
+            );
+            None
+        }
+        Err(_) => {
+            defmt::error!("Diag frame did not fit its buffer; sample dropped");
+            None
+        }
+    }
 }
 
 #[embassy_executor::task]
@@ -233,9 +360,9 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
                     let _ = socket.write_all(headers.as_bytes()).await;
                     let _ = socket.write_all(INDEX_HTML_GZ).await;
                 } else if request.starts_with("GET /api/telemetry") {
-                    let json_str = get_telemetry_json(get_telemetry()).await;
+                    let json_str = get_ui_telemetry_json(get_telemetry()).await;
                     if !json_str.is_empty() {
-                        let mut resp = heapless::String::<640>::new();
+                        let mut resp = heapless::String::<448>::new();
                         let _ = resp.push_str(JSON_OK_HEADER);
                         let _ = resp.push_str(json_str.as_str());
                         let _ = socket.write_all(resp.as_bytes()).await;
@@ -303,6 +430,44 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
     }
 }
 
+/// Builds the one-shot connection header from current settings.
+async fn encode_diag_header(buf: &mut [u8; DIAG_HEADER_LEN]) -> Option<usize> {
+    let s = Settings::get().await;
+    let header = DiagHeader {
+        magic: DIAG_MAGIC,
+        ver: DIAG_VER,
+        frame_len: DIAG_FRAME_LEN as u8,
+        temp_offset: s.machine.temp_offset,
+        brew_temp: s.machine.brew_temp,
+        steam_temp: s.machine.steam_temp,
+        temp_kp: s.temp_pid.kp,
+        temp_ki: s.temp_pid.ki,
+        temp_kd: s.temp_pid.kd,
+        press_kp: s.press_pid.kp,
+        press_ki: s.press_pid.ki,
+        press_kd: s.press_pid.kd,
+        flow_kp: s.flow_pid.kp,
+        flow_ki: s.flow_pid.ki,
+        flow_kd: s.flow_pid.kd,
+    };
+
+    match postcard::to_slice(&header, buf) {
+        Ok(used) if used.len() == DIAG_HEADER_LEN => Some(used.len()),
+        Ok(used) => {
+            defmt::error!(
+                "Diag header is {} bytes, expected {} — update DIAG_HEADER_LEN/DIAG_VER",
+                used.len(),
+                DIAG_HEADER_LEN
+            );
+            None
+        }
+        Err(_) => {
+            defmt::error!("Diag header did not fit its buffer");
+            None
+        }
+    }
+}
+
 #[embassy_executor::task]
 pub async fn tcp_telemetry_task(stack: &'static embassy_net::Stack<'static>) {
     use embassy_futures::select::{select, Either};
@@ -327,8 +492,21 @@ pub async fn tcp_telemetry_task(stack: &'static embassy_net::Stack<'static>) {
             socket.remote_endpoint()
         );
 
+        // The header must land before any frame, or the client cannot tell
+        // where records begin. A failure here is fatal to the connection
+        // rather than something to stream past.
+        let mut header_buf = [0u8; DIAG_HEADER_LEN];
+        match encode_diag_header(&mut header_buf).await {
+            Some(n) if socket.write_all(&header_buf[..n]).await.is_ok() => {}
+            _ => {
+                graceful_close(&mut socket).await;
+                continue;
+            }
+        }
+
         let mut line_buf = [0u8; 1024];
         let mut line_pos = 0;
+        let mut frame_buf = [0u8; DIAG_FRAME_LEN];
 
         loop {
             let mut read_buf = [0u8; 128];
@@ -337,10 +515,11 @@ pub async fn tcp_telemetry_task(stack: &'static embassy_net::Stack<'static>) {
 
             match select(tick_fut, read_fut).await {
                 Either::First(a) => {
-                    let mut json_str = get_telemetry_json(a).await;
-                    if !json_str.is_empty() {
-                        let _ = json_str.push_str("\n");
-                        if socket.write_all(json_str.as_bytes()).await.is_err() {
+                    // Commands arrive as JSON lines; only the outbound
+                    // direction is binary, so this socket stays bidirectional
+                    // without any framing ambiguity.
+                    if let Some(n) = encode_diag_frame(&a, &mut frame_buf) {
+                        if socket.write_all(&frame_buf[..n]).await.is_err() {
                             break;
                         }
                     }

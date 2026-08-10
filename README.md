@@ -17,7 +17,7 @@ Support the continued development of this open-source project by [leaving a tip 
 *   **Volumetric Dosing:** Accurate dose measurement utilizing a Hall-effect flow meter.
 *   **Live Web Dashboard:** An interactive web interface served directly over Wi-Fi. Features live telemetry graphing (pressure, flow, volume), machine controls (brew, flush, steam, descale), and an integrated settings manager.
 *   **Custom Brew Profiles:** Create, save, and execute multi-step extraction profiles targeting time, volume, pressure, or flow. Up to 10 profiles can be persisted in the Pico's flash memory.
-*   **Telemetry & Command Socket:** An open TCP command socket streams high-granularity telemetry and accepts remote commands. This enables automated testing out-of-the-box and serves as a backend for custom companion apps, high-resolution graphing tools, and unlimited profile sharing.
+*   **Telemetry & Command Socket:** An open TCP socket on port 8080 streams one fixed-size 55-byte [postcard](https://github.com/jamesmunns/postcard) record per control tick — raw sensor values at full `f32` precision, prefixed by a one-time header carrying the active PID gains and setpoints — and accepts newline-delimited JSON commands on the same connection. This enables automated testing out-of-the-box and serves as a backend for custom companion apps, high-resolution graphing tools, and unlimited profile sharing. The web dashboard is fed separately by a small JSON payload on port 80, so neither consumer constrains the other.
 
 ## Architecture
 
