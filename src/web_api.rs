@@ -25,7 +25,7 @@
 
 use core::str::from_utf8;
 use embassy_net::tcp::TcpSocket;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{with_timeout, Duration, Instant, Timer};
 use embedded_io_async::Write;
 use serde::{Deserialize, Serialize};
 
@@ -168,6 +168,108 @@ struct ProfileHeader<'a> {
 
 const JSON_OK_HEADER: &str =
     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+
+/// Why a request could not be served.
+///
+/// Each variant maps to the status line the client gets back, so a command
+/// that never reached the coordinator is visible as an error instead of being
+/// reported as success.
+enum HttpError {
+    /// Peer closed, errored, or stalled part-way through a request.
+    Closed,
+    /// The request, or the body it declared, is larger than the read buffer.
+    TooLarge,
+    /// Malformed request, or a body that is not a valid `ApiCommand`.
+    BadRequest,
+    NotFound,
+}
+
+impl HttpError {
+    /// The response to send back, or `None` when there is no peer left to read
+    /// it.
+    fn status_line(&self) -> Option<&'static str> {
+        match self {
+            HttpError::Closed => None,
+            HttpError::TooLarge => {
+                Some("HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\n\r\n")
+            }
+            HttpError::BadRequest => Some("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"),
+            HttpError::NotFound => Some("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"),
+        }
+    }
+}
+
+/// Byte offset just past the `\r\n\r\n` terminating the request head, i.e.
+/// where the body starts.
+fn head_end(buf: &[u8]) -> Option<usize> {
+    buf.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + 4)
+}
+
+/// Declared body length, or `None` if the header is absent or unparseable.
+fn content_length(head: &str) -> Option<usize> {
+    head.lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .and_then(|(_, value)| value.trim().parse().ok())
+}
+
+/// Reads until `buf` holds one complete request — head plus the body its
+/// `Content-Length` declares — and returns that length.
+///
+/// A single `read` is not enough. TCP is a stream, so a POST whose body lands
+/// in a second segment arrives here as a complete-looking head with an empty
+/// body: the JSON parse fails and the command is dropped, but the request line
+/// still routes and the client is told 200 OK. Waiting for the declared body
+/// is what makes the parse failure below mean "bad JSON" rather than "not all
+/// here yet".
+async fn read_request(socket: &mut TcpSocket<'_>, buf: &mut [u8]) -> Result<usize, HttpError> {
+    let mut n = 0;
+    loop {
+        if let Some(head) = head_end(&buf[..n]) {
+            // Only the head has to be UTF-8 to find the length; the body is
+            // validated once it is all here.
+            let head_str = from_utf8(&buf[..head]).map_err(|_| HttpError::BadRequest)?;
+            let want = head + content_length(head_str).unwrap_or(0);
+            if want > buf.len() {
+                return Err(HttpError::TooLarge);
+            }
+            if n >= want {
+                // Anything past `want` belongs to a pipelined request, which
+                // this server does not serve — cut it off rather than feed it
+                // to the body parser.
+                return Ok(want);
+            }
+        } else if n == buf.len() {
+            return Err(HttpError::TooLarge);
+        }
+
+        match socket.read(&mut buf[n..]).await {
+            Ok(0) | Err(_) => return Err(HttpError::Closed),
+            Ok(r) => n += r,
+        }
+    }
+}
+
+/// Parses the JSON body of a request whose head is already complete.
+fn parse_command(request: &str) -> Result<ApiCommand<'_>, HttpError> {
+    let (_, body) = request
+        .split_once("\r\n\r\n")
+        .ok_or(HttpError::BadRequest)?;
+    let (payload, _) = serde_json_core::from_str::<ApiCommand>(body).map_err(|_| {
+        defmt::warn!("API: Failed to parse JSON body");
+        HttpError::BadRequest
+    })?;
+    Ok(payload)
+}
+
+/// Slot number from a `GET /api/profile/{slot}` request line.
+fn parse_slot(request: &str) -> Result<u8, HttpError> {
+    let rest = request
+        .strip_prefix("GET /api/profile/")
+        .ok_or(HttpError::NotFound)?;
+    let end = rest.find(' ').unwrap_or(rest.len());
+    rest[..end].parse::<u8>().map_err(|_| HttpError::NotFound)
+}
 
 /// Closes `socket` without stranding unread data in the peer's window.
 ///
@@ -332,6 +434,81 @@ fn encode_diag_frame(a: &Telemetry, buf: &mut [u8; DIAG_FRAME_LEN]) -> Option<us
     }
 }
 
+/// Reads one request and serves it, reporting why if it could not be served.
+async fn handle_connection(
+    socket: &mut TcpSocket<'_>,
+    buf: &mut [u8; 4096],
+) -> Result<(), HttpError> {
+    let n = read_request(socket, buf).await?;
+    let request = from_utf8(&buf[..n]).map_err(|_| HttpError::BadRequest)?;
+    serve(socket, request).await
+}
+
+/// Routes one complete request. Every path either writes a response or returns
+/// the error whose status line the caller sends.
+async fn serve(socket: &mut TcpSocket<'_>, request: &str) -> Result<(), HttpError> {
+    if request.starts_with("GET / ") || request.starts_with("GET /index.html") {
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Encoding: gzip\r\nConnection: close\r\n\r\n";
+        let _ = socket.write_all(headers.as_bytes()).await;
+        let _ = socket.write_all(INDEX_HTML_GZ).await;
+    } else if request.starts_with("GET /api/telemetry") {
+        let json_str = get_ui_telemetry_json(get_telemetry()).await;
+        if !json_str.is_empty() {
+            let mut resp = heapless::String::<448>::new();
+            let _ = resp.push_str(JSON_OK_HEADER);
+            let _ = resp.push_str(json_str.as_str());
+            let _ = socket.write_all(resp.as_bytes()).await;
+        }
+    } else if request.starts_with("GET /api/settings") {
+        let s = Settings::get().await;
+        if let Ok(json_str) = serde_json_core::to_string::<_, 1024>(&s) {
+            let mut resp = heapless::String::<2048>::new();
+            let _ = resp.push_str(JSON_OK_HEADER);
+            let _ = resp.push_str(json_str.as_str());
+            let _ = socket.write_all(resp.as_bytes()).await;
+        }
+    } else if request.starts_with("GET /api/profiles") {
+        let p_list = crate::profiles::get_all_profiles_from_ram().await;
+        let mut headers: heapless::Vec<ProfileHeader, 10> = heapless::Vec::new();
+        for (slot, p) in p_list.iter() {
+            let _ = headers.push(ProfileHeader {
+                slot: *slot,
+                name: p.name.as_str(),
+            });
+        }
+
+        let mut resp_buf = [0u8; 2048];
+        let hdr = JSON_OK_HEADER.as_bytes();
+        resp_buf[..hdr.len()].copy_from_slice(hdr);
+        if let Ok(len) = serde_json_core::to_slice(&headers, &mut resp_buf[hdr.len()..]) {
+            let _ = socket.write_all(&resp_buf[..hdr.len() + len]).await;
+        }
+    } else if request.starts_with("GET /api/profile/") {
+        let slot = parse_slot(request)?;
+        let p = crate::profiles::get_profile_from_ram(slot)
+            .await
+            .ok_or(HttpError::NotFound)?;
+
+        let mut resp_buf = [0u8; 2048];
+        let hdr = JSON_OK_HEADER.as_bytes();
+        resp_buf[..hdr.len()].copy_from_slice(hdr);
+        if let Ok(len) = serde_json_core::to_slice(&p, &mut resp_buf[hdr.len()..]) {
+            let _ = socket.write_all(&resp_buf[..hdr.len() + len]).await;
+        }
+    } else if request.starts_with("POST /api/cmd") {
+        let payload = parse_command(request)?;
+        defmt::info!("API Command Received: {}", payload.cmd);
+        handle_api_command(payload).await;
+        let mut resp = heapless::String::<128>::new();
+        let _ = resp.push_str(JSON_OK_HEADER);
+        let _ = resp.push_str("{\"status\":\"ok\"}");
+        let _ = socket.write_all(resp.as_bytes()).await;
+    } else {
+        return Err(HttpError::NotFound);
+    }
+    Ok(())
+}
+
 #[embassy_executor::task]
 pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
     let mut rx_buffer = [0; 2048];
@@ -347,81 +524,21 @@ pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
         }
 
         let mut buf = [0u8; 4096];
-        if let Ok(n) = socket.read(&mut buf).await {
-            if n > 0 {
-                let request = from_utf8(&buf[..n]).unwrap_or("");
+        // The socket timeout only bounds a single idle gap, so it cannot stop
+        // a client trickling bytes forever. This bounds the whole exchange.
+        let served = with_timeout(
+            Duration::from_secs(10),
+            handle_connection(&mut socket, &mut buf),
+        )
+        .await
+        .unwrap_or(Err(HttpError::Closed));
 
-                if request.starts_with("GET / ") || request.starts_with("GET /index.html") {
-                    let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Encoding: gzip\r\nConnection: close\r\n\r\n";
-                    let _ = socket.write_all(headers.as_bytes()).await;
-                    let _ = socket.write_all(INDEX_HTML_GZ).await;
-                } else if request.starts_with("GET /api/telemetry") {
-                    let json_str = get_ui_telemetry_json(get_telemetry()).await;
-                    if !json_str.is_empty() {
-                        let mut resp = heapless::String::<448>::new();
-                        let _ = resp.push_str(JSON_OK_HEADER);
-                        let _ = resp.push_str(json_str.as_str());
-                        let _ = socket.write_all(resp.as_bytes()).await;
-                    }
-                } else if request.starts_with("GET /api/settings") {
-                    let s = Settings::get().await;
-                    if let Ok(json_str) = serde_json_core::to_string::<_, 1024>(&s) {
-                        let mut resp = heapless::String::<2048>::new();
-                        let _ = resp.push_str(JSON_OK_HEADER);
-                        let _ = resp.push_str(json_str.as_str());
-                        let _ = socket.write_all(resp.as_bytes()).await;
-                    }
-                } else if request.starts_with("GET /api/profiles") {
-                    let p_list = crate::profiles::get_all_profiles_from_ram().await;
-                    let mut headers: heapless::Vec<ProfileHeader, 10> = heapless::Vec::new();
-                    for (slot, p) in p_list.iter() {
-                        let _ = headers.push(ProfileHeader {
-                            slot: *slot,
-                            name: p.name.as_str(),
-                        });
-                    }
-
-                    let mut resp_buf = [0u8; 2048];
-                    let hdr = JSON_OK_HEADER.as_bytes();
-                    resp_buf[..hdr.len()].copy_from_slice(hdr);
-                    if let Ok(len) = serde_json_core::to_slice(&headers, &mut resp_buf[hdr.len()..])
-                    {
-                        let _ = socket.write_all(&resp_buf[..hdr.len() + len]).await;
-                    }
-                } else if request.starts_with("GET /api/profile/") {
-                    if let Some(s_idx) = request.find("/api/profile/") {
-                        let sub = &request[s_idx + "/api/profile/".len()..];
-                        let end = sub.find(' ').unwrap_or(sub.len());
-                        if let Ok(slot) = sub[..end].parse::<u8>() {
-                            if let Some(p) = crate::profiles::get_profile_from_ram(slot).await {
-                                let mut resp_buf = [0u8; 2048];
-                                let hdr = JSON_OK_HEADER.as_bytes();
-                                resp_buf[..hdr.len()].copy_from_slice(hdr);
-                                if let Ok(len) =
-                                    serde_json_core::to_slice(&p, &mut resp_buf[hdr.len()..])
-                                {
-                                    let _ = socket.write_all(&resp_buf[..hdr.len() + len]).await;
-                                }
-                            }
-                        }
-                    }
-                } else if request.starts_with("POST /api/cmd") {
-                    if let Some(body_start) = request.find("\r\n\r\n") {
-                        let json_body = &request[(body_start + 4)..];
-                        if let Ok((payload, _)) = serde_json_core::from_str::<ApiCommand>(json_body)
-                        {
-                            defmt::info!("API Command Received: {}", payload.cmd);
-                            handle_api_command(payload).await;
-                        } else {
-                            defmt::warn!("API: Failed to parse JSON body");
-                        }
-                    }
-                    let _ = socket
-                        .write_all("HTTP/1.1 200 OK\r\n\r\n{\"status\":\"ok\"}".as_bytes())
-                        .await;
-                }
+        if let Err(e) = served {
+            if let Some(status) = e.status_line() {
+                let _ = socket.write_all(status.as_bytes()).await;
             }
         }
+
         graceful_close(&mut socket).await;
     }
 }

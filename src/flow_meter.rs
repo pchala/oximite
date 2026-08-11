@@ -5,24 +5,30 @@ use embassy_time::{with_timeout, Duration};
 use fixed::FixedU32;
 use pio::pio_asm;
 
-use core::cell::Cell;
+use core::sync::atomic::Ordering;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::signal::Signal;
+use portable_atomic::AtomicU32;
 
 pub static SIG_RESET_VOLUME: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-/// Accumulated shot volume, in ml.
+/// Accumulated shot volume in ml, held as `f32` bits.
 ///
 /// Shared, not a task-local: `reset_volume` must take effect before its
 /// caller's next read, and `coordinator::start` resets immediately before the
 /// profile's first step compares volume against its target.
-static VOLUME_ML: BlockingMutex<CriticalSectionRawMutex, Cell<f32>> =
-    BlockingMutex::new(Cell::new(0.0));
+///
+/// Accumulation is a plain load/store pair rather than a `fetch_update`
+/// because both writers — `run_flow_task` and `reset_volume`, the latter
+/// called from `coordinator` — run on core0's executor. That executor is
+/// cooperative and there is no `await` between the load and the store, so
+/// nothing can interleave and drop a reset. Moving either onto core1 breaks
+/// that assumption and the read-modify-write must become a CAS.
+static VOLUME_ML: AtomicU32 = AtomicU32::new(0);
 
 /// Volume accumulated since the last [`reset_volume`], in ml.
 pub fn shot_volume_ml() -> f32 {
-    VOLUME_ML.lock(|v| v.get())
+    f32::from_bits(VOLUME_ML.load(Ordering::Relaxed))
 }
 
 pub const CYCLES_PER_LOOP: f32 = 2.0;
@@ -35,7 +41,7 @@ const PIO_TICK_OFFSET: u32 = 2;
 /// Zeroes the accumulated volume, synchronously. The signal additionally tells
 /// the flow task to drop the half-period spanning the idle gap.
 pub fn reset_volume() {
-    VOLUME_ML.lock(|v| v.set(0.0));
+    VOLUME_ML.store(0.0f32.to_bits(), Ordering::Relaxed);
     SIG_RESET_VOLUME.signal(());
 }
 
@@ -104,13 +110,13 @@ impl RateWindow {
     }
 }
 
-/// The flow rate in ml/s, republished by the flow task on every accepted edge.
+/// The flow rate in ml/s, held as `f32` bits and republished by the flow task
+/// on every accepted edge.
 ///
 /// Holding the last value rather than recomputing on read is what lets a
 /// cleared window keep reporting the previous rate: nothing overwrites this
 /// until a sample refills the window, and only [`RateWindow::stop`] zeroes it.
-static RATE_ML_S: BlockingMutex<CriticalSectionRawMutex, Cell<f32>> =
-    BlockingMutex::new(Cell::new(0.0));
+static RATE_ML_S: AtomicU32 = AtomicU32::new(0);
 
 /// The current flow rate in ml/s.
 ///
@@ -118,11 +124,11 @@ static RATE_ML_S: BlockingMutex<CriticalSectionRawMutex, Cell<f32>> =
 /// telemetry row, so the value the controller acts on is the one that gets
 /// logged.
 pub fn flow_rate_ml_s() -> f32 {
-    RATE_ML_S.lock(|r| r.get())
+    f32::from_bits(RATE_ML_S.load(Ordering::Relaxed))
 }
 
 fn publish_rate(ml_s: f32) {
-    RATE_ML_S.lock(|r| r.set(ml_s));
+    RATE_ML_S.store(ml_s.to_bits(), Ordering::Relaxed);
 }
 
 pub fn setup_flow_sm(
@@ -240,7 +246,8 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
                     }
 
                     let added = ml_per_pulse * valid_pulses as f32;
-                    VOLUME_ML.lock(|v| v.set(v.get() + added));
+                    let total = shot_volume_ml() + added;
+                    VOLUME_ML.store(total.to_bits(), Ordering::Relaxed);
                 }
             }
             Ok(Either::Second(_)) => {
