@@ -324,6 +324,7 @@
     
 
     // --- PROFILE EDITOR ---
+    const MAX_STEPS = 5;
     let steps = [{ time_s: 15.0, volume: 0.0, pressure: 9.0, flow: 0.0 }];
     function renderSteps() {
         const tbody = document.getElementById('step-body'); tbody.innerHTML = '';
@@ -336,7 +337,10 @@
                 <td><button class="danger" onclick="removeStep(${idx})">X</button></td></tr>`;
         });
     }
-    function addStep() { steps.push({ time_s: 0.0, volume: 0.0, pressure: 0.0, flow: 0.0 }); renderSteps(); }
+    function addStep() {
+        if (steps.length >= MAX_STEPS) return alert(`A profile is limited to ${MAX_STEPS} steps.`);
+        steps.push({ time_s: 0.0, volume: 0.0, pressure: 0.0, flow: 0.0 }); renderSteps();
+    }
     function removeStep(idx) { steps.splice(idx, 1); renderSteps(); }
     function runCustomProfile() {
         const name = document.getElementById('prof-name').value;

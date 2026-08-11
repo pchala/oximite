@@ -267,8 +267,14 @@ pub static SIG_FLASH_UPDATE: Signal<CriticalSectionRawMutex, FlashUpdate> = Sign
 pub async fn flash_update_task(
     mut flash: Flash<'static, embassy_rp::peripherals::FLASH, Async, FLASH_SIZE>,
 ) {
+    let mut state_rx = crate::state::MACHINE_STATE.receiver().unwrap();
     loop {
         let event = SIG_FLASH_UPDATE.wait().await;
+
+        while crate::state::get_state().is_busy() {
+            state_rx.changed().await;
+        }
+
         match event {
             FlashUpdate::SaveMachine(m) => {
                 let _ = SettingsStore::save_section(&mut flash, b"sys_machine", &m).await;

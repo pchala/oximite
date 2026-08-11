@@ -22,7 +22,7 @@ use embassy_time::{Duration, Instant, Ticker};
 use crate::control::{self, TargetTempMode};
 use crate::operations::{self, Operation};
 use crate::settings::{FlashUpdate, Settings, SIG_FLASH_UPDATE};
-use crate::state::{self, MachineCommand, MachineState};
+use crate::state::{self, Ambient, MachineCommand, MachineState};
 
 // ==========================================
 // POWER MANAGEMENT
@@ -129,13 +129,13 @@ async fn stop_to_idle() {
 // STATE MACHINE TRANSITION TABLE
 // ==========================================
 
-/// Commands that are valid in any state and must never disturb a running
-/// operation. Returns true if the command was consumed.
+/// Applies an ambient command — see [`MachineCommand::ambient`], which is the
+/// single definition of that set and the caller's gate.
 ///
-/// Split out because this is exactly the set that has to survive an operation:
-/// saving settings or nudging the session temperature mid-shot must be applied
-/// without cancelling the shot.
-async fn handle_ambient(cmd: &MachineCommand) -> bool {
+/// Split out because `serve` calls it from two places: immediately, when the
+/// machine is idle enough to take it, and again from `coordinator_task` when a
+/// save that was held during an operation is finally applied.
+async fn apply_ambient(cmd: &MachineCommand) {
     match cmd {
         MachineCommand::SaveMachine(m) => {
             let mut s = Settings::get().await;
@@ -160,6 +160,14 @@ async fn handle_ambient(cmd: &MachineCommand) -> bool {
             Settings::update_ram(s).await;
             SIG_FLASH_UPDATE.signal(FlashUpdate::SaveWifi(w.clone()));
         }
+        MachineCommand::SaveProfile(slot, p) => {
+            crate::profiles::save_profile_to_ram(*slot, p.clone()).await;
+            SIG_FLASH_UPDATE.signal(FlashUpdate::SaveProfile(*slot));
+        }
+        MachineCommand::DeleteProfile(slot) => {
+            crate::profiles::delete_profile_from_ram(*slot).await;
+            SIG_FLASH_UPDATE.signal(FlashUpdate::DeleteProfile(*slot));
+        }
         MachineCommand::SetSessionTemp(t) => {
             state::set_session_brew_temp(*t);
             // Apply instantly, but only if the current state actually wants
@@ -169,19 +177,18 @@ async fn handle_ambient(cmd: &MachineCommand) -> bool {
                 control::set_target_temp(TargetTempMode::Brew).await;
             }
         }
-        _ => return false,
+        _ => defmt::warn!(
+            "Ambient command with no handler — MachineCommand::ambient and apply_ambient have drifted"
+        ),
     }
-    true
 }
 
 /// Decides what `cmd` means in `state`, applying the transition and returning
 /// what should happen to the running operation. Acting on that is the caller's
 /// job.
+///
+/// Ambient commands never arrive here — `serve` consumes them first.
 async fn handle_command(state: MachineState, cmd: MachineCommand) -> Outcome {
-    if handle_ambient(&cmd).await {
-        return Outcome::Continue;
-    }
-
     match (state, cmd) {
         // --- Idle: the only state an operation can start from ---
         // Nothing is running here, so the arms that don't start anything are
@@ -281,36 +288,58 @@ async fn operation_or_idle(op: Option<Operation>, valve: &mut Output<'static>) {
     }
 }
 
-/// Everything a command gets regardless of what the machine is doing:
-/// activity tracking, the sleep auto-wake, then the transition table.
+/// Everything a command gets regardless of what the machine is doing: activity
+/// tracking, ambient handling, the sleep auto-wake, then the transition table.
 ///
 /// One path, so the idle and busy cases cannot drift apart. The previous
 /// two-loop structure updated `last_activity` and honoured the auto-wake in
 /// only one of them, and the other was correct only because `Sleeping` happens
 /// not to be in `MachineState::is_busy()` — an invariant held in another file.
-async fn serve(cmd: MachineCommand, last_activity: &mut Instant) -> Outcome {
+async fn serve(
+    cmd: MachineCommand,
+    last_activity: &mut Instant,
+    pending: &mut Option<MachineCommand>,
+) -> Outcome {
     defmt::info!("Coordinator received command: {:?}", cmd);
     *last_activity = Instant::now();
 
-    // Auto-wake: any command except a settings save wakes the machine.
-    // The waking command itself is dropped — we don't want to start a cold
-    // brew if the user pressed Brew just to wake it up.
-    if state::get_state() == MachineState::Sleeping {
-        match cmd {
-            MachineCommand::SaveMachine(_)
-            | MachineCommand::SavePids(_, _, _)
-            | MachineCommand::SaveWifi(_)
-            // Adjusting the brew target must not fire up the boiler, and
-            // must not be discarded either — it is stored and takes effect
-            // on the next wake, when `enter()` reads it.
-            | MachineCommand::SetSessionTemp(_) => {
-                // fall through — these apply silently without waking
-            }
-            _ => {
-                wake_up().await;
-                return Outcome::Continue;
-            }
+    // Ambient commands are consumed here, before the state machine sees them:
+    // they apply in every state, so neither a running operation nor the
+    // auto-wake below is any of their business. Adjusting the brew target
+    // while asleep must not fire up the boiler, and must not be discarded
+    // either — it is stored and takes effect on the next wake, when `enter()`
+    // reads it.
+    match cmd.ambient() {
+        Ambient::No => {}
+        Ambient::RamOnly => {
+            apply_ambient(&cmd).await;
+            return Outcome::Continue;
         }
+        Ambient::RamAndFlash => {
+            if state::get_state().is_busy() {
+                // One slot, so two *different* saves during a single operation
+                // keep only the later one
+                if pending.is_some() {
+                    defmt::warn!("Held flash write replaced by a newer one — earlier save dropped");
+                }
+                defmt::info!(
+                    "Flash write held until the current operation finishes: {:?}",
+                    cmd
+                );
+                *pending = Some(cmd);
+            } else {
+                apply_ambient(&cmd).await;
+            }
+            return Outcome::Continue;
+        }
+    }
+
+    // Auto-wake: every remaining command wakes the machine. The waking command
+    // itself is dropped — we don't want to start a cold brew if the user
+    // pressed Brew just to wake it up.
+    if state::get_state() == MachineState::Sleeping {
+        wake_up().await;
+        return Outcome::Continue;
     }
 
     handle_command(state::get_state(), cmd).await
@@ -319,13 +348,15 @@ async fn serve(cmd: MachineCommand, last_activity: &mut Instant) -> Outcome {
 /// Owns `MachineState`, the valve, and the one operation that may be running.
 ///
 /// `handle_command` stays the single authority on what a command means. Only
-/// the ambient commands (`handle_ambient`: settings saves and
-/// `SetSessionTemp`) leave a running operation alone — they are consumed
-/// without touching the state, so a mid-shot save applies while the shot keeps
-/// pouring. Every other command arriving in a busy state either takes one of
-/// `Steaming`'s two onward transitions or falls to the `is_busy()` arm, which
-/// stops the machine; that includes a stray `RunProfile` from the web UI,
-/// which aborts the running shot rather than being ignored.
+/// the ambient commands ([`MachineCommand::ambient`]: settings saves, profile
+/// storage and `SetSessionTemp`) leave a running operation alone — they are
+/// consumed by `serve` without touching the state, so a mid-shot session-temp
+/// nudge applies while the shot keeps pouring, and a mid-shot settings save is
+/// held until the shot ends rather than stalling core0 on a flash erase. Every
+/// other command arriving in a busy state either takes one of `Steaming`'s two
+/// onward transitions or falls to the `is_busy()` arm, which stops the
+/// machine; that includes a stray `RunProfile` from the web UI, which aborts
+/// the running shot rather than being ignored.
 ///
 /// Cancelling *is* dropping `running`; its `PumpGuard`, `BrewActiveGuard` and
 /// `SolenoidGuard` unwind the hardware to a safe state. That drop happens when
@@ -338,6 +369,8 @@ pub async fn coordinator_task(valve: Output<'static>) {
     // an operation ends — see the comment there.
     let mut last_activity;
     let mut current: Option<Operation> = None;
+    // A settings save that arrived mid-operation, waiting for an idle moment.
+    let mut pending: Option<MachineCommand> = None;
     let mut housekeeping = Ticker::every(HOUSEKEEPING);
 
     let initial_temp = crate::settings::ControlSettings::current()
@@ -353,6 +386,20 @@ pub async fn coordinator_task(valve: Output<'static>) {
         // operation — a long steam session would otherwise finish with a
         // stale timestamp and drop straight into sleep.
         last_activity = Instant::now();
+
+        // An operation just ended. Apply whatever `serve` held back while it
+        // ran, now that a flash erase can no longer stall the control loop.
+        // The `is_busy` check keeps it pending if the user chained straight
+        // into another operation; the next idle moment gets it.
+        if pending.is_some() && !state::get_state().is_busy() {
+            if let Some(cmd) = pending.take() {
+                defmt::info!(
+                    "Applying flash write held during the last operation: {:?}",
+                    cmd
+                );
+                apply_ambient(&cmd).await;
+            }
+        }
 
         let name = current.as_ref().map(|op| op.name());
         if let Some(name) = name {
@@ -374,7 +421,7 @@ pub async fn coordinator_task(valve: Output<'static>) {
                     stop_to_idle().await;
                     break;
                 }
-                Either3::Second(cmd) => match serve(cmd, &mut last_activity).await {
+                Either3::Second(cmd) => match serve(cmd, &mut last_activity, &mut pending).await {
                     Outcome::Continue => continue,
                     Outcome::Cancel => break,
                     Outcome::Start(next) => {

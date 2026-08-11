@@ -30,9 +30,7 @@ use embedded_io_async::Write;
 use serde::{Deserialize, Serialize};
 
 use crate::profiles::BrewProfile;
-use crate::settings::{
-    FlashUpdate, MachineSettings, PidSettings, Settings, WifiSettings, SIG_FLASH_UPDATE,
-};
+use crate::settings::{MachineSettings, PidSettings, Settings, WifiSettings};
 use crate::state::{
     get_session_brew_temp, get_state, get_telemetry, send_command, MachineCommand, MachineState,
     Telemetry, TELEMETRY_WATCH,
@@ -240,14 +238,12 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
         }
         "save_profile" => {
             if let (Some(slot), Some(p)) = (payload.slot, payload.profile) {
-                crate::profiles::save_profile_to_ram(slot, p).await;
-                SIG_FLASH_UPDATE.signal(FlashUpdate::SaveProfile(slot));
+                send_command(MachineCommand::SaveProfile(slot, p));
             }
         }
         "delete_profile" => {
             if let Some(slot) = payload.slot {
-                crate::profiles::delete_profile_from_ram(slot).await;
-                SIG_FLASH_UPDATE.signal(FlashUpdate::DeleteProfile(slot));
+                send_command(MachineCommand::DeleteProfile(slot));
             }
         }
         _ => {

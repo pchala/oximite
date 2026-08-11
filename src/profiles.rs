@@ -15,6 +15,13 @@ use crate::board::{FLASH_SIZE, FS_RANGE};
 
 const MAX_PROFILES: u8 = 10;
 
+/// Maximum steps in a brew profile.
+///
+/// This bounds `MachineCommand::SaveProfile`, which travels through the
+/// command queue, so every step costs its 32 bytes in each of the queue's four
+/// slots. Five covers pre-infuse, ramp, hold, decline and a tail.
+pub const MAX_STEPS: usize = 5;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BrewProfileStep {
     pub time_s: Option<f32>,
@@ -26,7 +33,7 @@ pub struct BrewProfileStep {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BrewProfile {
     pub name: heapless::String<32>,
-    pub steps: heapless::Vec<BrewProfileStep, 10>,
+    pub steps: heapless::Vec<BrewProfileStep, MAX_STEPS>,
 }
 
 /// Profile used by a bare `Brew` command: slot 0 if one is saved, otherwise a
@@ -105,8 +112,9 @@ pub async fn load_all_profiles_from_flash<T: Instance>(
             fetch_item(flash, FS_RANGE, &mut NoCache::new(), &mut scratch, &key).await;
 
         if let Ok(Some(item_bytes)) = fetch_result {
-            if let Ok((profile, _)) = serde_json_core::from_slice::<BrewProfile>(item_bytes) {
-                cache[slot as usize] = Some(profile);
+            match serde_json_core::from_slice::<BrewProfile>(item_bytes) {
+                Ok((profile, _)) => cache[slot as usize] = Some(profile),
+                Err(_) => defmt::warn!("Profile slot {} failed to parse — ignoring", slot),
             }
         }
     }

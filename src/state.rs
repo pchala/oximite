@@ -55,8 +55,48 @@ pub enum MachineCommand {
         Option<crate::settings::PidSettings>,
     ),
     SaveWifi(crate::settings::WifiSettings),
+    /// Store a profile in `slot`, mirroring it to flash. Routed through the
+    /// coordinator rather than signalled straight to the flash task so it is
+    /// held back during a shot like every other flash write.
+    SaveProfile(u8, crate::profiles::BrewProfile),
+    DeleteProfile(u8),
     TogglePower,
     SetSessionTemp(f32),
+}
+
+/// How the coordinator should treat a command before the state machine sees
+/// it. See [`MachineCommand::ambient`].
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum Ambient {
+    /// Carries a machine action: goes to the transition table.
+    No,
+    /// Applies immediately in any state, touching RAM only.
+    RamOnly,
+    RamAndFlash,
+}
+
+impl MachineCommand {
+    /// Whether this command bypasses the state machine, and if so whether it
+    /// reaches flash.
+    pub fn ambient(&self) -> Ambient {
+        match self {
+            MachineCommand::SaveMachine(_)
+            | MachineCommand::SavePids(_, _, _)
+            | MachineCommand::SaveWifi(_)
+            | MachineCommand::SaveProfile(_, _)
+            | MachineCommand::DeleteProfile(_) => Ambient::RamAndFlash,
+
+            MachineCommand::SetSessionTemp(_) => Ambient::RamOnly,
+
+            MachineCommand::RunProfile(_)
+            | MachineCommand::Brew
+            | MachineCommand::Stop
+            | MachineCommand::Steam
+            | MachineCommand::Flush
+            | MachineCommand::DirectPump(_)
+            | MachineCommand::TogglePower => Ambient::No,
+        }
+    }
 }
 
 impl defmt::Format for MachineCommand {
@@ -71,6 +111,8 @@ impl defmt::Format for MachineCommand {
             MachineCommand::SaveMachine(_) => defmt::write!(fmt, "SaveMachine"),
             MachineCommand::SavePids(_, _, _) => defmt::write!(fmt, "SavePids"),
             MachineCommand::SaveWifi(_) => defmt::write!(fmt, "SaveWifi"),
+            MachineCommand::SaveProfile(slot, _) => defmt::write!(fmt, "SaveProfile({})", slot),
+            MachineCommand::DeleteProfile(slot) => defmt::write!(fmt, "DeleteProfile({})", slot),
             MachineCommand::TogglePower => defmt::write!(fmt, "TogglePower"),
             MachineCommand::SetSessionTemp(t) => defmt::write!(fmt, "SetSessionTemp({})", t),
         }

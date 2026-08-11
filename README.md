@@ -98,17 +98,17 @@ needing a watchdog.
 Four consecutive cycles, with `Dn` the pump duty and `Hn` the heater bit decided
 on cycle *n*:
 
-| t (ms) | ZC | Half-wave | Control task | Pump triac (random-phase MOC) | Piston / water | Heater (zero-cross MOC) |
+| t (ms) | ZC | Half-wave | Trigger SM (PIO) | Control task | Pump triac (random-phase MOC) | Heater (zero-cross MOC) |
 | ---: | :--: | :-- | :-- | :-- | :-- | :-- |
-| 0  | ↑ | HIGH | wake; sample ADC + flow; compute `D1`,`H1`; push both FIFOs | SM parked in `wait 0` holding `D1` | delivering the previous stroke | — |
-| 10 | ↓ | **LOW** | idle | edge seen → delay `d(D1)` → gate at `10+d1` | **intake** — spring compressing, *flow sensor sees this* | `wait 0` → `nop [31]` |
-| 20 | ↑ | HIGH | wake; compute `D2`,`H2` | mains current zero → triac commutates off | **delivery** of `D1` into the puck | `H1` latched at 12 ms; MOC turns on here for one full cycle |
-| 30 | ↓ | **LOW** | idle | gate at `30+d2` | intake for `D2` | `H2` latched at 32 ms |
-| 40 | ↑ | HIGH | wake; compute `D3`,`H3` | off | delivery of `D2` | `H2` conducts |
-| 50 | ↓ | **LOW** | idle | gate at `50+d3` | intake for `D3` | `H3` latched at 52 ms |
-| 60 | ↑ | HIGH | wake; compute `D4`,`H4` | off | delivery of `D3` | `H3` conducts |
-| 70 | ↓ | **LOW** | idle | gate at `70+d4` | intake for `D4` | `H4` latched at 72 ms |
-| 80 | ↑ | HIGH | wake; compute `D5`,`H5` | off | delivery of `D4` | `H4` conducts |
+| 0  | ↑ | HIGH | rising edge → `push` the LOW-window count (~10 000 µs); re-arms on `wait 0` | woken by that word; drain FIFO → newest, EMA it; sample ADC + flow; compute `D1`,`H1`; push both FIFOs | SM parked in `wait 0` holding `D1` | — |
+| 10 | ↓ | **LOW** | falling edge → counting at 1 µs per count | idle | edge seen → delay `d(D1)` → gate at `10+d1` | `wait 0` → `nop [31]` |
+| 20 | ↑ | HIGH | `push` word 2 | wake; compute `D2`,`H2` | mains current zero → triac commutates off | `H1` latched at 12 ms; MOC turns on here for one full cycle |
+| 30 | ↓ | **LOW** | counting | idle | gate at `30+d2` | `H2` latched at 32 ms |
+| 40 | ↑ | HIGH | `push` word 3 | wake; compute `D3`,`H3` | off | `H2` conducts |
+| 50 | ↓ | **LOW** | counting | idle | gate at `50+d3` | `H3` latched at 52 ms |
+| 60 | ↑ | HIGH | `push` word 4 | wake; compute `D4`,`H4` | off | `H3` conducts |
+| 70 | ↓ | **LOW** | counting | idle | gate at `70+d4` | `H4` latched at 72 ms |
+| 80 | ↑ | HIGH | `push` word 5 | wake; compute `D5`,`H5` | off | `H4` conducts |
 
 Consequences of this layout:
 
