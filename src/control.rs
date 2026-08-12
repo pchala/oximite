@@ -25,7 +25,7 @@ use crate::pid::PidController;
 use crate::settings::Settings;
 use crate::state::{Telemetry, TELEMETRY_WATCH};
 
-pub static SIG_TARGET_TEMP: Signal<CriticalSectionRawMutex, f32> = Signal::new();
+static SIG_TARGET_TEMP: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 
 pub enum TargetTempMode {
     Brew,
@@ -71,7 +71,7 @@ impl PumpMode {
     }
 }
 
-pub static SIG_PUMP_MODE: Signal<CriticalSectionRawMutex, PumpMode> = Signal::new();
+static SIG_PUMP_MODE: Signal<CriticalSectionRawMutex, PumpMode> = Signal::new();
 
 // RAII guard for the pump: applies `mode` when created/changed, and always
 // returns the pump to idle when dropped
@@ -96,7 +96,7 @@ impl Drop for PumpGuard {
     }
 }
 
-pub static SIG_BREW_ACTIVE: Signal<CriticalSectionRawMutex, bool> = Signal::new();
+static SIG_BREW_ACTIVE: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
 /// RAII guard marking that a real brew profile (not cooldown flush, hot water,
 /// or a raw direct-pump command) is running. While it is armed,
@@ -266,26 +266,14 @@ pub async fn ac_sync_control_task(
 
     // Load initial settings
     let initial_s = Settings::get().await;
-    let mut press_pid = PidController::new(
-        initial_s.press_pid.kp,
-        initial_s.press_pid.ki,
-        initial_s.press_pid.kd,
-    );
+    let mut press_pid = PidController::new(&initial_s.press_pid);
 
-    let mut temp_pid = PidController::new(
-        initial_s.temp_pid.kp,
-        initial_s.temp_pid.ki,
-        initial_s.temp_pid.kd,
-    );
+    let mut temp_pid = PidController::new(&initial_s.temp_pid);
 
     // Drives pump duty straight from the flow error. Takes over from the
     // pressure loop entirely whenever a step asks for a flow rate — the OPV is
     // the pressure backstop in that mode, not the sensor.
-    let mut flow_pid = PidController::new(
-        initial_s.flow_pid.kp,
-        initial_s.flow_pid.ki,
-        initial_s.flow_pid.kd,
-    );
+    let mut flow_pid = PidController::new(&initial_s.flow_pid);
 
     // Dynamic targets
     let mut mode = PumpMode::Idle;
@@ -333,9 +321,9 @@ pub async fn ac_sync_control_task(
         let (mut target_p, mut flow_limit) = mode.pressure_and_flow_limit();
         if let Some(new_mode) = SIG_PUMP_MODE.try_take() {
             let (new_bar, new_fl) = new_mode.pressure_and_flow_limit();
-            press_pid.set_coeffs(s.press_pid.kp, s.press_pid.ki, s.press_pid.kd);
+            press_pid.set_coeffs(&s.press_pid);
             press_pid.reset_if_reactivated(target_p, new_bar);
-            flow_pid.set_coeffs(s.flow_pid.kp, s.flow_pid.ki, s.flow_pid.kd);
+            flow_pid.set_coeffs(&s.flow_pid);
             // Only the start of a shot clears the integral.
             flow_pid.reset_if_reactivated(flow_limit, new_fl);
             mode = new_mode;
@@ -350,7 +338,7 @@ pub async fn ac_sync_control_task(
             brew_active = ba;
         }
         if let Some(tt) = SIG_TARGET_TEMP.try_take() {
-            temp_pid.set_coeffs(s.temp_pid.kp, s.temp_pid.ki, s.temp_pid.kd);
+            temp_pid.set_coeffs(&s.temp_pid);
             temp_pid.reset_if_reactivated(target_t, tt);
             target_t = tt;
             const CONST_FF: f32 = 0.021; // balance for the boiler/brew group

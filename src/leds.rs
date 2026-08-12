@@ -1,7 +1,5 @@
 use embassy_futures::select::select;
-use embassy_rp::pio::{
-    Common, Config, Direction, FifoJoin, Instance, Pin, ShiftDirection, StateMachine,
-};
+use embassy_rp::pio::{Common, Config, Direction, FifoJoin, Pin, ShiftDirection, StateMachine};
 use embassy_time::{Duration, Instant, Timer};
 use fixed::FixedU32;
 use pio::pio_asm;
@@ -24,10 +22,12 @@ impl Rgb {
     }
 }
 
-pub fn setup_ws2812_sm<P: Instance, const SM: usize>(
-    common: &mut Common<'static, P>,
-    sm: &mut StateMachine<'static, P, SM>,
-    pin: Pin<'static, P>,
+type LedSm = StateMachine<'static, embassy_rp::peripherals::PIO2, 1>;
+
+pub fn setup_ws2812_sm(
+    common: &mut Common<'static, embassy_rp::peripherals::PIO2>,
+    sm: &mut LedSm,
+    pin: Pin<'static, embassy_rp::peripherals::PIO2>,
 ) {
     let prg = pio_asm!(
         ".side_set 1",
@@ -59,8 +59,6 @@ pub fn setup_ws2812_sm<P: Instance, const SM: usize>(
     sm.set_pin_dirs(Direction::Out, &[&pin]);
     sm.set_enable(true);
 }
-
-type LedSm = StateMachine<'static, embassy_rp::peripherals::PIO2, 1>;
 
 /// Clocks one frame out to the strip. Both words go into the FIFO back-to-back
 /// with no `await` between them, so the PIO never stalls mid-frame — a stall

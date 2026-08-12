@@ -129,6 +129,14 @@ async fn stop_to_idle() {
 // STATE MACHINE TRANSITION TABLE
 // ==========================================
 
+/// Reads settings, applies `edit`, and republishes them to RAM. The three
+/// settings-saving arms below differ only in which field they touch.
+async fn edit_settings(edit: impl FnOnce(&mut Settings)) {
+    let mut s = Settings::get().await;
+    edit(&mut s);
+    Settings::update_ram(s).await;
+}
+
 /// Applies an ambient command — see [`MachineCommand::ambient`], which is the
 /// single definition of that set and the caller's gate.
 ///
@@ -138,26 +146,23 @@ async fn stop_to_idle() {
 async fn apply_ambient(cmd: &MachineCommand) {
     match cmd {
         MachineCommand::SaveMachine(m) => {
-            let mut s = Settings::get().await;
-            s.machine = *m;
-            Settings::update_ram(s).await;
+            edit_settings(|s| s.machine = *m).await;
             SIG_FLASH_UPDATE.signal(FlashUpdate::SaveMachine(*m));
         }
         MachineCommand::SavePids(t, p, f) => {
-            let mut s = Settings::get().await;
-            s.temp_pid = *t;
-            s.press_pid = *p;
-            if let Some(f) = f {
-                s.flow_pid = *f;
-            }
-            Settings::update_ram(s).await;
+            edit_settings(|s| {
+                s.temp_pid = *t;
+                s.press_pid = *p;
+                if let Some(f) = f {
+                    s.flow_pid = *f;
+                }
+            })
+            .await;
             SIG_FLASH_UPDATE.signal(FlashUpdate::SavePids(*t, *p, *f));
         }
         MachineCommand::SaveWifi(w) => {
             defmt::info!("Settings: New SSID: {}", w.ssid.as_str());
-            let mut s = Settings::get().await;
-            s.wifi = w.clone();
-            Settings::update_ram(s).await;
+            edit_settings(|s| s.wifi = w.clone()).await;
             SIG_FLASH_UPDATE.signal(FlashUpdate::SaveWifi(w.clone()));
         }
         MachineCommand::SaveProfile(slot, p) => {

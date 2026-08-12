@@ -12,11 +12,11 @@ pub struct PidController {
 }
 
 impl PidController {
-    pub fn new(kp: f32, ki: f32, kd: f32) -> Self {
+    pub fn new(gains: &crate::settings::PidSettings) -> Self {
         Self {
-            kp,
-            ki,
-            kd,
+            kp: gains.kp,
+            ki: gains.ki,
+            kd: gains.kd,
             i_term: 0.0,
             prev_measurement: 0.0,
             last_time: None,
@@ -33,10 +33,10 @@ impl PidController {
             self.reset();
         }
     }
-    pub fn set_coeffs(&mut self, kp: f32, ki: f32, kd: f32) {
-        self.kp = kp;
-        self.ki = ki;
-        self.kd = kd;
+    pub fn set_coeffs(&mut self, gains: &crate::settings::PidSettings) {
+        self.kp = gains.kp;
+        self.ki = gains.ki;
+        self.kd = gains.kd;
     }
     /// `target` is provided by the caller on every call rather than stored
     /// internally, since callers already track the current setpoint locally

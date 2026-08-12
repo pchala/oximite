@@ -7,6 +7,12 @@ use embassy_time::Duration;
 
 use crate::state::{SensorReading, SENSOR_WATCH};
 
+/// Conversions taken per channel per cycle, and how many of the trailing ones
+/// are averaged. The leading `SAMPLE_TOTAL - SAMPLE_KEEP` are thrown away to
+/// let the sample-and-hold capacitor settle.
+const SAMPLE_TOTAL: usize = 10;
+const SAMPLE_KEEP: usize = 5;
+
 /// Raw ADC counts to boiler temperature in °C, by linear interpolation between
 /// the two `NTC_LUT` entries that bracket the reading.
 fn get_temp_from_adc(raw_adc: f32) -> f32 {
@@ -36,23 +42,19 @@ fn get_pressure_from_adc(raw_adc: f32) -> f32 {
     ((raw_adc * ADC_TO_VOLTS - V_AT_ZERO_BAR) * BAR_PER_VOLT).max(0.0)
 }
 
-// Samples `total` conversions from `ch`, discarding the leading `total - keep`
-// (letting the sample-and-hold cap settle) and returning the average of the rest.
-async fn sample_avg(
-    adc: &mut Adc<'static, Async>,
-    ch: &mut Channel<'static>,
-    total: usize,
-    keep: usize,
-) -> f32 {
-    let discard = total - keep;
+// Samples `SAMPLE_TOTAL` conversions from `ch`, discarding the leading ones
+// (letting the sample-and-hold cap settle) and returning the average of the
+// last `SAMPLE_KEEP`.
+async fn sample_avg(adc: &mut Adc<'static, Async>, ch: &mut Channel<'static>) -> f32 {
+    let discard = SAMPLE_TOTAL - SAMPLE_KEEP;
     let mut sum: u32 = 0;
-    for i in 0..total {
+    for i in 0..SAMPLE_TOTAL {
         let v = adc.read(ch).await.unwrap_or(0) as u32;
         if i >= discard {
             sum += v;
         }
     }
-    sum as f32 / keep as f32
+    sum as f32 / SAMPLE_KEEP as f32
 }
 
 #[embassy_executor::task]
@@ -67,11 +69,11 @@ pub async fn adc_task(
     let mut ticker = embassy_time::Ticker::every(Duration::from_hz(500));
 
     loop {
-        // Sample each channel `total` times; discard the first `total - keep` to allow the ADC
+        // Discard the first `SAMPLE_TOTAL - SAMPLE_KEEP` samples to allow the ADC
         // sample-and-hold capacitor to fully charge through the 1k series resistor on the analog
-        // lines, then average the last `keep` samples to knock down noise before the EMA filter.
-        let raw_p = sample_avg(&mut adc, &mut ch_p, 10, 5).await;
-        let raw_t = sample_avg(&mut adc, &mut ch_t, 10, 5).await;
+        // lines, then average the rest to knock down noise before the EMA filter.
+        let raw_p = sample_avg(&mut adc, &mut ch_p).await;
+        let raw_t = sample_avg(&mut adc, &mut ch_t).await;
 
         if !initialized {
             p_ema = raw_p;
@@ -99,7 +101,7 @@ pub async fn adc_task(
 
 /// Boiler temperature in C at each of the 1025 quarter-scale ADC steps, so
 /// index `n` corresponds to a raw reading of `n * 4`.
-pub const NTC_LUT: [f32; 1025] = [
+const NTC_LUT: [f32; 1025] = [
     300.00, 300.00, 300.00, 300.00, 300.00, 300.00, 300.00, 300.00, 300.00, 295.09, 287.69, 281.17,
     275.29, 270.04, 265.21, 260.83, 256.78, 253.01, 249.51, 246.22, 243.16, 240.27, 237.53, 234.94,
     232.50, 230.15, 227.92, 225.80, 223.77, 221.81, 219.95, 218.14, 216.41, 214.74, 213.13, 211.58,

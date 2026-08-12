@@ -10,7 +10,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use portable_atomic::AtomicU32;
 
-pub static SIG_RESET_VOLUME: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+static SIG_RESET_VOLUME: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Accumulated shot volume in ml, held as `f32` bits.
 ///
@@ -31,7 +31,7 @@ pub fn shot_volume_ml() -> f32 {
     f32::from_bits(VOLUME_ML.load(Ordering::Relaxed))
 }
 
-pub const CYCLES_PER_LOOP: f32 = 2.0;
+const CYCLES_PER_LOOP: f32 = 2.0;
 
 /// Counts to add to each PIO half-period to account for the cycles the state
 /// machine spends outside its counting loops: 4 counts per pulse, split evenly
@@ -187,7 +187,10 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
     let pulses_per_liter = if s.machine.flow_pulses_per_liter > 0.0 {
         s.machine.flow_pulses_per_liter
     } else {
-        98324.0 // 49162 physical pulses/L × 2 edges; fallback if flash value is 0
+        // Fallback if the flash value is 0.
+        crate::settings::DEFAULT_SETTINGS
+            .machine
+            .flow_pulses_per_liter
     };
     let ml_per_pulse: f32 = 1000.0 / pulses_per_liter;
     let flow_numerator: f32 = (crate::board::SYS_CLK_HZ / CYCLES_PER_LOOP) * ml_per_pulse;

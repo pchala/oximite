@@ -217,18 +217,14 @@ pub struct Telemetry {
 }
 
 impl Telemetry {
-    /// Returns `(display_temp, display_target_temp, display_effective_target)`
-    /// with the boiler offset subtracted for non-steam modes.
-    pub fn display_temps(&self, offset: f32, is_steaming: bool) -> (f32, f32, f32) {
+    /// Group-head temperature for display: the measured boiler value with the
+    /// boiler-to-group offset subtracted, except while steaming, where the
+    /// boiler value *is* what the UI shows.
+    pub fn display_temp(&self, offset: f32, is_steaming: bool) -> f32 {
         if is_steaming {
-            (self.temp_c, self.target_temp, self.effective_target_temp)
+            self.temp_c
         } else {
-            let adj = |v: f32| if v > 0.0 { v - offset } else { 0.0 };
-            (
-                self.temp_c - offset,
-                adj(self.target_temp),
-                adj(self.effective_target_temp),
-            )
+            self.temp_c - offset
         }
     }
 }
@@ -240,19 +236,10 @@ pub static TELEMETRY_WATCH: Watch<CriticalSectionRawMutex, Telemetry, 4> = Watch
 /// the first few milliseconds after boot and act on it.
 pub fn get_telemetry() -> Telemetry {
     TELEMETRY_WATCH.try_get().unwrap_or(Telemetry {
-        tick: 0,
-        pressure_bar: 0.0,
         temp_c: 20.0,
-        target_bar: 0.0,
-        effective_target_bar: 0.0,
         target_temp: 20.0,
         effective_target_temp: 20.0,
-        flow_limit_ml_s: 0.0,
-        flow_rate_ml_s: 0.0,
-        volume_ml: 0.0,
-        flow_controlled: false,
-        heater_duty: 0.0,
-        pump_duty: 0.0,
+        ..Default::default()
     })
 }
 
@@ -276,7 +263,7 @@ pub fn set_state(state: MachineState) {
     }
 }
 
-pub static SESSION_BREW_TEMP: AtomicU32 = AtomicU32::new(0);
+static SESSION_BREW_TEMP: AtomicU32 = AtomicU32::new(0);
 
 pub fn get_session_brew_temp() -> f32 {
     f32::from_bits(SESSION_BREW_TEMP.load(Ordering::Relaxed))

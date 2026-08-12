@@ -35,23 +35,27 @@ const MAX_PUMP_RUN_S: u64 = 60;
 /// is legitimately slower than rinsing the group head.
 const MAX_HOT_WATER_S: u64 = 120;
 
+/// Per-step ceiling, racing whatever limits the step set for itself. Catches a
+/// step whose declared time exceeds this, and is the *only* bound on a
+/// volume-only step whose target is never reached — which is why such a step
+/// needs no default duration of its own.
+const STEP_SAFETY_S: u64 = 120;
+
 async fn execute_profile(profile: BrewProfile) {
     defmt::info!("Executing profile: {}", profile.name.as_str());
     let mut pump = PumpGuard::engage(PumpMode::Idle);
     let _brew_active = BrewActiveGuard::engage();
 
     for (i, step) in profile.steps.iter().enumerate() {
-        let mut time_s = step.time_s.unwrap_or(120.0);
+        let time_s = step.time_s.unwrap_or(0.0);
         let volume = step.volume.unwrap_or(0.0);
         let pressure = step.pressure.unwrap_or(0.0);
         let flow = step.flow.unwrap_or(0.0);
 
-        if time_s == 0.0 && volume == 0.0 {
+        // Neither a time nor a volume limit means nothing would ever end the
+        // step but the safety ceiling.
+        if time_s <= 0.0 && volume <= 0.0 {
             continue;
-        }
-
-        if time_s == 0.0 {
-            time_s = 120.0;
         }
 
         defmt::info!(
@@ -72,39 +76,34 @@ async fn execute_profile(profile: BrewProfile) {
             });
         }
 
-        let time_fut = async {
-            if time_s > 0.0 {
-                Timer::after(Duration::from_millis((time_s * 1000.0) as u64)).await;
-                defmt::info!("Step {} time limit reached", i);
-            } else {
+        let by_time = async {
+            if time_s <= 0.0 {
                 core::future::pending::<()>().await;
             }
+            Timer::after(Duration::from_millis((time_s * 1000.0) as u64)).await;
         };
-        let vol_fut = async {
-            if volume > 0.0 {
-                loop {
-                    // Cumulative across the whole profile, not per step —
-                    // `coordinator::start()` zeroes it once at profile start.
-                    // Read the counter itself, not the published watch, so a
-                    // reset is visible here without waiting on the flow task.
-                    if crate::flow_meter::shot_volume_ml() >= volume {
-                        defmt::info!("Step {} volume limit reached", i);
-                        break;
-                    }
-                    Timer::after(Duration::from_millis(50)).await;
-                }
-            } else {
+        let by_volume = async {
+            if volume <= 0.0 {
                 core::future::pending::<()>().await;
             }
+            // Cumulative across the whole profile, not per step —
+            // `coordinator::start()` zeroes it once at profile start.
+            while crate::flow_meter::shot_volume_ml() < volume {
+                Timer::after(Duration::from_millis(50)).await;
+            }
         };
-        let res = select(
-            select(time_fut, vol_fut),
-            Timer::after(Duration::from_secs(120)),
-        )
-        .await;
 
-        if let Either::Second(_) = res {
-            defmt::warn!("Step {} hit safety timeout (120s)!", i);
+        match select(
+            select(by_time, by_volume),
+            Timer::after(Duration::from_secs(STEP_SAFETY_S)),
+        )
+        .await
+        {
+            Either::First(Either::First(())) => defmt::info!("Step {} time limit reached", i),
+            Either::First(Either::Second(())) => defmt::info!("Step {} volume limit reached", i),
+            Either::Second(()) => {
+                defmt::warn!("Step {} hit safety timeout ({}s)!", i, STEP_SAFETY_S)
+            }
         }
     }
     defmt::info!("Profile '{}' completed\r\n", profile.name.as_str());
@@ -164,22 +163,12 @@ async fn execute_direct_pump(power: f32, max_run_s: u64) {
 // OPERATION DISPATCH
 // ==========================================
 
-/// Whether an operation needs the solenoid valve open (pressurizing the group
-/// head) while it runs. Operations that don't need it just leave it alone —
-/// it's already closed by the invariant that `SolenoidGuard` always closes it
-/// again on drop, and it starts closed at boot.
-#[derive(Clone, Copy)]
-enum Solenoid {
-    Open,
-    Closed,
-}
-
 /// RAII guard for the solenoid valve: opens it when created and
 /// unconditionally closes it again when dropped. This is the Rust equivalent
 /// of a context manager — every exit path (natural finish, cancellation, or an
 /// early return) closes the valve without relying on a manual `set_low()` at
 /// the end of the function. Only constructed for operations that actually open
-/// the valve (see `Solenoid`).
+/// the valve (see [`Operation::opens_valve`]).
 struct SolenoidGuard<'a> {
     valve: &'a mut Output<'static>,
 }
@@ -228,10 +217,14 @@ impl Operation {
         }
     }
 
-    fn solenoid(&self) -> Solenoid {
+    /// Whether this operation needs the solenoid valve open (pressurizing the
+    /// group head) while it runs. The rest leave it alone — it's already
+    /// closed by the invariant that `SolenoidGuard` always closes it again on
+    /// drop, and it starts closed at boot.
+    fn opens_valve(&self) -> bool {
         match self {
-            Operation::Profile(_) | Operation::DirectPump(_) => Solenoid::Open,
-            Operation::Steam | Operation::CooldownFlush | Operation::HotWater => Solenoid::Closed,
+            Operation::Profile(_) | Operation::DirectPump(_) => true,
+            Operation::Steam | Operation::CooldownFlush | Operation::HotWater => false,
         }
     }
 }
@@ -250,8 +243,8 @@ impl Operation {
 /// declared before the operation is awaited, so it is dropped *last*, and the
 /// pump is always returned to idle before the valve closes.
 pub async fn execute(op: Operation, valve: &mut Output<'static>) {
-    // Closed operations never touch the valve — it's already closed.
-    let _solenoid = matches!(op.solenoid(), Solenoid::Open).then(|| SolenoidGuard::open(valve));
+    // Operations that don't open the valve never touch it — it's already closed.
+    let _solenoid = op.opens_valve().then(|| SolenoidGuard::open(valve));
     match op {
         Operation::Profile(p) => execute_profile(p).await,
         Operation::Steam => execute_steam().await,

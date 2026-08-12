@@ -40,16 +40,6 @@ pub async fn wifi_init_task(
     force_ap: bool,
 ) {
     defmt::info!("Wifi: init task started");
-    setup_wifi(spawner, pwr, spi, force_ap).await;
-}
-
-async fn setup_wifi(
-    spawner: Spawner,
-    pwr: Output<'static>,
-    spi: cyw43_pio::PioSpi<'static, PIO1, 0>,
-    force_ap: bool,
-) {
-    defmt::info!("Wifi: setup_wifi started");
     // Firmware stored at reserved flash addresses (see flash-wifi.bat and memory.x)
     let fw = unsafe { core::slice::from_raw_parts(0x10FB0000 as *const u8, 231077) };
     let clm = unsafe { core::slice::from_raw_parts(0x10FEF000 as *const u8, 984) };
@@ -120,21 +110,17 @@ async fn setup_wifi(
             {
                 Ok(_) => {
                     defmt::info!("Wi-Fi: Connected to SSID");
-                    let mut link_up = false;
+                    // Wait up to 5 s for the link to come up, then hold here
+                    // until it drops. If it never came up, the `while` falls
+                    // straight through and the join is retried.
                     for _ in 0..50 {
                         if stack.is_link_up() {
-                            link_up = true;
                             break;
                         }
                         Timer::after(Duration::from_millis(100)).await;
                     }
-                    if link_up {
-                        loop {
-                            if !stack.is_link_up() {
-                                break;
-                            }
-                            Timer::after(Duration::from_millis(500)).await;
-                        }
+                    while stack.is_link_up() {
+                        Timer::after(Duration::from_millis(500)).await;
                     }
                 }
                 Err(_) => {

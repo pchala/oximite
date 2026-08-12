@@ -52,7 +52,8 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     // Initialize unused pins to Output Low to improve EMI immunity and power efficiency.
-    unsafe {
+    // Safe-boot fallback: if the 'flush' button (PIN 8) is held during boot, force AP mode.
+    let force_ap = unsafe {
         let p_steal = embassy_rp::Peripherals::steal();
         macro_rules! init_pins_low {
             ($p:expr; $($pin:ident),*) => {
@@ -67,21 +68,17 @@ async fn main(spawner: Spawner) {
             };
         }
         init_pins_hiz!(p_steal; PIN_26, PIN_27);
+
+        Input::new(p_steal.PIN_8, Pull::Up).is_low()
+    };
+    if force_ap {
+        defmt::warn!("Hardware override: Forcing AP mode!");
     }
+
     let mut flash: Flash<'static, _, embassy_rp::flash::Async, { board::FLASH_SIZE }> =
         Flash::new(p.FLASH, p.DMA_CH1, Irqs);
     SettingsStore::load(&mut flash).await;
     crate::profiles::load_all_profiles_from_flash(&mut flash).await;
-
-    // Safe-boot fallback: if the 'flush' button (PIN 8) is held during boot, force AP mode.
-    let mut force_ap = false;
-    {
-        let btn_flush = Input::new(unsafe { embassy_rp::Peripherals::steal().PIN_8 }, Pull::Up);
-        if btn_flush.is_low() {
-            defmt::warn!("Hardware override: Forcing AP mode!");
-            force_ap = true;
-        }
-    }
 
     let embassy_rp::pio::Pio {
         common: mut common1,

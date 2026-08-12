@@ -1,4 +1,4 @@
-use crate::board::{FLASH_SIZE, FS_RANGE};
+use crate::board::{FLASH_SIZE, FS_RANGE, FS_SCRATCH};
 use crate::profiles::{delete_profile_from_flash, get_profile_from_ram, save_profile_to_flash};
 use embassy_rp::flash::{Async, Flash, Instance};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -19,7 +19,7 @@ pub struct MachineSettings {
     /// °C offset between the boiler sensor and the group head / puck. Added to
     /// the session brew temperature to form the boiler setpoint
     /// (`control::set_target_temp`) and subtracted again for display
-    /// (`Telemetry::display_temps`). `operations::execute_cooldown_flush` also
+    /// (`Telemetry::display_temp`). `operations::execute_cooldown_flush` also
     /// uses it to stop early, once the boiler reaches
     /// `brew_temp + 2 * temp_offset`.
     pub temp_offset: f32,
@@ -71,7 +71,7 @@ pub struct Settings {
 }
 
 /// Single source of truth for defaults — used by both `Default` and the static cache.
-const DEFAULT_SETTINGS: Settings = Settings {
+pub const DEFAULT_SETTINGS: Settings = Settings {
     machine: MachineSettings {
         brew_temp: 92.0,
         steam_temp: 135.0,
@@ -127,18 +127,27 @@ pub struct ControlSettings {
     pub flow_pid: PidSettings,
 }
 
-impl Default for ControlSettings {
-    fn default() -> Self {
+impl From<&Settings> for ControlSettings {
+    /// The single place the control-relevant subset is spelled out — used by
+    /// both `Default` and `Settings::update_ram`, so a new field cannot reach
+    /// one and miss the other.
+    fn from(s: &Settings) -> Self {
         Self {
-            machine: DEFAULT_SETTINGS.machine,
-            temp_pid: DEFAULT_SETTINGS.temp_pid,
-            press_pid: DEFAULT_SETTINGS.press_pid,
-            flow_pid: DEFAULT_SETTINGS.flow_pid,
+            machine: s.machine,
+            temp_pid: s.temp_pid,
+            press_pid: s.press_pid,
+            flow_pid: s.flow_pid,
         }
     }
 }
 
-pub static CONTROL_SETTINGS: Watch<CriticalSectionRawMutex, ControlSettings, 2> = Watch::new();
+impl Default for ControlSettings {
+    fn default() -> Self {
+        Self::from(&DEFAULT_SETTINGS)
+    }
+}
+
+static CONTROL_SETTINGS: Watch<CriticalSectionRawMutex, ControlSettings, 2> = Watch::new();
 
 impl ControlSettings {
     /// Latest control-relevant settings. Cheap enough to call every tick of a
@@ -160,12 +169,9 @@ impl Settings {
     }
 
     pub async fn update_ram(new_settings: Self) {
-        CONTROL_SETTINGS.sender().send(ControlSettings {
-            machine: new_settings.machine,
-            temp_pid: new_settings.temp_pid,
-            press_pid: new_settings.press_pid,
-            flow_pid: new_settings.flow_pid,
-        });
+        CONTROL_SETTINGS
+            .sender()
+            .send(ControlSettings::from(&new_settings));
         *CURRENT_SETTINGS.lock().await = new_settings;
     }
 }
@@ -174,14 +180,19 @@ impl Settings {
 // FLASH PERSISTENCE - Load/save settings
 // ==========================================
 
-/// Fetches one settings section from flash, returning `None` if absent or corrupt.
+/// Loads one settings section from flash into `$field`, reporting whether it
+/// was there. Absent or corrupt sections leave the default in place.
 macro_rules! load_section {
-    ($flash:expr, $scratch:expr, $key:expr, $type:ty) => {{
+    ($flash:expr, $scratch:expr, $key:expr, $field:expr) => {{
         match fetch_item($flash, FS_RANGE, &mut NoCache::new(), $scratch, $key).await {
-            Ok(Some(bytes)) => serde_json_core::from_slice::<$type>(bytes)
-                .ok()
-                .map(|(v, _)| v),
-            _ => None,
+            Ok(Some(bytes)) => match serde_json_core::from_slice(bytes) {
+                Ok((v, _)) => {
+                    $field = v;
+                    true
+                }
+                Err(_) => false,
+            },
+            _ => false,
         }
     }};
 }
@@ -191,30 +202,14 @@ pub struct SettingsStore;
 impl SettingsStore {
     /// Reads all settings sections from flash and populates the RAM cache.
     pub async fn load<T: Instance>(flash: &mut Flash<'_, T, Async, FLASH_SIZE>) {
-        let mut scratch = [0u8; 1024];
+        let mut scratch = [0u8; FS_SCRATCH];
         let mut s = Settings::default();
-        let mut loaded = false;
 
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_machine", MachineSettings) {
-            s.machine = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_temp_pid", PidSettings) {
-            s.temp_pid = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_press_pid", PidSettings) {
-            s.press_pid = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_flow_pid", PidSettings) {
-            s.flow_pid = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_wifi", WifiSettings) {
-            s.wifi = v;
-            loaded = true;
-        }
+        let mut loaded = load_section!(flash, &mut scratch, b"sys_machine", s.machine);
+        loaded |= load_section!(flash, &mut scratch, b"sys_temp_pid", s.temp_pid);
+        loaded |= load_section!(flash, &mut scratch, b"sys_press_pid", s.press_pid);
+        loaded |= load_section!(flash, &mut scratch, b"sys_flow_pid", s.flow_pid);
+        loaded |= load_section!(flash, &mut scratch, b"sys_wifi", s.wifi);
 
         if loaded {
             defmt::info!("Settings loaded from flash.");
@@ -229,8 +224,8 @@ impl SettingsStore {
         key: &K,
         data: &S,
     ) -> Result<(), ()> {
-        let mut scratch = [0u8; 1024];
-        let mut buf = [0u8; 1024];
+        let mut scratch = [0u8; FS_SCRATCH];
+        let mut buf = [0u8; FS_SCRATCH];
         if let Ok(len) = serde_json_core::to_slice(data, &mut buf) {
             store_item(
                 flash,

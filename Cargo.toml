@@ -11,14 +11,12 @@ test = false
 bench = false
 
 [dependencies]
-embassy-embedded-hal = { version = "0.6.0", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-futures = { version = "0.1.2" }
 embassy-net = { version = "0.9.1", features = ["defmt", "tcp", "udp", "dhcpv4", "dhcpv4-hostname", "medium-ethernet", "proto-ipv4"] }
 embassy-rp = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xb"] }
 embassy-sync = { version = "0.8.0", features = ["defmt"] }
 embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-usb = { version = "0.6.0", features = ["defmt"] }
 cyw43 = { version = "0.7.0", features = ["defmt"] }
 cyw43-pio = { version = "0.10.0", features = ["defmt"] }
 cortex-m = "0.7.7"

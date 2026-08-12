@@ -354,11 +354,12 @@ async fn handle_api_command(payload: ApiCommand<'_>) {
     }
 }
 
-async fn get_ui_telemetry_json(a: Telemetry) -> heapless::String<192> {
+/// Builds the display payload for one telemetry snapshot.
+async fn ui_telemetry(a: Telemetry) -> UiTelemetry {
     let st_val = get_state();
     let s = Settings::get().await;
 
-    let (disp_t, _, _) = a.display_temps(s.machine.temp_offset, st_val == MachineState::Steaming);
+    let disp_t = a.display_temp(s.machine.temp_offset, st_val == MachineState::Steaming);
 
     // Sensor resolution is nowhere near f32 precision and the serializer
     // prints every digit it is given, so 2 dp roughly halves the payload with
@@ -369,34 +370,49 @@ async fn get_ui_telemetry_json(a: Telemetry) -> heapless::String<192> {
         ((v * 100.0 + bias) as i32) as f32 / 100.0
     };
 
-    let data = UiTelemetry {
+    UiTelemetry {
         t: r2(disp_t),
         sbt: r2(get_session_brew_temp()),
         p: r2(a.pressure_bar),
         fl: r2(a.flow_rate_ml_s),
         vol: r2(a.volume_ml),
         st: st_val as u32,
-    };
-
-    let mut json_str = heapless::String::<192>::new();
-    match serde_json_core::to_string::<_, 192>(&data) {
-        Ok(js) => {
-            let _ = json_str.push_str(js.as_str());
-        }
-        // Silently sending nothing would look like a dropped connection, and
-        // the cause (one field wider than expected) would be invisible.
-        Err(_) => defmt::warn!("UI telemetry JSON exceeded buffer; sample dropped"),
     }
-    json_str
+}
+
+/// Serializes `value` into `buf`, requiring it to occupy exactly `expected`
+/// bytes.
+///
+/// Both diagnostic records are fixed-size by contract: the client reads them
+/// as fixed-width records, so a short encoding would slide every following
+/// field by the difference. A mismatch can only mean the struct changed
+/// without its `*_LEN`/`DIAG_VER` being updated with it, so the record is
+/// dropped and the cause logged rather than sent.
+fn encode_fixed<T: Serialize>(
+    value: &T,
+    buf: &mut [u8],
+    expected: usize,
+    what: &str,
+) -> Option<usize> {
+    match postcard::to_slice(value, buf) {
+        Ok(used) if used.len() == expected => Some(used.len()),
+        Ok(used) => {
+            defmt::error!(
+                "Diag {} is {} bytes, expected {} — update its LEN const and DIAG_VER",
+                what,
+                used.len(),
+                expected
+            );
+            None
+        }
+        Err(_) => {
+            defmt::error!("Diag {} did not fit its buffer; dropped", what);
+            None
+        }
+    }
 }
 
 /// Packs one control tick into the fixed-size diagnostic record.
-///
-/// Returns `None` if the encoding is not exactly [`DIAG_FRAME_LEN`] bytes,
-/// which can only happen if the struct changed without `DIAG_FRAME_LEN` and
-/// `DIAG_VER` being updated with it. Sending a short frame would slide every
-/// following field on the client by the difference, so the sample is dropped
-/// and the cause logged instead.
 fn encode_diag_frame(a: &Telemetry, buf: &mut [u8; DIAG_FRAME_LEN]) -> Option<usize> {
     let frame = DiagFrame {
         ver: DIAG_VER,
@@ -417,20 +433,33 @@ fn encode_diag_frame(a: &Telemetry, buf: &mut [u8; DIAG_FRAME_LEN]) -> Option<us
         st: get_state() as u8,
     };
 
-    match postcard::to_slice(&frame, buf) {
-        Ok(used) if used.len() == DIAG_FRAME_LEN => Some(used.len()),
-        Ok(used) => {
-            defmt::error!(
-                "Diag frame is {} bytes, expected {} — update DIAG_FRAME_LEN/DIAG_VER",
-                used.len(),
-                DIAG_FRAME_LEN
-            );
-            None
+    encode_fixed(&frame, buf, DIAG_FRAME_LEN, "frame")
+}
+
+/// Serialized size of the largest JSON response (`GET /api/settings`), header
+/// included. One capacity for every route, rather than a `String`/byte-buffer
+/// pair per route each needing its own two numbers kept in step.
+const JSON_RESP_MAX: usize = 2048;
+
+/// Writes a 200 OK JSON response whose body is `value` serialized.
+///
+/// `buf` is owned by the caller so that all routes share a single buffer: as a
+/// local here it would be one 2 KiB slot per monomorphization in the server
+/// task's future.
+async fn write_json<T: Serialize>(
+    socket: &mut TcpSocket<'_>,
+    buf: &mut [u8; JSON_RESP_MAX],
+    value: &T,
+) {
+    let hdr = JSON_OK_HEADER.as_bytes();
+    buf[..hdr.len()].copy_from_slice(hdr);
+    match serde_json_core::to_slice(value, &mut buf[hdr.len()..]) {
+        Ok(len) => {
+            let _ = socket.write_all(&buf[..hdr.len() + len]).await;
         }
-        Err(_) => {
-            defmt::error!("Diag frame did not fit its buffer; sample dropped");
-            None
-        }
+        // Silently sending nothing would look like a dropped connection, and
+        // the cause (a payload wider than the buffer) would be invisible.
+        Err(_) => defmt::warn!("JSON response exceeded its buffer; nothing sent"),
     }
 }
 
@@ -447,62 +476,39 @@ async fn handle_connection(
 /// Routes one complete request. Every path either writes a response or returns
 /// the error whose status line the caller sends.
 async fn serve(socket: &mut TcpSocket<'_>, request: &str) -> Result<(), HttpError> {
+    let mut buf = [0u8; JSON_RESP_MAX];
+
     if request.starts_with("GET / ") || request.starts_with("GET /index.html") {
         let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Encoding: gzip\r\nConnection: close\r\n\r\n";
         let _ = socket.write_all(headers.as_bytes()).await;
         let _ = socket.write_all(INDEX_HTML_GZ).await;
     } else if request.starts_with("GET /api/telemetry") {
-        let json_str = get_ui_telemetry_json(get_telemetry()).await;
-        if !json_str.is_empty() {
-            let mut resp = heapless::String::<448>::new();
-            let _ = resp.push_str(JSON_OK_HEADER);
-            let _ = resp.push_str(json_str.as_str());
-            let _ = socket.write_all(resp.as_bytes()).await;
-        }
+        write_json(socket, &mut buf, &ui_telemetry(get_telemetry()).await).await;
     } else if request.starts_with("GET /api/settings") {
-        let s = Settings::get().await;
-        if let Ok(json_str) = serde_json_core::to_string::<_, 1024>(&s) {
-            let mut resp = heapless::String::<2048>::new();
-            let _ = resp.push_str(JSON_OK_HEADER);
-            let _ = resp.push_str(json_str.as_str());
-            let _ = socket.write_all(resp.as_bytes()).await;
-        }
+        write_json(socket, &mut buf, &Settings::get().await).await;
     } else if request.starts_with("GET /api/profiles") {
         let p_list = crate::profiles::get_all_profiles_from_ram().await;
-        let mut headers: heapless::Vec<ProfileHeader, 10> = heapless::Vec::new();
+        let mut headers: heapless::Vec<ProfileHeader, { crate::profiles::MAX_PROFILES as usize }> =
+            heapless::Vec::new();
         for (slot, p) in p_list.iter() {
             let _ = headers.push(ProfileHeader {
                 slot: *slot,
                 name: p.name.as_str(),
             });
         }
-
-        let mut resp_buf = [0u8; 2048];
-        let hdr = JSON_OK_HEADER.as_bytes();
-        resp_buf[..hdr.len()].copy_from_slice(hdr);
-        if let Ok(len) = serde_json_core::to_slice(&headers, &mut resp_buf[hdr.len()..]) {
-            let _ = socket.write_all(&resp_buf[..hdr.len() + len]).await;
-        }
+        write_json(socket, &mut buf, &headers).await;
     } else if request.starts_with("GET /api/profile/") {
         let slot = parse_slot(request)?;
         let p = crate::profiles::get_profile_from_ram(slot)
             .await
             .ok_or(HttpError::NotFound)?;
-
-        let mut resp_buf = [0u8; 2048];
-        let hdr = JSON_OK_HEADER.as_bytes();
-        resp_buf[..hdr.len()].copy_from_slice(hdr);
-        if let Ok(len) = serde_json_core::to_slice(&p, &mut resp_buf[hdr.len()..]) {
-            let _ = socket.write_all(&resp_buf[..hdr.len() + len]).await;
-        }
+        write_json(socket, &mut buf, &p).await;
     } else if request.starts_with("POST /api/cmd") {
         let payload = parse_command(request)?;
         defmt::info!("API Command Received: {}", payload.cmd);
         handle_api_command(payload).await;
-        let mut resp = heapless::String::<128>::new();
-        let _ = resp.push_str(JSON_OK_HEADER);
-        let _ = resp.push_str("{\"status\":\"ok\"}");
-        let _ = socket.write_all(resp.as_bytes()).await;
+        let _ = socket.write_all(JSON_OK_HEADER.as_bytes()).await;
+        let _ = socket.write_all(b"{\"status\":\"ok\"}").await;
     } else {
         return Err(HttpError::NotFound);
     }
@@ -564,21 +570,7 @@ async fn encode_diag_header(buf: &mut [u8; DIAG_HEADER_LEN]) -> Option<usize> {
         flow_kd: s.flow_pid.kd,
     };
 
-    match postcard::to_slice(&header, buf) {
-        Ok(used) if used.len() == DIAG_HEADER_LEN => Some(used.len()),
-        Ok(used) => {
-            defmt::error!(
-                "Diag header is {} bytes, expected {} — update DIAG_HEADER_LEN/DIAG_VER",
-                used.len(),
-                DIAG_HEADER_LEN
-            );
-            None
-        }
-        Err(_) => {
-            defmt::error!("Diag header did not fit its buffer");
-            None
-        }
-    }
+    encode_fixed(&header, buf, DIAG_HEADER_LEN, "header")
 }
 
 #[embassy_executor::task]

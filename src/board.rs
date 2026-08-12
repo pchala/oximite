@@ -15,3 +15,12 @@ pub const FLASH_SIZE: usize = 16 * 1024 * 1024;
 /// Last 64 KiB of flash, reserved for the `sequential-storage` key/value store
 /// that backs settings and brew profiles.
 pub const FS_RANGE: core::ops::Range<u32> = (FLASH_SIZE as u32 - 64 * 1024)..(FLASH_SIZE as u32);
+
+/// Scratch/serialization buffer size for `sequential-storage` operations on
+/// [`FS_RANGE`].
+///
+/// Settings and brew profiles share one key/value area, so any write can be
+/// asked to relocate any *other* item while compacting a page. Every caller
+/// must therefore size its buffer for the largest item in the whole store, not
+/// just for the one it is reading or writing.
+pub const FS_SCRATCH: usize = 1024;

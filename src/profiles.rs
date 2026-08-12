@@ -8,12 +8,12 @@ use embassy_rp::flash::{Async, Flash, Instance};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use sequential_storage::cache::NoCache;
-use sequential_storage::map::{fetch_item, remove_item, store_item};
+use sequential_storage::map::{fetch_item, remove_item};
 use serde::{Deserialize, Serialize};
 
-use crate::board::{FLASH_SIZE, FS_RANGE};
+use crate::board::{FLASH_SIZE, FS_RANGE, FS_SCRATCH};
 
-const MAX_PROFILES: u8 = 10;
+pub const MAX_PROFILES: u8 = 10;
 
 /// Maximum steps in a brew profile.
 ///
@@ -59,8 +59,10 @@ pub async fn get_default_profile() -> BrewProfile {
 // RAM CACHE
 // ==========================================
 
-static PROFILES_CACHE: Mutex<CriticalSectionRawMutex, [Option<BrewProfile>; 10]> =
-    Mutex::new([None, None, None, None, None, None, None, None, None, None]);
+static PROFILES_CACHE: Mutex<
+    CriticalSectionRawMutex,
+    [Option<BrewProfile>; MAX_PROFILES as usize],
+> = Mutex::new([const { None }; MAX_PROFILES as usize]);
 
 fn profile_key(slot: u8) -> [u8; 6] {
     [b'p', b'r', b'o', b'f', b'_', b'0' + slot]
@@ -73,7 +75,8 @@ pub async fn get_profile_from_ram(slot: u8) -> Option<BrewProfile> {
     PROFILES_CACHE.lock().await[slot as usize].clone()
 }
 
-pub async fn get_all_profiles_from_ram() -> heapless::Vec<(u8, BrewProfile), 10> {
+pub async fn get_all_profiles_from_ram(
+) -> heapless::Vec<(u8, BrewProfile), { MAX_PROFILES as usize }> {
     let mut list = heapless::Vec::new();
     let cache = PROFILES_CACHE.lock().await;
     for i in 0..MAX_PROFILES {
@@ -103,7 +106,7 @@ pub async fn delete_profile_from_ram(slot: u8) {
 pub async fn load_all_profiles_from_flash<T: Instance>(
     flash: &mut Flash<'_, T, Async, FLASH_SIZE>,
 ) {
-    let mut scratch = [0u8; 512];
+    let mut scratch = [0u8; FS_SCRATCH];
     let mut cache = PROFILES_CACHE.lock().await;
 
     for slot in 0..MAX_PROFILES {
@@ -129,24 +132,11 @@ pub async fn save_profile_to_flash<T: Instance>(
     if slot >= MAX_PROFILES {
         return Err(());
     }
-    let key = profile_key(slot);
-    let mut scratch = [0u8; 512];
-    let mut data = [0u8; 1024];
-
-    if let Ok(len) = serde_json_core::to_slice(profile, &mut data) {
-        store_item(
-            flash,
-            FS_RANGE,
-            &mut NoCache::new(),
-            &mut scratch,
-            &key,
-            &&data[..len],
-        )
-        .await
-        .map_err(|_| ())
-    } else {
-        Err(())
-    }
+    // Shares `SettingsStore::save_section` rather than repeating the
+    // serialize/store dance: profiles and settings live in the same
+    // `FS_RANGE`, so a write here can be asked to relocate a settings blob
+    // during page GC and must use the same scratch size.
+    crate::settings::SettingsStore::save_section(flash, &profile_key(slot), profile).await
 }
 
 pub async fn delete_profile_from_flash<T: Instance>(
@@ -157,7 +147,7 @@ pub async fn delete_profile_from_flash<T: Instance>(
         return Err(());
     }
     let key = profile_key(slot);
-    let mut scratch = [0u8; 512];
+    let mut scratch = [0u8; FS_SCRATCH];
     remove_item(flash, FS_RANGE, &mut NoCache::new(), &mut scratch, &key)
         .await
         .map_err(|_| ())
