@@ -2,18 +2,16 @@
 //! only place that decides what a `MachineCommand` does.
 //!
 //! It also *runs* the operation it decided on, awaiting `operations::execute`
-//! directly while racing it against the command queue. That structure is what
-//! keeps the machine honest: an operation finishing is a future returning, and
-//! cancelling one is dropping that future. There is no "operation finished"
-//! message that could be delivered after the coordinator moved on, and no
-//! abort signal that could outlive its target — both were previously possible.
+//! directly while racing it against the command queue: an operation finishing
+//! is a future returning, and cancelling one is dropping that future. There is
+//! no "operation finished" message and no abort signal, so neither can be
+//! applied to the wrong operation.
 //!
 //! Long operations stay responsive because a single `select` awaits the
 //! operation, the command queue and a housekeeping tick together, so a long
-//! steam session never blocks a Stop. There is exactly one command path: when
-//! nothing is running the operation slot holds a future that never completes,
-//! so the idle and busy cases are the same code rather than two loops that can
-//! drift apart. Peripheral/task wiring lives in `main.rs`.
+//! steam session never blocks a Stop. When nothing is running the operation
+//! slot holds a future that never completes, so idle and busy are one code
+//! path. Peripheral/task wiring lives in `main.rs`.
 
 use embassy_futures::select::{select3, Either3};
 use embassy_rp::gpio::Output;
@@ -79,14 +77,9 @@ async fn wake_up() {
 /// What a command means for the *running operation*, kept separate from what
 /// it means for `MachineState`.
 ///
-/// Saying this out loud is what stops the two from disagreeing. The
-/// coordinator used to infer cancellation by comparing `MachineState` before
-/// and after `handle_command`, so any future transition that moved between two
-/// busy states would have looked like a cancellation: the operation would be
-/// dropped while the state still claimed the machine was busy, leaving it
-/// wedged with no pump, no valve and no timeout. That is now unrepresentable —
-/// a transition into a busy state has to hand back the operation that serves
-/// it.
+/// Stated explicitly rather than inferred from the state change, so a
+/// transition between two busy states cannot read as a cancellation: entering
+/// a busy state has to hand back the operation that serves it.
 ///
 /// `Start` inherits `Operation`'s ~360 bytes, but like `Operation` this is
 /// only ever a local in the coordinator's future — never queued, never copied
@@ -277,9 +270,7 @@ async fn handle_command(state: MachineState, cmd: MachineCommand) -> Outcome {
 /// burst of commands cannot starve it.
 ///
 /// This ticks whether or not an operation is in flight, so anything
-/// supervisory added here keeps running during a shot. The previous structure
-/// had this timer in the idle-only loop, where it silently stopped while the
-/// machine was hot and pumping — the exact window a safety check would need.
+/// supervisory added here keeps running while the machine is hot and pumping.
 const HOUSEKEEPING: Duration = Duration::from_millis(100);
 
 /// The operation slot as a single future, so idle and busy share one `select`.
@@ -296,10 +287,7 @@ async fn operation_or_idle(op: Option<Operation>, valve: &mut Output<'static>) {
 /// Everything a command gets regardless of what the machine is doing: activity
 /// tracking, ambient handling, the sleep auto-wake, then the transition table.
 ///
-/// One path, so the idle and busy cases cannot drift apart. The previous
-/// two-loop structure updated `last_activity` and honoured the auto-wake in
-/// only one of them, and the other was correct only because `Sleeping` happens
-/// not to be in `MachineState::is_busy()` — an invariant held in another file.
+/// One path, so the idle and busy cases cannot drift apart.
 async fn serve(
     cmd: MachineCommand,
     last_activity: &mut Instant,

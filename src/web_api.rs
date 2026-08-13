@@ -16,8 +16,8 @@
 //!   browser that has no decoder, so human-readable JSON is the right call.
 //! * **Port 8080** -- [`DiagFrame`] as postcard. Fifteen fields, 55 bytes,
 //!   *raw* controller values at the full 50 Hz control rate. Binary because at
-//!   50 Hz the JSON float formatting was the dominant cost on this path and a
-//!   blocked TCP write costs a control frame.
+//!   50 Hz JSON float formatting dominates this path and a blocked TCP write
+//!   costs a control frame.
 //!
 //! The diag stream opens with one [`DiagHeader`] carrying the constants a log
 //! can't reconstruct (temperature offset, PID gains, tick rate), so the frames

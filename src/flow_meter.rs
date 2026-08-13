@@ -73,17 +73,10 @@ impl RateWindow {
         }
     }
 
-    /// Drops the window when a gap makes the buffered periods stale. The last
-    /// published rate stands until the next sample refills it: a cleared
-    /// window must not read as zero flow and step the PID.
-    fn clear(&mut self) {
-        self.head = 0;
-        self.len = 0;
-    }
-
     /// The pump really stopped — drop the window *and* report zero.
     fn stop(&mut self) {
-        self.clear();
+        self.head = 0;
+        self.len = 0;
         publish_rate(0.0);
     }
 
@@ -93,7 +86,7 @@ impl RateWindow {
         self.len = (self.len + 1).min(RATE_EDGES);
     }
 
-    /// `clear` resets `head` to 0, so a partial window always occupies
+    /// `stop` resets `head` to 0, so a partial window always occupies
     /// `ticks[..len]` and a full one the whole array
     /// `None` only when the window is empty: a pushed sample is never 0.
     fn rate(&self, flow_numerator: f32) -> Option<f32> {
@@ -204,35 +197,18 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
         .await
         {
             Ok(Either::First(first_val)) => {
-                let mut valid_pulses: u32 = 0;
-                let mut total_pulses: u32 = 0;
+                let mut pulses: u32 = 0;
                 // Only the first sample of the burst can span an idle gap.
                 let mut use_for_rate = !core::mem::replace(&mut skip_stale_rate, false);
                 let mut val = first_val;
 
                 loop {
-                    total_pulses += 1;
+                    pulses += 1;
 
-                    // A runt or an implausibly short interval means a spurious
-                    // edge split a real pulse, so the samples either side of it
-                    // are corrupt too — drop the whole window rather than
-                    // average a poisoned neighbourhood.
-                    if val == 0 {
-                        defmt::warn!("PIO return 0 for flow");
-                        window.clear();
-                    } else if !use_for_rate {
-                        defmt::info!("Skipped stale flow rate sample from idle state");
-                        valid_pulses += 1;
+                    if use_for_rate {
+                        window.push_and_publish(val + PIO_TICK_OFFSET, flow_numerator);
                     } else {
-                        let ticks = val + PIO_TICK_OFFSET;
-                        let raw_flow = flow_numerator / (ticks as f32);
-                        if raw_flow <= 50.0 {
-                            valid_pulses += 1;
-                            window.push_and_publish(ticks, flow_numerator);
-                        } else {
-                            defmt::warn!("Ignored noise pulse ({} ml/s)", raw_flow);
-                            window.clear();
-                        }
+                        defmt::info!("Skipped stale flow rate sample from idle state");
                     }
                     use_for_rate = true;
 
@@ -243,15 +219,13 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
                     }
                 }
 
-                if valid_pulses > 0 {
-                    if total_pulses > 1 {
-                        defmt::warn!("PIO FIFO had {} entries!", total_pulses);
-                    }
-
-                    let added = ml_per_pulse * valid_pulses as f32;
-                    let total = shot_volume_ml() + added;
-                    VOLUME_ML.store(total.to_bits(), Ordering::Relaxed);
+                if pulses > 1 {
+                    defmt::warn!("PIO FIFO had {} entries!", pulses);
                 }
+
+                let added = ml_per_pulse * pulses as f32;
+                let total = shot_volume_ml() + added;
+                VOLUME_ML.store(total.to_bits(), Ordering::Relaxed);
             }
             Ok(Either::Second(_)) => {
                 // `reset_volume` already zeroed the counter. What is left is

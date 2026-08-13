@@ -110,12 +110,11 @@ async fn main(spawner: Spawner) {
     // timing on core0. Waking across cores is fine: the thread-mode pender is
     // `sev`, which is broadcast to both cores.
     //
-    // ORDER MATTERS: the NVIC is per-core and these lines are only enabled by
-    // `Pio::new` / `dma::Channel::new`, which run on core0. Every such call must
-    // therefore stay ABOVE this point — embassy-rp 0.10 moved the DMA enable out
-    // of `embassy_rp::init` and into `dma::Channel::new`, so constructing a
-    // channel after this would silently re-enable DMA_IRQ_0 on core0 and undo
-    // the reroute. Today that means `Flash::new` and `PioSpi::new` above.
+    // ORDER MATTERS: the NVIC is per-core and these lines are enabled by
+    // `Pio::new` / `dma::Channel::new`, which run on core0. Every such call
+    // must stay ABOVE this point — constructing one below would re-enable the
+    // interrupt on core0 and silently undo the reroute. That means `Flash::new`
+    // and `PioSpi::new` above.
     //
     // Note the mask covers the whole line, not one channel: DMA_CH1 (flash) is
     // rerouted too, so `settings::flash_update_task` (core0) relies on core1
@@ -169,7 +168,7 @@ async fn main(spawner: Spawner) {
     // heater's PIO-driven pin control and keeping PIO0 exactly at its
     // 32-word instruction-memory budget (trigger + triac + heater = 25/32).
     let mut flow_pin = common2.make_pio_pin(p.PIN_15);
-    flow_pin.set_pull(Pull::Up); // new flow sensor requires pull-up
+    flow_pin.set_pull(Pull::Up); // flow sensor requires a pull-up
     flow_meter::setup_flow_sm(&mut common2, &mut sm2_0, flow_pin);
     spawner.spawn(flow_meter::run_flow_task(sm2_0).unwrap());
 
@@ -190,10 +189,10 @@ async fn main(spawner: Spawner) {
     // handles. embassy-rp refcounts them and, on the last drop, resets every
     // registered PIO pin's FUNCSEL back to NULL — silently disconnecting GP0
     // (triac), GP2 (heater), GP9 (LEDs), GP10 (zero-cross) and GP15 (flow).
-    // Worse, embassy-rp (still, as of 0.10) keeps that refcount in a single
-    // `static` shared by PIO0/PIO1/PIO2 — a function-local static inside a
-    // default trait method is one item, not one per impl — so the three blocks
-    // corrupt each other's counts and the wipe triggers here. Leak the handles:
+    // Worse, embassy-rp keeps that refcount in a single `static` shared by
+    // PIO0/PIO1/PIO2 — a function-local static inside a default trait method is
+    // one item, not one per impl — so the three blocks corrupt each other's
+    // counts and the wipe triggers here. Leak the handles:
     // they are owned for the lifetime of the firmware by design.
     core::mem::forget(common0);
     core::mem::forget(common1);

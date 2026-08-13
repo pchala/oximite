@@ -1,8 +1,7 @@
 //! NVRAM configuration blob for the CYW43439 radio.
 //!
-//! cyw43 0.6.0 shipped this table built in; 0.7.0 removed it and requires the
-//! caller to supply one. Copied verbatim from `cyw43-0.6.0/src/nvram.rs` so the
-//! radio keeps the exact calibration it had before the upgrade.
+//! cyw43 requires the caller to supply this table. Copied verbatim from
+//! `cyw43-0.6.0/src/nvram.rs` — the calibration this radio is tuned for.
 
 pub static NVRAM: &cyw43::Aligned<cyw43::A4, [u8]> = &cyw43::Aligned(
     *b"

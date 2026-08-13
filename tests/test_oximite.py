@@ -488,13 +488,6 @@ class TestOximite(unittest.TestCase):
         # zeroes the counter once at profile start, not per step — so these are
         # running totals (15, +10, +35, +20), not per-step amounts.
         # No `time_s`: the stages are defined by volume alone.
-        #
-        # The 3 -> 4 boundary used to be the hard one: the integral had to
-        # unwind from the old stage's duty, and in saturated runs it never did
-        # — duty stayed above 70 % for the whole taper. It is now reseeded from
-        # the pump map at every setpoint change (`control::flow_ff_duty`), so
-        # each stage starts at its own predicted duty rather than inheriting
-        # the previous one's.
         profile = {
             "name": "Sweet Extraction",
             "steps": [
@@ -583,8 +576,7 @@ class TestOximite(unittest.TestCase):
         print("\nRunning: Pump Power Steps Test...")
         results = []
         for pwr in range(0, 105, 5):
-            # DirectPump only starts from Idle, so stop the previous step
-            # first — the firmware no longer injects an implicit stop.
+            # DirectPump only starts from Idle, so stop the previous step first.
             self.send_command({"cmd": "stop"})
             self.wait_for_state(0, timeout=10, title=f"Idle before {pwr}%")
             self.send_command({"cmd": "direct_pump", "power": float(pwr + 0.1)})

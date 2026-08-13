@@ -24,10 +24,10 @@ pub struct MachineSettings {
     /// `brew_temp + 2 * temp_offset`.
     pub temp_offset: f32,
     pub flow_pulses_per_liter: f32,
-    /// Unused since flow limiting became a dedicated PID on pump duty
-    /// (`Settings::flow_pid`). Kept only so existing `sys_machine` blobs in
-    /// flash still deserialize — dropping the field would make the whole
-    /// section fail to parse and silently reset to defaults.
+    /// Unused: flow limiting is a dedicated PID on pump duty
+    /// (`Settings::flow_pid`). Kept so `sys_machine` blobs in flash still
+    /// deserialize — dropping the field makes the whole section fail to parse
+    /// and silently reset to defaults.
     pub flow_limit_kp: f32,
     /// Scales the flow-proportional temperature feed-forward applied during a
     /// brew, as a percentage of the built-in nominal gain: 100 = nominal,
