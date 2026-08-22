@@ -41,7 +41,15 @@
         <div class="panel">
             <h2>oximite <span id="machine-state" style="float:right; color:var(--accent);">IDLE</span></h2>
             <div class="grid-3" style="margin-bottom: 20px;">
-                <div class="stat-box"><span class="stat-label">Temperature</span><span id="val-t">0.0</span> °C</div>
+                <div class="stat-box">
+                    <span class="stat-label">Brew Target</span>
+                    <div style="display:flex; justify-content:center; align-items:center; margin-top:5px; font-size:0.9em;">
+                        <button style="padding: 2px 10px; min-width:30px; background:#444;" onclick="adjustSessionTemp(-0.5)">-</button>
+                        <span id="val-sbt" style="margin: 0 10px; font-size: 1.1em;">0.0 °C</span>
+                        <button style="padding: 2px 10px; min-width:30px; background:#444;" onclick="adjustSessionTemp(0.5)">+</button>
+                    </div>
+                </div>
+                <div class="stat-box"><span class="stat-label">Actual Temp</span><span id="val-t">0.0</span> °C</div>
                 <div class="stat-box"><span class="stat-label">Pressure</span><span id="val-p">0.0</span> Bar</div>
                 <div class="stat-box"><span class="stat-label">Flow Rate</span><span id="val-fl">0.0</span> ml/s</div>
                 <div class="stat-box"><span class="stat-label">Volume</span><span id="val-vol">0.0</span> ml</div>
@@ -53,10 +61,6 @@
                 <button class="success" onclick="sendCommand('brew')" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">BREW</button>
             </div>
             <button class="danger" onclick="sendCommand('stop')" style="width: 100%; padding: 15px; font-size: 1.2em;">STOP</button>
-            <div class="grid-2" style="margin-top: 10px;">
-                <input type="number" id="direct-pump-val" placeholder="Pump Power %" min="0" max="100" step="1">
-                <button onclick="sendCommand('direct_pump', { power: parseFloat(document.getElementById('direct-pump-val').value) })">DIRECT PUMP</button>
-            </div>
         </div>
         
         <div class="panel">
@@ -81,7 +85,7 @@
                     </select>
                 </div>
                 <div>
-                    <label>Profile Name</label><input type="text" id="prof-name" placeholder="e.g., Blooming Slayer">
+                    <label>Profile Name</label><input type="text" id="prof-name" maxlength="32" placeholder="e.g., Blooming Slayer">
                 </div>
             </div>
             <table id="step-table">
@@ -103,21 +107,18 @@
             <div class="grid-2">
                 <div><label>Brew Temp (°C)</label><input type="number" id="set-bt" value="92.0" step="0.5"></div>
                 <div><label>Steam Temp (°C)</label><input type="number" id="set-st" value="135.0" step="0.5"></div>
+                <div><label>Offset (°C)</label><input type="number" id="set-to" value="10" step="0.1"></div>
                 <div><label>Steam Limit (s)</label><input type="number" id="set-sl" value="120" step="1"></div>
-                <div><label>Steam Pressure (Bar)</label><input type="number" id="set-sp" value="1.5" step="0.1"></div>
             </div>
 
-            <h3>Advanced Tuning</h3>
+            <h3>Other Settings</h3>
             <div class="grid-2">
-                <div><label>Temp Feed Forward</label><input type="number" id="set-tff" value="35.0" step="0.1"></div>
-                <div><label>Flow PID Penalty</label><input type="number" id="set-fpp" value="20.0" step="0.1"></div>
+                <div><label>Flow Limit Gain (bar/tick per ml/s over)</label><input type="number" id="set-frb" value="0.025" step="0.001"></div>
+                <div><label>Feed Forward Percentage (%)</label><input type="number" id="set-fhm" value="100" step="1" min="0" max="200"></div>
+                <div><label>Flow sensor (Edges/L)</label><input type="number" id="set-fepl" value="98324" step="1"></div>
+                <div><label>Sleep Timeout (min)</label><input type="number" id="set-slt" value="20" step="1"></div>
             </div>
-
-            <h3>Sensor Calibration</h3>
-            <div class="grid-2">
-                <div><label>Temp Offset (°C)</label><input type="number" id="set-to" value="-2.5" step="0.1"></div>
-                <div><label>Flow sensor (Edges/L)</label><input type="number" id="set-fepl" value="3850.0" step="1"></div>
-            </div>
+            <button onclick="saveMachine()" style="width: 100%; margin-top: 15px;">Save Machine Settings</button>
         </div>
         <div class="panel">
             <h3>PID: Temperature</h3>
@@ -132,16 +133,13 @@
                 <div><label>Ki</label><input type="number" id="set-pki" value="0.1" step="0.01"></div>
                 <div><label>Kd</label><input type="number" id="set-pkd" value="0.5" step="0.1"></div>
             </div>
-        </div>
-
-        <div class="panel">
-            <div class="grid-2">
-                <div class="stat-box" style="padding: 10px; display: flex; flex-direction: column; justify-content: center;">
-                    <div style="margin-bottom: 4px; line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Since Descale</span><span id="val-descale-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">L</span></div>
-                    <div style="line-height: 1.2;"><span class="stat-label" style="font-size: 0.6em;">Total</span><span id="val-total-ml" style="font-size: 0.9em;">0.0</span> <span style="font-size: 0.6em;">L</span></div>
-                </div>
-                <button onclick="sendCommand('descale')">DESCALE</button>
+            <h3>PID: Flow</h3>
+            <div class="grid-3">
+                <div><label>Kp</label><input type="number" id="set-fkp" value="8.0" step="0.1"></div>
+                <div><label>Ki</label><input type="number" id="set-fki" value="15.0" step="0.1"></div>
+                <div><label>Kd</label><input type="number" id="set-fkd" value="0.0" step="0.1"></div>
             </div>
+            <button onclick="savePids()" style="width: 100%; margin-top: 15px;">Save PID Tuning</button>
         </div>
 
         <div class="panel">
@@ -150,7 +148,7 @@
                 <div><label>SSID</label><input type="text" id="set-ssid" placeholder="Network Name"></div>
                 <div><label>Password</label><input type="password" id="set-pass" placeholder="Network Password"></div>
             </div>
-            <button onclick="saveSettings()" style="width: 100%; margin-top: 15px;">Save to Flash</button>
+            <button onclick="saveWifi()" style="width: 100%; margin-top: 15px;">Save Wi-Fi Settings</button>
         </div>
     </div>
 
@@ -171,28 +169,60 @@
         if(evt) evt.currentTarget.classList.add("active");
     }
 
-    const ctx = document.getElementById('telemetryChart').getContext('2d');
-    const chart = new Chart(ctx, {
-        type: 'line',
-        data: { labels: [], datasets: [ { label: 'Pressure (Bar)', borderColor: '#03dac6', data: [], yAxisID: 'y' }, { label: 'Flow (ml/s)', borderColor: '#bb86fc', data: [], yAxisID: 'y1' } ] },
-        options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { x: { display: false }, y: { type: 'linear', position: 'left', min: 0, max: 10 }, y1: { type: 'linear', position: 'right', min: 0, max: 5 } }, elements: { point: { radius: 0 } } }
-    });
-
-    // --- CORE COMMAND FUNCTION ---
-    async function sendCommand(cmd, payload = {}) {
-        try {
-            await fetch('/api/cmd', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ cmd: cmd, ...payload }) 
+    let chart = null;
+    try {
+        const chartEl = document.getElementById('telemetryChart');
+        if (chartEl && typeof Chart !== 'undefined') {
+            const ctx = chartEl.getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: [], datasets: [ { label: 'Pressure (Bar)', borderColor: '#03dac6', data: [], yAxisID: 'y' }, { label: 'Flow (ml/s)', borderColor: '#bb86fc', data: [], yAxisID: 'y1' } ] },
+                options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { x: { display: false }, y: { type: 'linear', position: 'left', min: 0, max: 10 }, y1: { type: 'linear', position: 'right', min: 0, max: 5 } }, elements: { point: { radius: 0 } } }
             });
-        } catch (e) {
-            console.error("Command error:", e);
         }
+    } catch (e) {
+        console.warn("Chart.js not available:", e);
+    }
+
+    // --- CORE COMMAND FUNCTION WITH RETRY ---
+    async function sendCommand(cmd, payload = {}, retries = 2) {
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3000);
+                const resp = await fetch('/api/cmd', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ cmd: cmd, ...payload }),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                if (resp.ok) {
+                    return true;
+                }
+            } catch (e) {
+                console.warn(`Command '${cmd}' attempt ${attempt + 1} failed:`, e);
+            }
+            if (attempt < retries) {
+                await new Promise(r => setTimeout(r, 100));
+            }
+        }
+        console.error(`Command '${cmd}' failed after ${retries + 1} attempts`);
+        return false;
     }
 
     // --- TELEMETRY POLLING ---
     let lastState = 0; let ticks = 0; let isPolling = false;
+    let currentSessionTemp = 0.0;
+    
+    async function adjustSessionTemp(delta) {
+        let newTemp = Math.round((currentSessionTemp + delta) * 10) / 10;
+        document.getElementById('val-sbt').innerText = newTemp.toFixed(1) + " °C";
+        const ok = await sendCommand('set_session_temp', { temp: newTemp });
+        if (ok) {
+            currentSessionTemp = newTemp;
+        }
+    }
     let brewStartTime = 0; let lastBrewTime = 0;
     async function pollTelemetry() {
         if (isPolling) return;
@@ -202,81 +232,101 @@
             const timeoutId = setTimeout(() => controller.abort(), 2000);
             const res = await fetch('/api/telemetry', { signal: controller.signal });
             clearTimeout(timeoutId);
-            const data = await res.json();
-            
-            document.getElementById('val-t').innerText = data.t.toFixed(1); 
-            document.getElementById('val-p').innerText = data.p.toFixed(1);
-            document.getElementById('val-fl').innerText = data.fl.toFixed(1); 
-            document.getElementById('val-vol').innerText = data.vol.toFixed(1);
-            document.getElementById('machine-state').innerText = ["IDLE", "BREWING", "STEAMING", "DESCALING", "SLEEPING", "PUMPING", "COOLING", "HOT WATER"][data.st] || "UNKNOWN";
-            
-            if (data.st === 1 || data.st === 5) {
-                if (lastState !== 1 && lastState !== 5) brewStartTime = Date.now();
-                lastBrewTime = (Date.now() - brewStartTime) / 1000.0;
-            }
-            document.getElementById('val-time').innerText = lastBrewTime.toFixed(1);
+            if (res.ok) {
+                const data = await res.json();
+                
+                document.getElementById('val-t').innerText = Number(data.t).toFixed(1); 
+                if (data.sbt !== undefined) {
+                    currentSessionTemp = Number(data.sbt);
+                    document.getElementById('val-sbt').innerText = currentSessionTemp.toFixed(1) + " °C";
+                }
+                document.getElementById('val-p').innerText = Number(data.p).toFixed(1);
+                document.getElementById('val-fl').innerText = Number(data.fl).toFixed(1); 
+                document.getElementById('val-vol').innerText = Number(data.vol).toFixed(1);
+                document.getElementById('machine-state').innerText = ["IDLE", "BREWING", "STEAMING", "SLEEPING", "PUMPING", "COOLING", "HOT WATER"][data.st] || "UNKNOWN";
+                
+                if (data.st === 1 || data.st === 4) {
+                    if (lastState !== 1 && lastState !== 4) brewStartTime = Date.now();
+                    lastBrewTime = (Date.now() - brewStartTime) / 1000.0;
+                }
+                document.getElementById('val-time').innerText = lastBrewTime.toFixed(1);
 
-            if (lastState === 0 && data.st !== 0) { chart.data.labels = []; chart.data.datasets.forEach(d => d.data = []); ticks = 0; }
-            if (data.st !== 0) { chart.data.labels.push(ticks++); chart.data.datasets[0].data.push(data.p); chart.data.datasets[1].data.push(data.fl); chart.update(); }
-            
-            if (lastState !== 0 && data.st === 0) {
-                loadSettings(); // Refresh usage stats when returning to IDLE
+                if (chart) {
+                    if (lastState === 0 && data.st !== 0) { chart.data.labels = []; chart.data.datasets.forEach(d => d.data = []); ticks = 0; }
+                    if (data.st !== 0) { chart.data.labels.push(ticks++); chart.data.datasets[0].data.push(data.p); chart.data.datasets[1].data.push(data.fl); chart.update(); }
+                }
+                lastState = data.st;
             }
-            lastState = data.st;
         } catch (e) {} finally {
             isPolling = false;
             setTimeout(pollTelemetry, 250);
         }
     }
-    
 
     // --- SETTINGS ---
-    function saveSettings() {
-        sendCommand('save_settings', {
+    async function saveMachine() {
+        const ok = await sendCommand('save_machine', {
             machine: {
-                brew_temp: parseFloat(document.getElementById('set-bt').value),
-                steam_temp: parseFloat(document.getElementById('set-st').value),
-                steam_time_limit_s: parseFloat(document.getElementById('set-sl').value),
-                steam_pressure: parseFloat(document.getElementById('set-sp').value),
-            },
-            hardware: {
-                temp_offset: parseFloat(document.getElementById('set-to').value),
-                flow_edges_per_liter: parseFloat(document.getElementById('set-fepl').value),
-                temp_feed_forward: parseFloat(document.getElementById('set-tff').value),
-                flow_multiplier: parseFloat(document.getElementById('set-fpp').value),
-            },
+                brew_temp: parseFloat(document.getElementById('set-bt').value) || 92.0,
+                steam_temp: parseFloat(document.getElementById('set-st').value) || 135.0,
+                steam_time_limit_s: parseFloat(document.getElementById('set-sl').value) || 120.0,
+                sleep_timeout_min: parseFloat(document.getElementById('set-slt').value) || 20.0,
+                temp_offset: parseFloat(document.getElementById('set-to').value) || 0.0,
+                flow_pulses_per_liter: parseFloat(document.getElementById('set-fepl').value) || 98324.0,
+                flow_limit_kp: parseFloat(document.getElementById('set-frb').value) || 0.025,
+                feed_forward_percents: parseFloat(document.getElementById('set-fhm').value) || 100.0,
+            }
+        });
+        alert(ok ? "Machine Settings Saved!" : "Failed to save Machine Settings!");
+    }
+    
+    async function savePids() {
+        const ok = await sendCommand('save_pids', {
             temp_pid: {
-                kp: parseFloat(document.getElementById('set-tkp').value),
-                ki: parseFloat(document.getElementById('set-tki').value),
-                kd: parseFloat(document.getElementById('set-tkd').value),
+                kp: parseFloat(document.getElementById('set-tkp').value) || 0,
+                ki: parseFloat(document.getElementById('set-tki').value) || 0,
+                kd: parseFloat(document.getElementById('set-tkd').value) || 0,
             },
             press_pid: {
-                kp: parseFloat(document.getElementById('set-pkp').value),
-                ki: parseFloat(document.getElementById('set-pki').value),
-                kd: parseFloat(document.getElementById('set-pkd').value),
+                kp: parseFloat(document.getElementById('set-pkp').value) || 0,
+                ki: parseFloat(document.getElementById('set-pki').value) || 0,
+                kd: parseFloat(document.getElementById('set-pkd').value) || 0,
             },
+            flow_pid: {
+                kp: parseFloat(document.getElementById('set-fkp').value) || 0,
+                ki: parseFloat(document.getElementById('set-fki').value) || 0,
+                kd: parseFloat(document.getElementById('set-fkd').value) || 0,
+            }
+        });
+        alert(ok ? "PID Settings Saved!" : "Failed to save PID Settings!");
+    }
+    
+    async function saveWifi() {
+        const ok = await sendCommand('save_wifi', {
             wifi: {
                 ssid: document.getElementById('set-ssid').value,
                 password: document.getElementById('set-pass').value
             }
         });
-        alert("Settings Saved!");
+        alert(ok ? "Wi-Fi Settings Saved!" : "Failed to save Wi-Fi Settings!");
     }
+
     async function loadSettings() {
         try {
-            const res = await fetch('/api/settings'); const data = await res.json();
+            const res = await fetch('/api/settings'); 
+            if (!res.ok) return;
+            const data = await res.json();
             if (data.machine) {
                 document.getElementById('set-bt').value = data.machine.brew_temp;
                 document.getElementById('set-st').value = data.machine.steam_temp;
                 if (data.machine.steam_time_limit_s !== undefined) document.getElementById('set-sl').value = data.machine.steam_time_limit_s;
-                if (data.machine.steam_pressure !== undefined) document.getElementById('set-sp').value = data.machine.steam_pressure;
+                if (data.machine.sleep_timeout_min !== undefined) document.getElementById('set-slt').value = data.machine.sleep_timeout_min;
+                if (data.machine.temp_offset !== undefined) document.getElementById('set-to').value = data.machine.temp_offset;
+                if (data.machine.flow_pulses_per_liter !== undefined) document.getElementById('set-fepl').value = data.machine.flow_pulses_per_liter;
+                if (data.machine.flow_limit_kp !== undefined) document.getElementById('set-frb').value = data.machine.flow_limit_kp;
+                if (data.machine.feed_forward_percents !== undefined) document.getElementById('set-fhm').value = data.machine.feed_forward_percents;
             }
-            if (data.hardware) {
-                if (data.hardware.temp_offset !== undefined) document.getElementById('set-to').value = data.hardware.temp_offset;
-                if (data.hardware.flow_edges_per_liter !== undefined) document.getElementById('set-fepl').value = data.hardware.flow_edges_per_liter;
-                if (data.hardware.temp_feed_forward !== undefined) document.getElementById('set-tff').value = data.hardware.temp_feed_forward;
-                if (data.hardware.flow_multiplier !== undefined) document.getElementById('set-fpp').value = data.hardware.flow_multiplier;
-            }            if (data.temp_pid) {
+            if (data.temp_pid) {
                 if (data.temp_pid.kp !== undefined) document.getElementById('set-tkp').value = data.temp_pid.kp;
                 if (data.temp_pid.ki !== undefined) document.getElementById('set-tki').value = data.temp_pid.ki;
                 if (data.temp_pid.kd !== undefined) document.getElementById('set-tkd').value = data.temp_pid.kd;
@@ -286,54 +336,80 @@
                 if (data.press_pid.ki !== undefined) document.getElementById('set-pki').value = data.press_pid.ki;
                 if (data.press_pid.kd !== undefined) document.getElementById('set-pkd').value = data.press_pid.kd;
             }
+            if (data.flow_pid) {
+                if (data.flow_pid.kp !== undefined) document.getElementById('set-fkp').value = data.flow_pid.kp;
+                if (data.flow_pid.ki !== undefined) document.getElementById('set-fki').value = data.flow_pid.ki;
+                if (data.flow_pid.kd !== undefined) document.getElementById('set-fkd').value = data.flow_pid.kd;
+            }
             if (data.wifi) {
                 if (data.wifi.ssid !== undefined) document.getElementById('set-ssid').value = data.wifi.ssid;
                 if (data.wifi.password !== undefined) document.getElementById('set-pass').value = data.wifi.password;
             }
-            if (data.usage) {
-                let totalAllTime = data.usage.total_ml_all_time || 0.0;
-                let atLastDescale = data.usage.ml_at_last_descale || 0.0;
-                let sinceDescale = totalAllTime - atLastDescale;
-                
-                const descaleEl = document.getElementById('val-descale-ml');
-                if (descaleEl) descaleEl.innerText = (sinceDescale / 1000).toFixed(1);
-                
-                const totalEl = document.getElementById('val-total-ml');
-                if (totalEl) totalEl.innerText = (totalAllTime / 1000).toFixed(1);
-            }
         } catch (e) {}
     }
-    
 
     // --- PROFILE EDITOR ---
+    const MAX_STEPS = 5;
     let steps = [{ time_s: 15.0, volume: 0.0, pressure: 9.0, flow: 0.0 }];
+    
+    function sanitizeStep(step) {
+        return {
+            time_s: parseFloat(step.time_s) || 0.0,
+            volume: parseFloat(step.volume) || 0.0,
+            pressure: parseFloat(step.pressure) || 0.0,
+            flow: parseFloat(step.flow) || 0.0,
+        };
+    }
+
     function renderSteps() {
-        const tbody = document.getElementById('step-body'); tbody.innerHTML = '';
+        const tbody = document.getElementById('step-body'); 
+        tbody.innerHTML = '';
         steps.forEach((step, idx) => {
+            const t = step.time_s ?? 0.0;
+            const v = step.volume ?? 0.0;
+            const p = step.pressure ?? 0.0;
+            const f = step.flow ?? 0.0;
             tbody.innerHTML += `<tr>
-                <td><input type="number" step="0.5" value="${step.time_s}" onchange="steps[${idx}].time_s=parseFloat(this.value)"></td>
-                <td><input type="number" step="1.0" value="${step.volume}" onchange="steps[${idx}].volume=parseFloat(this.value)"></td>
-                <td><input type="number" step="0.5" value="${step.pressure}" onchange="steps[${idx}].pressure=parseFloat(this.value)"></td>
-                <td><input type="number" step="0.5" value="${step.flow}" onchange="steps[${idx}].flow=parseFloat(this.value)"></td>
+                <td><input type="number" step="0.5" value="${t}" onchange="steps[${idx}].time_s=parseFloat(this.value)||0"></td>
+                <td><input type="number" step="1.0" value="${v}" onchange="steps[${idx}].volume=parseFloat(this.value)||0"></td>
+                <td><input type="number" step="0.5" value="${p}" onchange="steps[${idx}].pressure=parseFloat(this.value)||0"></td>
+                <td><input type="number" step="0.5" value="${f}" onchange="steps[${idx}].flow=parseFloat(this.value)||0"></td>
                 <td><button class="danger" onclick="removeStep(${idx})">X</button></td></tr>`;
         });
     }
-    function addStep() { steps.push({ time_s: 0.0, volume: 0.0, pressure: 0.0, flow: 0.0 }); renderSteps(); }
-    function removeStep(idx) { steps.splice(idx, 1); renderSteps(); }
-    function runCustomProfile() {
-        const name = document.getElementById('prof-name').value;
+    
+    function addStep() {
+        if (steps.length >= MAX_STEPS) return alert(`A profile is limited to ${MAX_STEPS} steps.`);
+        steps.push({ time_s: 0.0, volume: 0.0, pressure: 0.0, flow: 0.0 }); 
+        renderSteps();
+    }
+    
+    function removeStep(idx) { 
+        steps.splice(idx, 1); 
+        renderSteps(); 
+    }
+    
+    async function runCustomProfile() {
+        const name = document.getElementById('prof-name').value.trim();
         if (!name) return alert("Validation Error: Profile needs a name.");
         if (steps.length === 0) return alert("Validation Error: Profile needs at least one step.");
-        sendCommand('profile', { profile: { name: name, steps: steps } });
+        const cleanSteps = steps.map(sanitizeStep);
+        await sendCommand('profile', { profile: { name: name.substring(0, 32), steps: cleanSteps } });
     }
     renderSteps();
 
     // --- PROFILE CRUD ---
     async function loadProfilesList() {
         try {
-            const res = await fetch('/api/profiles'); const data = await res.json();
-            const tbody = document.getElementById('saved-profiles-body'); tbody.innerHTML = '';
-            if (data.length === 0) { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#888;">No profiles saved yet.</td></tr>'; return; }
+            const res = await fetch('/api/profiles'); 
+            if (!res.ok) return;
+            const data = await res.json();
+            const tbody = document.getElementById('saved-profiles-body'); 
+            tbody.innerHTML = '';
+            if (data.length === 0) { 
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#888;">No profiles saved yet.</td></tr>'; 
+                return; 
+            }
             data.forEach(p => {
                 tbody.innerHTML += `<tr><td>${p.slot}</td><td><strong>${p.name}</strong></td>
                     <td style="text-align: right;">
@@ -344,34 +420,83 @@
             });
         } catch (e) {}
     }
-    async function runSlot(slot) { if(confirm(`Execute profile from slot ${slot}?`)) { sendCommand('run_slot', { slot: slot }); } }
-    async function deleteSlot(slot) { if(confirm(`Permanently delete profile in slot ${slot}?`)) { await sendCommand('delete_profile', { slot: slot }); setTimeout(loadProfilesList, 500); } }
-    async function editSlot(slot) {
-        try {
-            openTab(null, 'tab-home'); // Switch to home tab where editor is
-            const res = await fetch(`/api/profile/${slot}`); const p = await res.json();
-            document.getElementById('prof-slot').value = slot; document.getElementById('prof-name').value = p.name;
-            steps = p.steps; renderSteps(); 
-            document.getElementById('profile-editor').scrollIntoView({ behavior: 'smooth' });
-        } catch (e) { alert("Failed to fetch profile data!"); }
+    
+    async function runSlot(slot) { 
+        if (confirm(`Execute profile from slot ${slot}?`)) { 
+            await sendCommand('run_slot', { slot: slot }); 
+        } 
     }
-    function saveProfileToSlot() {
-        const name = document.getElementById('prof-name').value; const slot = parseInt(document.getElementById('prof-slot').value);
-        if (!name || steps.length === 0) return alert("Invalid Profile!");
-        sendCommand('save_profile', { slot: slot, profile: { name: name, steps: steps } });
-        alert(`Profile saved to Slot ${slot}!`); setTimeout(loadProfilesList, 500);
+    
+    async function deleteSlot(slot) { 
+        if (confirm(`Permanently delete profile in slot ${slot}?`)) { 
+            const ok = await sendCommand('delete_profile', { slot: slot }); 
+            if (ok) {
+                await loadProfilesList(); 
+            } else {
+                alert("Failed to delete profile.");
+            }
+        } 
+    }
+    
+    async function editSlot(slot) {
+        for (let attempt = 0; attempt <= 2; attempt++) {
+            try {
+                openTab(null, 'tab-home');
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3000);
+                const res = await fetch(`/api/profile/${slot}`, { signal: controller.signal }); 
+                clearTimeout(timeoutId);
+                if (res.ok) {
+                    const p = await res.json();
+                    document.getElementById('prof-slot').value = slot; 
+                    document.getElementById('prof-name').value = p.name || '';
+                    steps = (p.steps || []).map(sanitizeStep); 
+                    if (steps.length === 0) {
+                        steps = [{ time_s: 15.0, volume: 0.0, pressure: 9.0, flow: 0.0 }];
+                    }
+                    renderSteps(); 
+                    document.getElementById('profile-editor').scrollIntoView({ behavior: 'smooth' });
+                    return;
+                }
+                if (res.status === 404) {
+                    alert(`Profile slot ${slot} is empty.`);
+                    return;
+                }
+            } catch (e) { 
+                console.warn(`Fetch profile ${slot} attempt ${attempt + 1} failed:`, e);
+            }
+            if (attempt < 2) {
+                await new Promise(r => setTimeout(r, 150));
+            }
+        }
+        alert(`Failed to fetch profile data for slot ${slot}. Please retry.`);
+    }
+    
+    async function saveProfileToSlot() {
+        const name = document.getElementById('prof-name').value.trim(); 
+        const slot = parseInt(document.getElementById('prof-slot').value);
+        if (!name) return alert("Invalid Profile: Name cannot be empty.");
+        if (steps.length === 0) return alert("Invalid Profile: Add at least one step.");
+        if (steps.length > MAX_STEPS) return alert(`Invalid Profile: Max ${MAX_STEPS} steps allowed.`);
+        
+        const cleanSteps = steps.map(sanitizeStep);
+        const ok = await sendCommand('save_profile', { 
+            slot: slot, 
+            profile: { name: name.substring(0, 32), steps: cleanSteps } 
+        });
+        
+        if (ok) {
+            alert(`Profile saved to Slot ${slot}!`); 
+            await loadProfilesList();
+        } else {
+            alert(`Failed to save profile to Slot ${slot}. Please retry.`);
+        }
     }
 
     // --- SYNCHRONIZED BOOT SEQUENCE ---
-    // This forces the browser to load data one step at a time, preventing TCP socket exhaustion!
     async function bootMachineUI() {
-        console.log("Loading Settings...");
         await loadSettings();
-        
-        console.log("Loading Profiles...");
         await loadProfilesList();
-        
-        console.log("Starting Live Telemetry...");
         pollTelemetry();
     }
 

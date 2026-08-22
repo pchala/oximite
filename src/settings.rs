@@ -1,43 +1,44 @@
+use crate::board::{FLASH_SIZE, FS_RANGE, FS_SCRATCH};
+use crate::profiles::{delete_profile_from_flash, get_profile_from_ram, save_profile_to_flash};
 use embassy_rp::flash::{Async, Flash, Instance};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use sequential_storage::cache::NoCache;
-use sequential_storage::map::{fetch_item, remove_item, store_item};
+use sequential_storage::map::{fetch_item, store_item};
 use serde::{Deserialize, Serialize};
 
-const FS_RANGE: core::ops::Range<u32> = (16777216 - 65536)..16777216;
-const MAX_PROFILES: u8 = 10;
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct BrewProfileStep {
-    pub time_s: Option<f32>,
-    pub volume: Option<f32>,
-    pub pressure: Option<f32>,
-    pub flow: Option<f32>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct BrewProfile {
-    pub name: heapless::String<32>,
-    pub steps: heapless::Vec<BrewProfileStep, 10>,
-}
-
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct MachineSettings {
     pub brew_temp: f32,
     pub steam_temp: f32,
     pub steam_time_limit_s: f32,
-    pub steam_pressure: f32,
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub struct HardwareSettings {
+    /// Minutes of inactivity while Idle before the machine auto-sleeps.
+    pub sleep_timeout_min: f32,
+    /// °C offset between the boiler sensor and the group head / puck. Added to
+    /// the session brew temperature to form the boiler setpoint
+    /// (`control::set_target_temp`) and subtracted again for display
+    /// (`Telemetry::display_temp`). `operations::execute_cooldown_flush` also
+    /// uses it to stop early, once the boiler reaches
+    /// `brew_temp + 2 * temp_offset`.
     pub temp_offset: f32,
-    pub flow_edges_per_liter: f32,
-    pub temp_feed_forward: f32,
-    pub flow_multiplier: f32,
+    pub flow_pulses_per_liter: f32,
+    /// Unused: flow limiting is a dedicated PID on pump duty
+    /// (`Settings::flow_pid`). Kept so `sys_machine` blobs in flash still
+    /// deserialize — dropping the field makes the whole section fail to parse
+    /// and silently reset to defaults.
+    pub flow_limit_kp: f32,
+    /// Scales the flow-proportional temperature feed-forward applied during a
+    /// brew, as a percentage of the built-in nominal gain: 100 = nominal,
+    /// 0 = disabled.
+    ///
+    /// Only active while `control::BrewActiveGuard` is armed. The setpoint
+    /// boost is `CONST_FF * (this / 100) * (target_t - 20) * flow_ml_s`,
+    /// clamped to +20 °C — it scales with both the flow rate and the
+    /// boiler-to-ambient delta. Raise it if the first seconds of a shot sag,
+    /// lower it if the boiler overshoots once flow starts.
+    pub feed_forward_percents: f32,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -53,12 +54,6 @@ pub struct WifiSettings {
     pub password: heapless::String<64>,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
-pub struct UsageSettings {
-    pub total_ml_all_time: f32,
-    pub ml_at_last_descale: f32,
-}
-
 // ==========================================
 // DATA - Pure settings values
 // ==========================================
@@ -66,44 +61,46 @@ pub struct UsageSettings {
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub machine: MachineSettings,
-    pub hardware: HardwareSettings,
     pub temp_pid: PidSettings,
     pub press_pid: PidSettings,
+    /// Drives pump duty directly from the flow error whenever a profile step
+    /// asks for a flow rate. Output units are 0-100 % triac duty, matching
+    /// `PidController`'s built-in clamp.
+    pub flow_pid: PidSettings,
     pub wifi: WifiSettings,
-    pub usage: UsageSettings,
 }
 
 /// Single source of truth for defaults — used by both `Default` and the static cache.
-const DEFAULT_SETTINGS: Settings = Settings {
+pub const DEFAULT_SETTINGS: Settings = Settings {
     machine: MachineSettings {
         brew_temp: 92.0,
         steam_temp: 135.0,
         steam_time_limit_s: 120.0,
-        steam_pressure: 1.5,
-    },
-    hardware: HardwareSettings {
-        temp_offset: 8.0,
-        flow_edges_per_liter: 5200.0,
-        temp_feed_forward: 35.0,
-        flow_multiplier: 20.0,
+        sleep_timeout_min: 20.0,
+        temp_offset: 10.0,
+        flow_pulses_per_liter: 98324.0, // 49162 physical pulses/L × 2 edges per pulse
+        flow_limit_kp: 0.025,
+        feed_forward_percents: 100.0,
     },
     temp_pid: PidSettings {
-        kp: 2.0,
-        ki: 0.01,
-        kd: 5.0,
+        kp: 8.0,
+        ki: 0.8,
+        kd: 20.0,
     },
     press_pid: PidSettings {
-        kp: 2.0,
-        ki: 0.1,
-        kd: 0.5,
+        kp: 10.0,
+        ki: 20.0,
+        kd: 0.0,
+    },
+
+    flow_pid: PidSettings {
+        kp: 4.0,
+        ki: 30.0,
+        kd: 0.0,
     },
     wifi: WifiSettings {
         ssid: heapless::String::new(),
         password: heapless::String::new(),
-    },
-    usage: UsageSettings {
-        total_ml_all_time: 0.0,
-        ml_at_last_descale: 0.0,
     },
 };
 
@@ -121,25 +118,36 @@ impl Default for Settings {
 /// loop (`control::ac_sync_control_task`, ~100Hz). Kept `Copy` and published
 /// via `Watch` so the hot loop can grab the latest values with a plain copy —
 /// no mutex lock/await and no cloning of unrelated fields (profile name,
-/// Wi-Fi credentials, usage counters) on every tick.
+/// Wi-Fi credentials) on every tick.
 #[derive(Clone, Copy, PartialEq)]
 pub struct ControlSettings {
-    pub hardware: HardwareSettings,
+    pub machine: MachineSettings,
     pub temp_pid: PidSettings,
     pub press_pid: PidSettings,
+    pub flow_pid: PidSettings,
 }
 
-impl Default for ControlSettings {
-    fn default() -> Self {
+impl From<&Settings> for ControlSettings {
+    /// The single place the control-relevant subset is spelled out — used by
+    /// both `Default` and `Settings::update_ram`, so a new field cannot reach
+    /// one and miss the other.
+    fn from(s: &Settings) -> Self {
         Self {
-            hardware: DEFAULT_SETTINGS.hardware,
-            temp_pid: DEFAULT_SETTINGS.temp_pid,
-            press_pid: DEFAULT_SETTINGS.press_pid,
+            machine: s.machine,
+            temp_pid: s.temp_pid,
+            press_pid: s.press_pid,
+            flow_pid: s.flow_pid,
         }
     }
 }
 
-pub static CONTROL_SETTINGS: Watch<CriticalSectionRawMutex, ControlSettings, 2> = Watch::new();
+impl Default for ControlSettings {
+    fn default() -> Self {
+        Self::from(&DEFAULT_SETTINGS)
+    }
+}
+
+static CONTROL_SETTINGS: Watch<CriticalSectionRawMutex, ControlSettings, 2> = Watch::new();
 
 impl ControlSettings {
     /// Latest control-relevant settings. Cheap enough to call every tick of a
@@ -161,29 +169,10 @@ impl Settings {
     }
 
     pub async fn update_ram(new_settings: Self) {
-        CONTROL_SETTINGS.sender().send(ControlSettings {
-            hardware: new_settings.hardware,
-            temp_pid: new_settings.temp_pid,
-            press_pid: new_settings.press_pid,
-        });
+        CONTROL_SETTINGS
+            .sender()
+            .send(ControlSettings::from(&new_settings));
         *CURRENT_SETTINGS.lock().await = new_settings;
-    }
-
-    pub async fn get_default_profile() -> BrewProfile {
-        if let Some(profile) = get_profile_from_ram(0).await {
-            return profile;
-        }
-        let mut p = BrewProfile {
-            name: heapless::String::try_from("Standard").unwrap(),
-            steps: heapless::Vec::new(),
-        };
-        let _ = p.steps.push(BrewProfileStep {
-            time_s: Some(30.0),
-            volume: Some(36.0),
-            pressure: Some(9.0),
-            flow: Some(0.0),
-        });
-        p
     }
 }
 
@@ -191,71 +180,36 @@ impl Settings {
 // FLASH PERSISTENCE - Load/save settings
 // ==========================================
 
-/// Fetches one settings section from flash, returning `None` if absent or corrupt.
+/// Loads one settings section from flash into `$field`, reporting whether it
+/// was there. Absent or corrupt sections leave the default in place.
 macro_rules! load_section {
-    ($flash:expr, $scratch:expr, $key:expr, $type:ty) => {{
+    ($flash:expr, $scratch:expr, $key:expr, $field:expr) => {{
         match fetch_item($flash, FS_RANGE, &mut NoCache::new(), $scratch, $key).await {
-            Ok(Some(bytes)) => serde_json_core::from_slice::<$type>(bytes)
-                .ok()
-                .map(|(v, _)| v),
-            _ => None,
+            Ok(Some(bytes)) => match serde_json_core::from_slice(bytes) {
+                Ok((v, _)) => {
+                    $field = v;
+                    true
+                }
+                Err(_) => false,
+            },
+            _ => false,
         }
     }};
-}
-
-/// Serialises and stores a section only when the value has changed.
-macro_rules! save_if_changed {
-    ($flash:expr, $scratch:expr, $buf:expr, $old:expr, $new:expr, $key:expr, $changed:ident) => {
-        if $old != $new {
-            if let Ok(len) = serde_json_core::to_slice($new, &mut $buf) {
-                let _ = store_item(
-                    $flash,
-                    FS_RANGE,
-                    &mut NoCache::new(),
-                    $scratch,
-                    $key,
-                    &&$buf[..len],
-                )
-                .await;
-                $changed = true;
-            }
-        }
-    };
 }
 
 pub struct SettingsStore;
 
 impl SettingsStore {
     /// Reads all settings sections from flash and populates the RAM cache.
-    pub async fn load<T: Instance>(flash: &mut Flash<'_, T, Async, 16777216>) {
-        let mut scratch = [0u8; 1024];
+    pub async fn load<T: Instance>(flash: &mut Flash<'_, T, Async, FLASH_SIZE>) {
+        let mut scratch = [0u8; FS_SCRATCH];
         let mut s = Settings::default();
-        let mut loaded = false;
 
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_machine", MachineSettings) {
-            s.machine = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_hardware", HardwareSettings) {
-            s.hardware = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_temp_pid", PidSettings) {
-            s.temp_pid = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_press_pid", PidSettings) {
-            s.press_pid = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_wifi", WifiSettings) {
-            s.wifi = v;
-            loaded = true;
-        }
-        if let Some(v) = load_section!(flash, &mut scratch, b"sys_usage", UsageSettings) {
-            s.usage = v;
-            loaded = true;
-        }
+        let mut loaded = load_section!(flash, &mut scratch, b"sys_machine", s.machine);
+        loaded |= load_section!(flash, &mut scratch, b"sys_temp_pid", s.temp_pid);
+        loaded |= load_section!(flash, &mut scratch, b"sys_press_pid", s.press_pid);
+        loaded |= load_section!(flash, &mut scratch, b"sys_flow_pid", s.flow_pid);
+        loaded |= load_section!(flash, &mut scratch, b"sys_wifi", s.wifi);
 
         if loaded {
             defmt::info!("Settings loaded from flash.");
@@ -265,183 +219,39 @@ impl SettingsStore {
         Settings::update_ram(s).await;
     }
 
-    /// Writes only sections that differ between `old` and `new` to flash.
-    pub async fn save_changed<T: Instance>(
-        flash: &mut Flash<'_, T, Async, 16777216>,
-        old: &Settings,
-        new: &Settings,
-    ) {
-        let mut scratch = [0u8; 1024];
-        let mut buf = [0u8; 1024];
-        let mut saved = false;
-
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.machine,
-            &new.machine,
-            b"sys_machine",
-            saved
-        );
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.hardware,
-            &new.hardware,
-            b"sys_hardware",
-            saved
-        );
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.temp_pid,
-            &new.temp_pid,
-            b"sys_temp_pid",
-            saved
-        );
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.press_pid,
-            &new.press_pid,
-            b"sys_press_pid",
-            saved
-        );
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.wifi,
-            &new.wifi,
-            b"sys_wifi",
-            saved
-        );
-        save_if_changed!(
-            flash,
-            &mut scratch,
-            buf,
-            &old.usage,
-            &new.usage,
-            b"sys_usage",
-            saved
-        );
-
-        if saved {
-            defmt::info!("Settings changes saved to flash.");
+    pub async fn save_section<T: Instance, S: Serialize, K: sequential_storage::map::Key>(
+        flash: &mut Flash<'_, T, Async, FLASH_SIZE>,
+        key: &K,
+        data: &S,
+    ) -> Result<(), ()> {
+        let mut scratch = [0u8; FS_SCRATCH];
+        let mut buf = [0u8; FS_SCRATCH];
+        if let Ok(len) = serde_json_core::to_slice(data, &mut buf) {
+            store_item(
+                flash,
+                FS_RANGE,
+                &mut NoCache::new(),
+                &mut scratch,
+                key,
+                &&buf[..len],
+            )
+            .await
+            .map_err(|_| ())
+        } else {
+            Err(())
         }
     }
-}
-
-// ==========================================
-// PROFILE RAM CACHE & FLASH MANAGEMENT
-// ==========================================
-
-static PROFILES_CACHE: Mutex<CriticalSectionRawMutex, [Option<BrewProfile>; 10]> =
-    Mutex::new([None, None, None, None, None, None, None, None, None, None]);
-
-fn profile_key(slot: u8) -> [u8; 6] {
-    [b'p', b'r', b'o', b'f', b'_', b'0' + slot]
-}
-
-pub async fn get_profile_from_ram(slot: u8) -> Option<BrewProfile> {
-    if slot >= MAX_PROFILES {
-        return None;
-    }
-    PROFILES_CACHE.lock().await[slot as usize].clone()
-}
-
-pub async fn get_all_profiles_from_ram() -> heapless::Vec<(u8, BrewProfile), 10> {
-    let mut list = heapless::Vec::new();
-    let cache = PROFILES_CACHE.lock().await;
-    for i in 0..MAX_PROFILES {
-        if let Some(p) = &cache[i as usize] {
-            let _ = list.push((i, p.clone()));
-        }
-    }
-    list
-}
-
-pub async fn load_all_profiles_from_flash<T: Instance>(flash: &mut Flash<'_, T, Async, 16777216>) {
-    let mut scratch = [0u8; 512];
-    let mut cache = PROFILES_CACHE.lock().await;
-
-    for slot in 0..MAX_PROFILES {
-        let key = profile_key(slot);
-        let fetch_result: Result<Option<&[u8]>, _> =
-            fetch_item(flash, FS_RANGE, &mut NoCache::new(), &mut scratch, &key).await;
-
-        if let Ok(Some(item_bytes)) = fetch_result {
-            if let Ok((profile, _)) = serde_json_core::from_slice::<BrewProfile>(item_bytes) {
-                cache[slot as usize] = Some(profile);
-            }
-        }
-    }
-    defmt::info!("All saved profiles loaded into RAM.");
-}
-
-pub async fn save_profile_to_ram(slot: u8, profile: BrewProfile) {
-    if slot < MAX_PROFILES {
-        PROFILES_CACHE.lock().await[slot as usize] = Some(profile);
-    }
-}
-
-pub async fn delete_profile_from_ram(slot: u8) {
-    if slot < MAX_PROFILES {
-        PROFILES_CACHE.lock().await[slot as usize] = None;
-    }
-}
-
-pub async fn save_profile_to_flash<T: Instance>(
-    flash: &mut Flash<'_, T, Async, 16777216>,
-    slot: u8,
-    profile: &BrewProfile,
-) -> Result<(), ()> {
-    if slot >= MAX_PROFILES {
-        return Err(());
-    }
-    let key = profile_key(slot);
-    let mut scratch = [0u8; 512];
-    let mut data = [0u8; 1024];
-
-    if let Ok(len) = serde_json_core::to_slice(profile, &mut data) {
-        store_item(
-            flash,
-            FS_RANGE,
-            &mut NoCache::new(),
-            &mut scratch,
-            &key,
-            &&data[..len],
-        )
-        .await
-        .map_err(|_| ())
-    } else {
-        Err(())
-    }
-}
-
-pub async fn delete_profile_from_flash<T: Instance>(
-    flash: &mut Flash<'_, T, Async, 16777216>,
-    slot: u8,
-) -> Result<(), ()> {
-    if slot >= MAX_PROFILES {
-        return Err(());
-    }
-    let key = profile_key(slot);
-    let mut scratch = [0u8; 512];
-    remove_item(flash, FS_RANGE, &mut NoCache::new(), &mut scratch, &key)
-        .await
-        .map_err(|_| ())
 }
 
 // ==========================================
 // BACKGROUND FLASH EVENT HANDLER
 // ==========================================
 pub enum FlashUpdate {
-    SaveSettings(Settings),
+    SaveMachine(MachineSettings),
+    /// (temp, pressure, flow). Flow is optional so an older UI that only knows
+    /// about two PIDs leaves the flow gains untouched instead of zeroing them.
+    SavePids(PidSettings, PidSettings, Option<PidSettings>),
+    SaveWifi(WifiSettings),
     SaveProfile(u8),
     DeleteProfile(u8),
 }
@@ -450,14 +260,29 @@ pub static SIG_FLASH_UPDATE: Signal<CriticalSectionRawMutex, FlashUpdate> = Sign
 
 #[embassy_executor::task]
 pub async fn flash_update_task(
-    mut flash: Flash<'static, embassy_rp::peripherals::FLASH, Async, 16777216>,
+    mut flash: Flash<'static, embassy_rp::peripherals::FLASH, Async, FLASH_SIZE>,
 ) {
+    let mut state_rx = crate::state::MACHINE_STATE.receiver().unwrap();
     loop {
         let event = SIG_FLASH_UPDATE.wait().await;
+
+        while crate::state::get_state().is_busy() {
+            state_rx.changed().await;
+        }
+
         match event {
-            FlashUpdate::SaveSettings(old_s) => {
-                let new_s = Settings::get().await;
-                SettingsStore::save_changed(&mut flash, &old_s, &new_s).await;
+            FlashUpdate::SaveMachine(m) => {
+                let _ = SettingsStore::save_section(&mut flash, b"sys_machine", &m).await;
+            }
+            FlashUpdate::SavePids(t, p, f) => {
+                let _ = SettingsStore::save_section(&mut flash, b"sys_temp_pid", &t).await;
+                let _ = SettingsStore::save_section(&mut flash, b"sys_press_pid", &p).await;
+                if let Some(f) = f {
+                    let _ = SettingsStore::save_section(&mut flash, b"sys_flow_pid", &f).await;
+                }
+            }
+            FlashUpdate::SaveWifi(w) => {
+                let _ = SettingsStore::save_section(&mut flash, b"sys_wifi", &w).await;
             }
             FlashUpdate::SaveProfile(slot) => {
                 if let Some(p) = get_profile_from_ram(slot).await {

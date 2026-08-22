@@ -3,6 +3,7 @@ import math
 import os
 import re
 import socket
+import struct
 import threading
 import time
 import unittest
@@ -10,17 +11,27 @@ import unittest
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import serial
 
-# IMPORTANT: Update these to match your RP2040's networking
-TCP_IP = '192.168.1.117'
-TCP_PORT = 8080
-
-# IMPORTANT: Update this to match your RP2040's serial port (e.g., 'COM3' or '/dev/ttyACM0')
-SERIAL_PORT = 'COM5'
-BAUD_RATE = 2_000_000
-
-TIMESTAMP = time.strftime("%Y%m%d_%H%M_")
+from common import (
+    TCP_IP,
+    TCP_PORT,
+    TIMESTAMP,
+    DIAG_VER,
+    DIAG_MAGIC,
+    DIAG_HEADER_FMT,
+    DIAG_HEADER_FIELDS,
+    DIAG_HEADER_LEN,
+    DIAG_FRAME_FMT,
+    DIAG_FRAME_FIELDS,
+    DIAG_FRAME_LEN,
+    decode_diag_header,
+    decode_diag_frame,
+    plot_results as common_plot_results,
+    save_telemetry_json as common_save_telemetry_json,
+    plot_stability_results as common_plot_stability_results,
+    plot_step_response as common_plot_step_response,
+    plot_pressure_step_response as common_plot_pressure_step_response,
+)
 
 
 class TestOximite(unittest.TestCase):
@@ -30,6 +41,8 @@ class TestOximite(unittest.TestCase):
     sock_file = None
     read_thread = None
     running = True
+    parse_errors = 0
+    diag_header = None
 
     @classmethod
     def setUpClass(cls):
@@ -39,7 +52,6 @@ class TestOximite(unittest.TestCase):
             cls.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cls.sock.settimeout(5.0)
             cls.sock.connect((TCP_IP, TCP_PORT))
-            cls.sock_file = cls.sock.makefile('rw', encoding='utf-8')
             cls.read_thread = threading.Thread(target=cls.read_socket)
             cls.read_thread.start()
         except Exception as e:
@@ -50,29 +62,73 @@ class TestOximite(unittest.TestCase):
         cls.running = False
         if cls.read_thread:
             cls.read_thread.join()
-        if cls.sock_file:
-            cls.sock_file.close()
         if cls.sock:
             cls.sock.close()
 
     @classmethod
-    def read_socket(cls):
-        while cls.running:
+    def recv_exactly(cls, n):
+        """Reads exactly `n` bytes, or returns None once the stream ends.
+
+        Records are fixed-size and undelimited, so a short read must be
+        completed rather than treated as a record — TCP is free to split a
+        55-byte frame across segments.
+        """
+        buf = bytearray()
+        while len(buf) < n and cls.running:
             try:
-                line = cls.sock_file.readline().strip()
-                if line:
-                    data = json.loads(line)
-                    cls.telemetry_history.append(data)
-                    cls.current_state = data.get('st', 0)
-            except Exception as e:
-                time.sleep(0.01)
-                pass
+                chunk = cls.sock.recv(n - len(buf))
+            except socket.timeout:
+                continue
+            except OSError:
+                return None
+            if not chunk:
+                return None
+            buf += chunk
+        return bytes(buf) if len(buf) == n else None
+
+    @classmethod
+    def read_socket(cls):
+        raw = cls.recv_exactly(DIAG_HEADER_LEN)
+        if raw is None:
+            return
+        try:
+            cls.diag_header = decode_diag_header(raw)
+        except ValueError as e:
+            print(f"Diagnostic stream rejected: {e}")
+            return
+
+        while cls.running:
+            raw = cls.recv_exactly(DIAG_FRAME_LEN)
+            if raw is None:
+                break
+            try:
+                row = decode_diag_frame(raw)
+            except (ValueError, struct.error):
+                # Counted, not swallowed: a bad frame means the reader is off
+                # a record boundary, which every later sample inherits.
+                cls.parse_errors += 1
+                continue
+            cls.telemetry_history.append(row)
+            cls.current_state = row['st']
 
     def setUp(self):
         self.__class__.telemetry_history.clear()
 
+    @classmethod
+    def snapshot_history(cls):
+        """Copy of the telemetry collected so far.
+
+        The reader thread keeps appending while a plot is being built, so
+        reading the live list more than once yields different lengths and
+        matplotlib rejects the frame with "x and y must have same first
+        dimension". `list()` copies in a single bytecode, so the snapshot
+        cannot tear, and the saved JSON then describes exactly the rows the
+        PNG was drawn from.
+        """
+        return list(cls.telemetry_history)
+
     def send_command(self, cmd_dict):
-        if self.sock and self.sock_file:
+        if self.sock:
             msg = json.dumps(cmd_dict) + "\n"
             try:
                 self.sock.sendall(msg.encode('utf-8'))
@@ -106,142 +162,14 @@ class TestOximite(unittest.TestCase):
 
         self.wait_for_state(0, timeout=max_timeout, title=title)
         self.plot_results(title)
-
     def plot_results(self, title):
-        history = self.__class__.telemetry_history
-        if not history:
-            print(f"No data collected for {title}")
-            return
+        common_plot_results(self.snapshot_history(), title, self.__class__.diag_header)
 
-        x = [i * 0.02 for i in range(len(history))]  # 50Hz = 20ms steps
-        p = [d.get('p', 0) for d in history]
-        tp = [d.get('tp', 0) for d in history]
-        vol = [d.get('vol', 0) for d in history]
-        fl = [d.get('fl', 0) for d in history]
-        t = [d.get('t', 0) for d in history]
-        tt = [d.get('tt', 0) for d in history]
-
-        fig, (ax_temp, ax_press) = plt.subplots(2, 1, figsize=(12, 9), sharex=True)
-
-        # --- Top Panel: Temperature ---
-        ax_temp.set_title(title.replace('_', ' '), fontweight='bold', fontsize=14)
-        ax_temp.set_ylabel("Temperature (°C)", color='tab:red', fontweight='bold')
-        ax_temp.plot(x, tt, label="Target Temp", linestyle="--", color='grey')
-        ax_temp.plot(x, t, label="Actual Temp", color='tab:red', linewidth=2)
-        ax_temp.legend(loc='upper left')
-        ax_temp.grid(True, alpha=0.3)
-
-        # --- Bottom Panel: Pressure ---
-        color_p = 'tab:blue'
-        ax_press.set_xlabel("Time (Seconds)", fontweight='bold')
-        ax_press.set_ylabel("Pressure (Bar)", color=color_p, fontweight='bold')
-        line1 = ax_press.plot(x, tp, label="Target Pressure", linestyle="--", color='grey')
-        line2 = ax_press.plot(x, p, label="Actual Pressure", color=color_p)
-        ax_press.tick_params(axis='y', labelcolor=color_p)
-        ax_press.set_ylim(bottom=0)
-
-        # --- Bottom Panel: Volume & Flow (Twin Axis) ---
-        ax_vol = ax_press.twinx()
-        color_v = 'tab:green'
-        color_f = 'tab:purple'
-        ax_vol.set_ylabel("Volume (ml) / Flow (ml/s)", color=color_v, fontweight='bold')
-        line3 = ax_vol.plot(x, vol, label="Accumulated Volume (ml)", color=color_v, linewidth=2)
-        line4 = ax_vol.plot(x, fl, label="Flow Rate (ml/s)", color=color_f, linestyle=":", alpha=0.7)
-        ax_vol.tick_params(axis='y', labelcolor=color_v)
-        ax_vol.set_ylim(bottom=0)
-
-        # Combine legends
-        lines = line1 + line2 + line3 + line4
-        labels = [l.get_label() for l in lines]
-        ax_press.legend(lines, labels, loc='upper left')
-        ax_press.grid(True, alpha=0.3)
-
-        fig.tight_layout()
-
-        # --- SAVE TO DISK ---
-        safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', title)
-        filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.png")
-        plt.savefig(filepath, dpi=150)
-        plt.close(fig)
-        print(f"Saved plot: {filepath}")
-
-        # Save telemetry JSON
-        telemetry_filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.json")
-        try:
-            with open(telemetry_filepath, 'w') as f:
-                for rep in history:
-                    json.dump(rep, f)
-                    f.write("\n")
-            print(f"Saved telemetry: {telemetry_filepath}")
-        except Exception as e:
-            print(f"Failed to save telemetry JSON: {e}")
+    def save_telemetry_json(self, history, safe_title):
+        common_save_telemetry_json(history, safe_title, self.__class__.diag_header)
 
     def plot_stability_results(self, title):
-        history = self.__class__.telemetry_history
-        if not history:
-            print(f"No data collected for {title}")
-            return
-
-        # Extract temperature data
-        temps = [d.get('t', 0) for d in history]
-        targets = [d.get('tt', 0) for d in history]
-
-        # Use 50Hz sample rate (0.02s)
-        times = [i * 0.02 / 60.0 for i in range(len(temps))]  # In minutes
-
-        # Calculate statistics
-        mean_t = sum(temps) / len(temps)
-        min_t = min(temps)
-        max_t = max(temps)
-        variance = sum((x - mean_t) ** 2 for x in temps) / len(temps)
-        std_dev = math.sqrt(variance)
-
-        # Create plot
-        fig, ax = plt.subplots(figsize=(12, 7))
-        ax.plot(times, targets, label="Target Temp (°C)", linestyle="--", color='grey', alpha=0.7)
-        ax.plot(times, temps, label="Actual Temp (°C)", color='tab:red', linewidth=1.5)
-
-        ax.set_title(f"Boiler Temperature Stability", fontweight='bold', fontsize=16)
-        ax.set_xlabel("Time (Minutes)", fontweight='bold')
-        ax.set_ylabel("Temperature (°C)", fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        ax.legend(loc='upper right')
-
-        # Add statistics text box
-        stats_text = (
-            f"Statistics:\nMean: {mean_t:.2f}°C\nMin:  {min_t:.2f}°C\nMax:  {max_t:.2f}°C\nStdDev: {std_dev:.3f}°C"
-        )
-        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-        ax.text(
-            0.02,
-            0.95,
-            stats_text,
-            transform=ax.transAxes,
-            fontsize=12,
-            verticalalignment='top',
-            bbox=props,
-            family='monospace',
-        )
-
-        fig.tight_layout()
-
-        # Save to disk
-        safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', title)
-        filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.png")
-        plt.savefig(filepath, dpi=150)
-        plt.close(fig)
-        print(f"Saved stability plot: {filepath}")
-
-        # Save telemetry JSON
-        telemetry_filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.json")
-        try:
-            with open(telemetry_filepath, 'w') as f:
-                for rep in history:
-                    json.dump(rep, f)
-                    f.write("\n")
-            print(f"Saved telemetry: {telemetry_filepath}")
-        except Exception as e:
-            print(f"Failed to save telemetry JSON: {e}")
+        common_plot_stability_results(self.snapshot_history(), title, self.__class__.diag_header)
 
     # =========================================================
     # TESTS
@@ -274,12 +202,114 @@ class TestOximite(unittest.TestCase):
         profile = {
             "name": "Stas Style",
             "steps": [
-                {"time_s": 3.0, "pressure": 30.0},
-                {"time_s": 2.0, "pressure": 0.0},
-                {"volume": 115.0, "pressure": 9.0},
+                {"time_s": 5.0, "pressure": 20.0},
+                {"volume": 80.0, "pressure": 9.0},
             ],
         }
         self.run_profile_and_wait(profile, title="Default_Style")
+
+    def test_pid_reaction(self):
+        print("\nRunning: PID Reaction Test...")
+        # # Step 1: Set PID coefficients (temp_pid must be top-level, not nested under "settings")
+        # self.send_command({
+        #     "cmd": "save_settings",
+        #     "temp_pid": {"kp": 6.0, "ki": 0.5, "kd": 30.0},
+        # })
+        
+        # # Step 2: Call stop to activate them
+        # self.send_command({"cmd": "stop"})
+        # time.sleep(1.0)
+        
+        # Step 3: Run profile 
+        profile = {
+            "name": "PID Reaction",
+            "steps": [
+                {"time_s": 5.0, "pressure": 20.0},
+                {"time_s": 3.0},
+                {"volume": 80.0, "pressure": 9.0, "flow": 3.0},
+            ]
+        }
+        
+        print("Starting profile...")
+        # Cleared before the command, not after: the reader thread is already
+        # appending, and clearing afterwards discards the first frames of the
+        # shot — including the tick where the flow limiter seeds its setpoint
+        # from current pressure, which is the moment worth seeing.
+        self.__class__.telemetry_history.clear()
+        self.send_command({"cmd": "profile", "profile": profile})
+        
+        # Wait for machine to enter BREWING state (1)
+        start = time.time()
+        while self.__class__.current_state == 0:
+            if time.time() - start > 5.0:
+                print("Timeout waiting for command to start!")
+                break
+            time.sleep(0.05)
+            
+        # Wait for profile to finish (return to Idle state 0)
+        self.wait_for_state(0, timeout=150, title="PID_Reaction_Test")
+        
+        # Step 4: Record one minute after profile finish
+        print("Profile finished. Recording...")
+        time.sleep(30.0)
+        
+        # Step 5: Plot results
+        self.plot_results("PID_Reaction_Test")
+
+    def test_sweet_extraction(self):
+        """Four-stage declining flow profile — no pressure target at all.
+
+        Sized for 18.5 g of coffee: 80 ml through the machine yields ~40 g in
+        the cup. Roughly 40 s of pump time, ~36 s of water/puck contact once
+        the headspace has filled.
+
+          1. Pre-infusion 2.5 ml/s, 15 ml  (6 s)  fill headspace, wet the top
+          2. Soak        1.0 ml/s, 10 ml (10 s)  capillary down through the bed
+          3. Extraction  2.5 ml/s, 35 ml (14 s)  body, crema, sugars
+          4. Taper       2.0 ml/s, 20 ml (10 s)  gentle finish, avoid channels
+
+        Stage 3 is capped at 2.5, not the 5.5 ml/s a pump free-flows and not
+        the 3.2 tried earlier. Ten bench runs measured the ceiling at 100 %
+        duty: 3.07 ml/s at 7-8 bar, 2.51 at 9-10, 2.04 at 10-11. Anything
+        above ~2.5 is unreachable against a real puck, and an unreachable
+        setpoint doesn't merely run slow — it pins duty at 100 % and the loop
+        stops regulating entirely.
+        """
+        print("\nRunning: Sweet Extraction Test...")
+
+        # `volume` is cumulative across the whole profile — `coordinator::start`
+        # zeroes the counter once at profile start, not per step — so these are
+        # running totals (15, +10, +35, +20), not per-step amounts.
+        # No `time_s`: the stages are defined by volume alone.
+        profile = {
+            "name": "Sweet Extraction",
+            "steps": [
+#               {"volume": 10.0, "flow": 2.0},
+#               {"volume": 75.0, "flow": 2.5},
+#               {"volume": 80.0, "flow": 1.0},
+               {"volume": 100.0, "flow": 2.5},
+
+            ],
+        }
+
+        print("Starting profile...")
+        self.__class__.telemetry_history.clear()
+        self.send_command({"cmd": "profile", "profile": profile})
+
+        # Wait for the machine to leave Idle
+        start = time.time()
+        while self.__class__.current_state == 0:
+            if time.time() - start > 5.0:
+                print("Timeout waiting for command to start!")
+                break
+            time.sleep(0.05)
+
+        self.wait_for_state(0, timeout=150, title="Sweet_Extraction")
+
+        print("Profile finished. Recording tail...")
+        time.sleep(10.0)
+
+        self.plot_results("Sweet_Extraction")
 
     def test_sweet_profile(self):
         profile = {
@@ -340,13 +370,16 @@ class TestOximite(unittest.TestCase):
         print("\nRunning: Pump Power Steps Test...")
         results = []
         for pwr in range(0, 105, 5):
+            # DirectPump only starts from Idle, so stop the previous step first.
+            self.send_command({"cmd": "stop"})
+            self.wait_for_state(0, timeout=10, title=f"Idle before {pwr}%")
             self.send_command({"cmd": "direct_pump", "power": float(pwr + 0.1)})
 
             # Wait for flow to stabilize
             time.sleep(3.0)
 
             # Get latest telemetry
-            history = self.__class__.telemetry_history
+            history = self.snapshot_history()
             if history:
                 latest = history[-1]
                 flow = latest.get('fl', 0.0)
@@ -355,7 +388,6 @@ class TestOximite(unittest.TestCase):
                 flow = 0.0
                 pressure = 0.0
 
-            print(f"Power: {pwr}%, Flow: {flow:.2f} ml/s, Pressure: {pressure:.2f} bar")
             results.append((pwr, flow, pressure))
 
         self.send_command({"cmd": "stop"})
@@ -422,7 +454,7 @@ class TestOximite(unittest.TestCase):
     #     # First ensure we have known settings
     #     settings = {
     #         "machine": {"brew_temp": 92.0, "steam_temp": 135.0, "temp_offset": -2.5,
-    #         "steam_time_limit_s": 10.0, "steam_pressure": 1.5},
+    #         "steam_time_limit_s": 10.0, "sleep_timeout_min": 20.0},
     #         "temp_pid": {"kp": 2.0, "ki": 0.01, "kd": 5.0},
     #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }
@@ -434,18 +466,6 @@ class TestOximite(unittest.TestCase):
     #     # Should finish after steam_time_limit_s (10s)
     #     self.wait_for_state(0, timeout=20, title="Steam Mode")
     #     self.plot_results("08_Steam_Mode")
-
-    # def test_09_descale_mode(self):
-    #     """Tests descale mode sequence."""
-    #     print("\nRunning: Descale Mode Test...")
-    #     self.send_command({"cmd": "descale"})
-    #     self.__class__.telemetry_history.clear()
-    #     # Descale takes a long time (10 min soak), so for HIL test we might want
-    #     # to just verify it starts and reaches 60 deg, but here we wait for finish.
-    #     # NOTE: In a real HIL test, you'd probably mock the 10min timer or shorten it for tests.
-    #     # For this exercise, I'll set a large timeout.
-    #     self.wait_for_state(0, timeout=15*60, title="Descale Mode")
-    #     self.plot_results("09_Descale_Mode")
 
     # def test_10_safety_timeout(self):
     #     """Verifies that a step with no limits ends at 120s."""
@@ -461,7 +481,7 @@ class TestOximite(unittest.TestCase):
     #     # Change temp to something high to see it move
     #     settings = {
     #         "machine": {"brew_temp": 98.0, "steam_temp": 135.0, "temp_offset": -2.5,
-    #         "steam_time_limit_s": 60.0, "steam_pressure": 1.5},
+    #         "steam_time_limit_s": 60.0, "sleep_timeout_min": 20.0},
     #         "temp_pid": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
     #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }
@@ -474,63 +494,14 @@ class TestOximite(unittest.TestCase):
     #     # Restore defaults
     #     self.send_command({"cmd": "save_settings", "settings": {
     #         "machine": {"brew_temp": 92.0, "steam_temp": 135.0, "temp_offset": -2.5,
-    #         "steam_time_limit_s": 120.0, "steam_pressure": 1.5},
+    #         "steam_time_limit_s": 120.0, "sleep_timeout_min": 20.0},
     #         "temp_pid": {"kp": 2.0, "ki": 0.01, "kd": 5.0},
     #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }})
     #     print("Settings restored.")
 
     def plot_step_response(self, title):
-        history = self.__class__.telemetry_history
-        if not history:
-            print(f"No data collected for {title}")
-            return
-
-        temps = [d.get('t', 0) for d in history]
-        targets = [d.get('tt', 0) for d in history]
-        times = [i * 0.02 for i in range(len(temps))]  # 50Hz = 0.02s
-
-        # Determine index for last 60 seconds (50Hz * 60s = 3000 samples)
-        last_60_idx = max(0, len(temps) - 3000)
-        times_60 = times[last_60_idx:]
-        temps_60 = temps[last_60_idx:]
-        targets_60 = targets[last_60_idx:]
-
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
-
-        # Main plot
-        ax1.plot(times, targets, label="Target Temp (°C)", linestyle="--", color='grey', alpha=0.7)
-        ax1.plot(times, temps, label="Actual Temp (°C)", color='tab:red', linewidth=2)
-        ax1.set_title(f"Step Response: {title.replace('_', ' ')}", fontweight='bold', fontsize=14)
-        ax1.set_xlabel("Time (Seconds)", fontweight='bold')
-        ax1.set_ylabel("Temperature (°C)", fontweight='bold')
-        ax1.grid(True, alpha=0.3)
-        ax1.legend(loc='lower right')
-
-        # Amplified plot of last 60 seconds
-        ax2.plot(times_60, targets_60, label="Target Temp (°C)", linestyle="--", color='grey', alpha=0.7)
-        ax2.plot(times_60, temps_60, label="Actual Temp (°C)", color='tab:red', linewidth=2)
-        ax2.set_title("Zoomed View: Last 60 Seconds", fontweight='bold', fontsize=12)
-        ax2.set_xlabel("Time (Seconds)", fontweight='bold')
-        ax2.set_ylabel("Temperature (°C)", fontweight='bold')
-        ax2.grid(True, alpha=0.5)
-
-        # Set y-axis limits to zoom in around the target temperature
-        if len(targets_60) > 0:
-            target_val = targets_60[-1]
-            # Zoom to +/- 2 degrees around target, but ensure actual data is visible
-            y_min = min(target_val - 2.0, min(temps_60) - 0.5)
-            y_max = max(target_val + 2.0, max(temps_60) + 0.5)
-            ax2.set_ylim(y_min, y_max)
-
-        ax2.legend(loc='lower right')
-
-        fig.tight_layout()
-        safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', title)
-        filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.png")
-        plt.savefig(filepath, dpi=150)
-        plt.close(fig)
-        print(f"Saved step response plot: {filepath}")
+        common_plot_step_response(self.snapshot_history(), title)
 
     def test_90_pid_tuning_sweep(self):
         """Automated PID tuning sweep for temperature control."""
@@ -548,7 +519,6 @@ class TestOximite(unittest.TestCase):
         ]
 
         combinations = []
-
         for pid in pids:
             combinations.append({"kp": pid[0], "ki": pid[1], "kd": pid[2]})
 
@@ -559,7 +529,7 @@ class TestOximite(unittest.TestCase):
             # Step 1: Set PID, set target temp to 0
             cmd_payload = {
                 "cmd": "save_settings",
-                "machine": {"brew_temp": 0.0, "steam_temp": 135.0, "steam_time_limit_s": 120.0, "steam_pressure": 1.5},
+                "machine": {"brew_temp": 0.0, "steam_temp": 135.0, "steam_time_limit_s": 120.0, "sleep_timeout_min": 20.0},
                 "temp_pid": pid,
             }
             self.send_command(cmd_payload)
@@ -591,33 +561,7 @@ class TestOximite(unittest.TestCase):
         print("\nSweep Complete.")
 
     def plot_pressure_step_response(self, title):
-        history = self.__class__.telemetry_history
-        if not history:
-            print(f"No data collected for {title}")
-            return
-
-        pressures = [d.get('p', 0) for d in history]
-        targets = [d.get('tp', 0) for d in history]
-        times = [i * 0.02 for i in range(len(pressures))]  # 50Hz = 0.02s
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-
-        ax.plot(times, targets, label="Target Pressure (Bar)", linestyle="--", color='grey', alpha=0.7)
-        ax.plot(times, pressures, label="Actual Pressure (Bar)", color='tab:blue', linewidth=2)
-        ax.set_title(f"Step Response: {title.replace('_', ' ')}", fontweight='bold', fontsize=14)
-        ax.set_xlabel("Time (Seconds)", fontweight='bold')
-        ax.set_ylabel("Pressure (Bar)", fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        ax.legend(loc='lower right')
-        
-        ax.set_ylim(bottom=0)
-
-        fig.tight_layout()
-        safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', title)
-        filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.png")
-        plt.savefig(filepath, dpi=150)
-        plt.close(fig)
-        print(f"Saved pressure step response plot: {filepath}")
+        common_plot_pressure_step_response(self.snapshot_history(), title)
 
     def test_91_pressure_pid_tuning_sweep(self):
         """Automated PID tuning sweep for pressure control (blind basket test)."""
