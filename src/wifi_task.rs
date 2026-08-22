@@ -61,19 +61,21 @@ pub async fn wifi_init_task(
         .await;
 
     static STACK: StaticCell<embassy_net::Stack<'static>> = StaticCell::new();
-    static RESOURCES: StaticCell<embassy_net::StackResources<5>> = StaticCell::new();
+    static RESOURCES: StaticCell<embassy_net::StackResources<8>> = StaticCell::new();
     let mut dhcp_config = embassy_net::DhcpConfig::default();
     dhcp_config.hostname = Some("oximite".try_into().unwrap());
 
     let (stack_alloc, runner_alloc) = embassy_net::new(
         net_device,
         embassy_net::Config::dhcpv4(dhcp_config),
-        RESOURCES.init(embassy_net::StackResources::<5>::new()),
+        RESOURCES.init(embassy_net::StackResources::<8>::new()),
         0x0123_4567_89ab_cdef,
     );
     let stack = STACK.init(stack_alloc);
     spawner.spawn(net_task(runner_alloc).unwrap());
 
+    // Dual-socket HTTP server: handles concurrent telemetry polling + web commands
+    spawner.spawn(wifi_server_task(stack).unwrap());
     spawner.spawn(wifi_server_task(stack).unwrap());
     spawner.spawn(tcp_telemetry_task(stack).unwrap());
 

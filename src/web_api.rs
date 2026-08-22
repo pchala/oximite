@@ -515,7 +515,7 @@ async fn serve(socket: &mut TcpSocket<'_>, request: &str) -> Result<(), HttpErro
     Ok(())
 }
 
-#[embassy_executor::task]
+#[embassy_executor::task(pool_size = 2)]
 pub async fn wifi_server_task(stack: &'static embassy_net::Stack<'static>) {
     let mut rx_buffer = [0; 2048];
     let mut tx_buffer = [0; 4096];

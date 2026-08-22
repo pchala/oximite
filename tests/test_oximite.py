@@ -12,66 +12,26 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# IMPORTANT: Update these to match your RP2040's networking
-TCP_IP = '192.168.1.117'
-TCP_PORT = 8080
-
-TIMESTAMP = time.strftime("%Y%m%d_%H%M_")
-
-# ==========================================
-# DIAGNOSTIC WIRE FORMAT (port 8080)
-# ==========================================
-# The device serialises `DiagHeader` once, then one `DiagFrame` per control
-# tick, using postcard with `fixint` integers. Fixed-width integers are the
-# whole reason these records have a constant size: postcard's default varints
-# would shrink the frame at low tick counts and grow it as uptime rose, which
-# a fixed-size reader cannot survive.
-#
-# Field order must match `src/web_api.rs`. DIAG_VER is bumped on any change,
-# and both the header magic and every frame's version byte are checked, so a
-# firmware/test mismatch fails loudly instead of decoding garbage at plausible
-# offsets. Commands still go the other way as newline-delimited JSON.
-DIAG_VER = 1
-DIAG_MAGIC = 0x4449584F  # "OXID"
-
-DIAG_HEADER_FMT = '<IBB12f'
-DIAG_HEADER_FIELDS = [
-    'magic', 'ver', 'frame_len',
-    'temp_offset', 'brew_temp', 'steam_temp',
-    'temp_kp', 'temp_ki', 'temp_kd',
-    'press_kp', 'press_ki', 'press_kd',
-    'flow_kp', 'flow_ki', 'flow_kd',
-]
-DIAG_HEADER_LEN = struct.calcsize(DIAG_HEADER_FMT)
-
-DIAG_FRAME_FMT = '<BII11fBB'
-DIAG_FRAME_FIELDS = [
-    'ver', 'seq', 'ms',
-    't', 'tt', 'ett',
-    'p', 'tp', 'etp',
-    'fl', 'fll', 'vol', 'hp', 'pump',
-    'fc', 'st',
-]
-DIAG_FRAME_LEN = struct.calcsize(DIAG_FRAME_FMT)
-
-
-def decode_diag_header(raw):
-    hdr = dict(zip(DIAG_HEADER_FIELDS, struct.unpack(DIAG_HEADER_FMT, raw)))
-    if hdr['magic'] != DIAG_MAGIC:
-        raise ValueError(f"bad diag magic {hdr['magic']:#010x}, expected {DIAG_MAGIC:#010x}")
-    if hdr['ver'] != DIAG_VER:
-        raise ValueError(f"diag protocol v{hdr['ver']}, this suite speaks v{DIAG_VER}")
-    if hdr['frame_len'] != DIAG_FRAME_LEN:
-        raise ValueError(
-            f"device frames are {hdr['frame_len']} bytes, decoder expects {DIAG_FRAME_LEN}")
-    return hdr
-
-
-def decode_diag_frame(raw):
-    row = dict(zip(DIAG_FRAME_FIELDS, struct.unpack(DIAG_FRAME_FMT, raw)))
-    if row['ver'] != DIAG_VER:
-        raise ValueError(f"frame v{row['ver']} in a v{DIAG_VER} stream — reader lost alignment")
-    return row
+from common import (
+    TCP_IP,
+    TCP_PORT,
+    TIMESTAMP,
+    DIAG_VER,
+    DIAG_MAGIC,
+    DIAG_HEADER_FMT,
+    DIAG_HEADER_FIELDS,
+    DIAG_HEADER_LEN,
+    DIAG_FRAME_FMT,
+    DIAG_FRAME_FIELDS,
+    DIAG_FRAME_LEN,
+    decode_diag_header,
+    decode_diag_frame,
+    plot_results as common_plot_results,
+    save_telemetry_json as common_save_telemetry_json,
+    plot_stability_results as common_plot_stability_results,
+    plot_step_response as common_plot_step_response,
+    plot_pressure_step_response as common_plot_pressure_step_response,
+)
 
 
 class TestOximite(unittest.TestCase):
@@ -202,181 +162,14 @@ class TestOximite(unittest.TestCase):
 
         self.wait_for_state(0, timeout=max_timeout, title=title)
         self.plot_results(title)
-
     def plot_results(self, title):
-        history = self.snapshot_history()
-        if not history:
-            print(f"No data collected for {title}")
-            return
-
-        # Every frame carries the device clock. The stream emits one row per
-        # control tick and skips rows whenever the TCP write blocks, so
-        # assuming a uniform 20 ms per sample would quietly compress time
-        # across any dropout.
-        t0 = history[0]['ms']
-        x = [(d['ms'] - t0) / 1000.0 for d in history]
-
-        def col(k):
-            return [d.get(k, 0) for d in history]
-
-        p, tp, etp = col('p'), col('tp'), col('etp')
-        vol, fl, fll = col('vol'), col('fl'), col('fll')
-        hp, pump = col('hp'), col('pump')
-        # Raw boiler-side values, exactly as the controller saw them — no
-        # display offset applied. `temp_offset` is in the saved header if a
-        # group-head number is ever wanted.
-        t, tt, ett = col('t'), col('tt'), col('ett')
-
-        fig, (ax_temp, ax_press, ax_flow) = plt.subplots(
-            3, 1, figsize=(12, 12), sharex=True)
-
-        # --- Top Panel: Temperature ---
-        ax_temp.set_title(title.replace('_', ' '), fontweight='bold', fontsize=14)
-        ax_temp.set_ylabel("Temperature (°C)", color='tab:red', fontweight='bold')
-        line_tt = ax_temp.plot(x, tt, label="Target Boiler Temp", linestyle="--", color='grey')
-        line_ett = ax_temp.plot(x, ett, label="Applied Target (+flow FF)",
-                                linestyle=":", color='tab:green', linewidth=2)
-        line_t = ax_temp.plot(x, t, label="Boiler Temp", color='tab:red', linewidth=2)
-
-        ax_hp = ax_temp.twinx()
-        ax_hp.set_ylabel("Heater Power (%)", color='tab:orange', fontweight='bold')
-        line_hp = ax_hp.plot(x, hp, label="Heater Power", color='tab:orange', alpha=0.5)
-        ax_hp.set_ylim(-5, 105)
-
-        lines_top = line_tt + line_ett + line_t + line_hp
-        labels_top = [l.get_label() for l in lines_top]
-        ax_temp.legend(lines_top, labels_top, loc='upper left')
-        ax_temp.grid(True, alpha=0.3)
-
-        # --- Middle Panel: Pressure vs the duty that produced it ---
-        color_p = 'tab:blue'
-        ax_press.set_ylabel("Pressure (Bar)", color=color_p, fontweight='bold')
-        line1 = ax_press.plot(x, tp, label="Profile Target", linestyle="--", color='grey')
-        line_etp = ax_press.plot(x, etp, label="Applied Target (pressure loop)",
-                                 linestyle=":", color='tab:green', linewidth=2)
-        line2 = ax_press.plot(x, p, label="Actual Pressure", color=color_p, linewidth=2)
-        ax_press.tick_params(axis='y', labelcolor=color_p)
-        ax_press.set_ylim(bottom=0)
-
-        ax_pump = ax_press.twinx()
-        ax_pump.set_ylabel("Pump Power (%)", color='tab:brown', fontweight='bold')
-        line_pump = ax_pump.plot(x, pump, label="Pump Power", color='tab:brown', alpha=0.6)
-        ax_pump.set_ylim(-5, 105)
-
-        lines_mid = line1 + line_etp + line2 + line_pump
-        ax_press.legend(lines_mid, [l.get_label() for l in lines_mid], loc='upper left')
-        ax_press.grid(True, alpha=0.3)
-
-        # --- Bottom Panel: Flow against its limit, plus volume ---
-        color_f = 'tab:purple'
-        ax_flow.set_xlabel("Time (Seconds)", fontweight='bold')
-        ax_flow.set_ylabel("Flow Rate (ml/s)", color=color_f, fontweight='bold')
-        line3 = ax_flow.plot(x, fl, label="Flow Rate", color=color_f, linewidth=2)
-        line_fll = ax_flow.plot(x, fll, label="Flow Setpoint", linestyle="--", color='grey')
-        ax_flow.tick_params(axis='y', labelcolor=color_f)
-        ax_flow.set_ylim(bottom=0)
-
-        ax_vol = ax_flow.twinx()
-        ax_vol.set_ylabel("Volume (ml)", color='tab:cyan', fontweight='bold')
-        line_vol = ax_vol.plot(x, vol, label="Volume", color='tab:cyan', alpha=0.7)
-
-        lines_bot = line3 + line_fll + line_vol
-        ax_flow.legend(lines_bot, [l.get_label() for l in lines_bot], loc='upper left')
-        ax_flow.grid(True, alpha=0.3)
-
-        fig.tight_layout()
-
-        # --- SAVE TO DISK ---
-        safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', title)
-        filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.png")
-        plt.savefig(filepath, dpi=150)
-        plt.close(fig)
-        print(f"Saved plot: {filepath}")
-
-        # Save telemetry JSON
-        self.save_telemetry_json(history, safe_title)
+        common_plot_results(self.snapshot_history(), title, self.__class__.diag_header)
 
     def save_telemetry_json(self, history, safe_title):
-        """Writes newline-delimited JSON: the session header, then raw frames.
-
-        The rows are exactly what came off the wire — raw boiler values, full
-        f32 precision — and the leading header line records the `temp_offset`
-        and PID gains they were captured under, so the tuning context stays
-        recoverable from the file alone.
-        """
-        telemetry_filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.json")
-        try:
-            with open(telemetry_filepath, 'w') as f:
-                if self.__class__.diag_header:
-                    json.dump({'hdr': self.__class__.diag_header}, f)
-                    f.write("\n")
-                for rep in history:
-                    json.dump(rep, f)
-                    f.write("\n")
-            print(f"Saved telemetry: {telemetry_filepath}")
-        except Exception as e:
-            print(f"Failed to save telemetry JSON: {e}")
+        common_save_telemetry_json(history, safe_title, self.__class__.diag_header)
 
     def plot_stability_results(self, title):
-        history = self.snapshot_history()
-        if not history:
-            print(f"No data collected for {title}")
-            return
-
-        # Raw boiler readings, as measured
-        temps = [d['t'] for d in history]
-        targets = [d['tt'] for d in history]
-
-        # Device clock rather than an assumed sample rate — the control loop is
-        # mains-locked, so its real period is whatever `ms` says.
-        t0 = history[0]['ms']
-        times = [(d['ms'] - t0) / 60000.0 for d in history]  # In minutes
-
-        # Calculate statistics
-        mean_t = sum(temps) / len(temps)
-        min_t = min(temps)
-        max_t = max(temps)
-        variance = sum((x - mean_t) ** 2 for x in temps) / len(temps)
-        std_dev = math.sqrt(variance)
-
-        # Create plot
-        fig, ax = plt.subplots(figsize=(12, 7))
-        ax.plot(times, targets, label="Target Boiler Temp (°C)", linestyle="--", color='grey', alpha=0.7)
-        ax.plot(times, temps, label="Boiler Temp (°C)", color='tab:red', linewidth=1.5)
-
-        ax.set_title(f"Boiler Temperature Stability", fontweight='bold', fontsize=16)
-        ax.set_xlabel("Time (Minutes)", fontweight='bold')
-        ax.set_ylabel("Temperature (°C)", fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        ax.legend(loc='upper right')
-
-        # Add statistics text box
-        stats_text = (
-            f"Statistics:\nMean: {mean_t:.2f}°C\nMin:  {min_t:.2f}°C\nMax:  {max_t:.2f}°C\nStdDev: {std_dev:.3f}°C"
-        )
-        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-        ax.text(
-            0.02,
-            0.95,
-            stats_text,
-            transform=ax.transAxes,
-            fontsize=12,
-            verticalalignment='top',
-            bbox=props,
-            family='monospace',
-        )
-
-        fig.tight_layout()
-
-        # Save to disk
-        safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', title)
-        filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.png")
-        plt.savefig(filepath, dpi=150)
-        plt.close(fig)
-        print(f"Saved stability plot: {filepath}")
-
-        # Save telemetry JSON
-        self.save_telemetry_json(history, safe_title)
+        common_plot_stability_results(self.snapshot_history(), title, self.__class__.diag_header)
 
     # =========================================================
     # TESTS
@@ -491,10 +284,11 @@ class TestOximite(unittest.TestCase):
         profile = {
             "name": "Sweet Extraction",
             "steps": [
-                {"volume": 15.0, "flow": 2.5},
-                {"volume": 17.0, "flow": 1.0},
-                {"volume": 60.0, "flow": 2.5},
-                {"volume": 80.0, "flow": 2.0},
+#               {"volume": 10.0, "flow": 2.0},
+#               {"volume": 75.0, "flow": 2.5},
+#               {"volume": 80.0, "flow": 1.0},
+               {"volume": 100.0, "flow": 2.5},
+
             ],
         }
 
@@ -707,59 +501,7 @@ class TestOximite(unittest.TestCase):
     #     print("Settings restored.")
 
     def plot_step_response(self, title):
-        history = self.snapshot_history()
-        if not history:
-            print(f"No data collected for {title}")
-            return
-
-        temps = [d['t'] for d in history]
-        targets = [d['tt'] for d in history]
-        t0 = history[0]['ms']
-        times = [(d['ms'] - t0) / 1000.0 for d in history]
-
-        # Index of the first sample within 60 s of the end, by device clock
-        # rather than a sample count that assumes a fixed tick rate.
-        cutoff = times[-1] - 60.0
-        last_60_idx = next((i for i, tv in enumerate(times) if tv >= cutoff), 0)
-        times_60 = times[last_60_idx:]
-        temps_60 = temps[last_60_idx:]
-        targets_60 = targets[last_60_idx:]
-
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
-
-        # Main plot
-        ax1.plot(times, targets, label="Target Boiler Temp (°C)", linestyle="--", color='grey', alpha=0.7)
-        ax1.plot(times, temps, label="Boiler Temp (°C)", color='tab:red', linewidth=2)
-        ax1.set_title(f"Step Response: {title.replace('_', ' ')}", fontweight='bold', fontsize=14)
-        ax1.set_xlabel("Time (Seconds)", fontweight='bold')
-        ax1.set_ylabel("Temperature (°C)", fontweight='bold')
-        ax1.grid(True, alpha=0.3)
-        ax1.legend(loc='lower right')
-
-        # Amplified plot of last 60 seconds
-        ax2.plot(times_60, targets_60, label="Target Boiler Temp (°C)", linestyle="--", color='grey', alpha=0.7)
-        ax2.plot(times_60, temps_60, label="Boiler Temp (°C)", color='tab:red', linewidth=2)
-        ax2.set_title("Zoomed View: Last 60 Seconds", fontweight='bold', fontsize=12)
-        ax2.set_xlabel("Time (Seconds)", fontweight='bold')
-        ax2.set_ylabel("Temperature (°C)", fontweight='bold')
-        ax2.grid(True, alpha=0.5)
-
-        # Set y-axis limits to zoom in around the target temperature
-        if len(targets_60) > 0:
-            target_val = targets_60[-1]
-            # Zoom to +/- 2 degrees around target, but ensure actual data is visible
-            y_min = min(target_val - 2.0, min(temps_60) - 0.5)
-            y_max = max(target_val + 2.0, max(temps_60) + 0.5)
-            ax2.set_ylim(y_min, y_max)
-
-        ax2.legend(loc='lower right')
-
-        fig.tight_layout()
-        safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', title)
-        filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.png")
-        plt.savefig(filepath, dpi=150)
-        plt.close(fig)
-        print(f"Saved step response plot: {filepath}")
+        common_plot_step_response(self.snapshot_history(), title)
 
     def test_90_pid_tuning_sweep(self):
         """Automated PID tuning sweep for temperature control."""
@@ -777,7 +519,6 @@ class TestOximite(unittest.TestCase):
         ]
 
         combinations = []
-
         for pid in pids:
             combinations.append({"kp": pid[0], "ki": pid[1], "kd": pid[2]})
 
@@ -820,34 +561,7 @@ class TestOximite(unittest.TestCase):
         print("\nSweep Complete.")
 
     def plot_pressure_step_response(self, title):
-        history = self.snapshot_history()
-        if not history:
-            print(f"No data collected for {title}")
-            return
-
-        pressures = [d.get('p', 0) for d in history]
-        targets = [d.get('tp', 0) for d in history]
-        t0 = history[0]['ms']
-        times = [(d['ms'] - t0) / 1000.0 for d in history]
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-
-        ax.plot(times, targets, label="Target Pressure (Bar)", linestyle="--", color='grey', alpha=0.7)
-        ax.plot(times, pressures, label="Actual Pressure (Bar)", color='tab:blue', linewidth=2)
-        ax.set_title(f"Step Response: {title.replace('_', ' ')}", fontweight='bold', fontsize=14)
-        ax.set_xlabel("Time (Seconds)", fontweight='bold')
-        ax.set_ylabel("Pressure (Bar)", fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        ax.legend(loc='lower right')
-        
-        ax.set_ylim(bottom=0)
-
-        fig.tight_layout()
-        safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', title)
-        filepath = os.path.join("test_plots", f"{TIMESTAMP}{safe_title}.png")
-        plt.savefig(filepath, dpi=150)
-        plt.close(fig)
-        print(f"Saved pressure step response plot: {filepath}")
+        common_plot_pressure_step_response(self.snapshot_history(), title)
 
     def test_91_pressure_pid_tuning_sweep(self):
         """Automated PID tuning sweep for pressure control (blind basket test)."""

@@ -67,7 +67,7 @@ async fn execute_profile(profile: BrewProfile) {
             volume
         );
 
-        if pressure > 10.0 {
+        if pressure >= 10.0 {
             pump.set_mode(PumpMode::DirectPump(pressure));
         } else {
             pump.set_mode(PumpMode::Pressure {
