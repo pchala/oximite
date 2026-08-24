@@ -155,7 +155,7 @@ struct DiagFrame {
     hp: f32,
     /// Pump triac duty, 0-100.
     pump: f32,
-    /// 1 while the flow PID is driving the pump duty directly.
+    /// 1 while the flow channel is the binding constraint on pump duty.
     fc: u8,
     st: u8,
 }

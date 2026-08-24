@@ -208,8 +208,10 @@ pub struct Telemetry {
     pub flow_rate_ml_s: f32,
     /// Shot volume as of this tick, for the same reason.
     pub volume_ml: f32,
-    /// True while the flow PID owns the pump. Without it a log can't tell a
-    /// flow-controlled step from a pressure step that happens to be flowing.
+    /// True while the flow channel is the binding constraint on the pump —
+    /// either the plain flow loop is running, or the unified controller picked
+    /// flow over pressure. Without it a log can't tell a flow-controlled step
+    /// from a pressure step that happens to be flowing.
     pub flow_controlled: bool,
     pub heater_duty: f32,
     /// Triac duty the pump was driven at this tick, 0-100.

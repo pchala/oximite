@@ -62,9 +62,14 @@ pub struct WifiSettings {
 pub struct Settings {
     pub machine: MachineSettings,
     pub temp_pid: PidSettings,
+    /// Drives the unified normalised pump controller, which governs any profile
+    /// step that names a pressure ceiling. Both channels are scaled against
+    /// their own ceilings so the setpoint is a dimensionless 1.0, which makes
+    /// these gains dimensionless too — the physical gain on a channel is
+    /// `k * w / target`, with the weights in `control.rs`.
     pub press_pid: PidSettings,
-    /// Drives pump duty directly from the flow error whenever a profile step
-    /// asks for a flow rate. Output units are 0-100 % triac duty, matching
+    /// Drives pump duty directly from the flow error, for steps that name no
+    /// pressure ceiling. Output units are 0-100 % triac duty, matching
     /// `PidController`'s built-in clamp.
     pub flow_pid: PidSettings,
     pub wifi: WifiSettings,
@@ -87,9 +92,14 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
         ki: 0.8,
         kd: 20.0,
     },
+    // Dimensionless: the unified controller normalises each channel against its
+    // own ceiling, so the physical gain is `k * w / target`. At a 9 bar ceiling
+    // with `W_PRESSURE = 7.5` this is exactly the 10 %/bar, 20 %/bar/s the loop
+    // was tuned to when it worked directly in bar. `Ti = kp/ki = 0.5 s` suits
+    // the 199 ms pressure filter and is deliberately unchanged.
     press_pid: PidSettings {
-        kp: 10.0,
-        ki: 20.0,
+        kp: 12.0,
+        ki: 24.0,
         kd: 0.0,
     },
 
