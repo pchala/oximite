@@ -17,8 +17,26 @@
         .stat-label { font-size: 0.7em; color: #aaa; text-transform: uppercase; display: block; }
         button { background: var(--accent); color: #000; border: none; padding: 10px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; transition: opacity 0.2s; }
         button:hover { opacity: 0.8; } button.danger { background: var(--danger); } button.success { background: var(--success); }
+        button:disabled { opacity: 0.35; cursor: not-allowed; }
         input, select { width: 100%; padding: 8px; margin-top: 5px; margin-bottom: 15px; background: #2c2c2c; color: white; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; }
+        input:disabled { opacity: 0.5; }
+        input:invalid { border-color: var(--danger); }
+        .hint { font-size: 0.75em; color: #999; margin: -5px 0 10px; }
+        .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #777; margin-right: 8px; vertical-align: middle; }
+        .dot.ok { background: var(--success); } .dot.off { background: var(--danger); }
+        #readouts.stale { opacity: 0.4; }
+        #toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; max-width: 90%; background: #2c2c2c; color: var(--text); border: 1px solid var(--border); border-left: 4px solid var(--accent); padding: 12px 16px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 100; display: none; font-size: 0.9em; }
+        #toast.err { border-left-color: var(--danger); } #toast.ok { border-left-color: var(--success); }
+        dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 20px; max-width: 90%; }
+        dialog::backdrop { background: rgba(0,0,0,0.6); }
+        .warn { color: #f0b429; }
+        .count { float: right; font-variant-numeric: tabular-nums; }
+        .count.over { color: var(--danger); font-weight: bold; }
+        #step-body input { margin-bottom: 0; }
+        #step-body td { vertical-align: top; }
+        .step-note { font-size: 0.75em; color: #999; padding-top: 0 !important; border-bottom: 1px solid var(--border); }
         table { width: 100%; border-collapse: collapse; margin-bottom: 15px; } th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
+        #step-body tr.step-row td { border-bottom: none; }
         canvas { width: 100% !important; height: 300px !important; }
         label { font-size: 0.8em; color: #aaa; }
         
@@ -32,35 +50,48 @@
     </style>
 </head>
 <body>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <dialog id="confirm-dialog">
+        <p id="confirm-text" style="margin-top:0;"></p>
+        <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <button data-confirm="0" style="background:#444; color:var(--text);">Cancel</button>
+            <button data-confirm="1" class="danger">Confirm</button>
+        </div>
+    </dialog>
     <div class="tabs">
-        <button class="tab-button active" onclick="openTab(event, 'tab-home')">Home</button>
-        <button class="tab-button" onclick="openTab(event, 'tab-settings')">Settings</button>
+        <button class="tab-button active" data-tab="tab-home">Home</button>
+        <button class="tab-button" data-tab="tab-settings">Settings</button>
     </div>
 
     <div id="tab-home" class="tab-content active">
         <div class="panel">
-            <h2>oximite <span id="machine-state" style="float:right; color:var(--accent);">IDLE</span></h2>
-            <div class="grid-3" style="margin-bottom: 20px;">
+            <h2>oximite
+                <span style="float:right;">
+                    <span id="conn-dot" class="dot" title="Connection"></span>
+                    <span id="machine-state" style="color:var(--accent);">—</span>
+                </span>
+            </h2>
+            <div class="grid-3" id="readouts" style="margin-bottom: 20px;">
                 <div class="stat-box">
                     <span class="stat-label">Brew Target</span>
                     <div style="display:flex; justify-content:center; align-items:center; margin-top:5px; font-size:0.9em;">
-                        <button style="padding: 2px 10px; min-width:30px; background:#444;" onclick="adjustSessionTemp(-0.5)">-</button>
-                        <span id="val-sbt" style="margin: 0 10px; font-size: 1.1em;">0.0 °C</span>
-                        <button style="padding: 2px 10px; min-width:30px; background:#444;" onclick="adjustSessionTemp(0.5)">+</button>
+                        <button class="js-action" style="padding: 2px 10px; min-width:30px; background:#444;" data-adjust="-0.5">-</button>
+                        <span id="val-sbt" style="margin: 0 10px; font-size: 1.1em;">— °C</span>
+                        <button class="js-action" style="padding: 2px 10px; min-width:30px; background:#444;" data-adjust="0.5">+</button>
                     </div>
                 </div>
-                <div class="stat-box"><span class="stat-label">Actual Temp</span><span id="val-t">0.0</span> °C</div>
-                <div class="stat-box"><span class="stat-label">Pressure</span><span id="val-p">0.0</span> Bar</div>
-                <div class="stat-box"><span class="stat-label">Flow Rate</span><span id="val-fl">0.0</span> ml/s</div>
-                <div class="stat-box"><span class="stat-label">Volume</span><span id="val-vol">0.0</span> ml</div>
+                <div class="stat-box"><span class="stat-label">Actual Temp</span><span id="val-t">—</span> °C</div>
+                <div class="stat-box"><span class="stat-label">Pressure</span><span id="val-p">—</span> Bar</div>
+                <div class="stat-box"><span class="stat-label">Flow Rate</span><span id="val-fl">—</span> ml/s</div>
+                <div class="stat-box"><span class="stat-label">Volume</span><span id="val-vol">—</span> ml</div>
                 <div class="stat-box"><span class="stat-label">Time</span><span id="val-time">0.0</span> s</div>
             </div>
             <div class="grid-3" style="margin-bottom: 10px;">
-                <button onclick="sendCommand('steam')" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">STEAM</button>
-                <button onclick="sendCommand('flush')" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">FLUSH</button>
-                <button class="success" onclick="sendCommand('brew')" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">BREW</button>
+                <button class="js-action" data-cmd="steam" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">STEAM</button>
+                <button class="js-action" data-cmd="flush" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">FLUSH</button>
+                <button class="js-action success" data-cmd="brew" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">BREW</button>
             </div>
-            <button class="danger" onclick="sendCommand('stop')" style="width: 100%; padding: 15px; font-size: 1.2em;">STOP</button>
+            <button class="js-stop danger" data-act="stop" style="width: 100%; padding: 15px; font-size: 1.2em;">STOP</button>
         </div>
         
         <div class="panel">
@@ -85,18 +116,25 @@
                     </select>
                 </div>
                 <div>
-                    <label>Profile Name</label><input type="text" id="prof-name" maxlength="32" placeholder="e.g., Blooming Slayer">
+                    <label>Profile Name <span id="name-count" class="count"></span></label>
+                    <input type="text" id="prof-name" placeholder="e.g., Blooming Slayer">
                 </div>
             </div>
             <table id="step-table">
-                <thead><tr><th>Time (s)</th><th>Volume (ml)</th><th>Pressure (Bar)</th><th>Max flow (ml/s)</th><th>Action</th></tr></thead>
+                <thead><tr><th>Time (s)</th><th>Volume (ml)</th><th>Pressure (bar)</th><th>Flow (ml/s)</th><th></th></tr></thead>
                 <tbody id="step-body"></tbody>
             </table>
+            <p class="hint">
+                Blank or 0 means <em>no limit</em>. A step ends at whichever of its time or volume
+                comes first, and volume is counted from the start of the shot, not per step.
+                Setting a flow rate hands the pump to the flow controller and the step's pressure
+                is ignored. Every step is cut off after 120 s regardless.
+            </p>
             <div class="grid-2">
-                <button onclick="addStep()">+ Add Step</button>
-                <button class="success" onclick="runCustomProfile()">Run (Without Saving)</button>
+                <button data-act="add-step">+ Add Step</button>
+                <button class="js-action success" data-act="run-custom">Run (Without Saving)</button>
             </div>
-            <button onclick="saveProfileToSlot()" style="width: 100%; margin-top: 15px;">Save Profile to Flash</button>
+            <button class="js-flash" data-act="save-profile" style="width: 100%; margin-top: 15px;" disabled>Save Profile to Flash</button>
         </div>
     </div>
 
@@ -105,70 +143,75 @@
             
             <h3>Temperature & Steam</h3>
             <div class="grid-2">
-                <div><label>Brew Temp (°C)</label><input type="number" id="set-bt" value="92.0" step="0.5"></div>
-                <div><label>Steam Temp (°C)</label><input type="number" id="set-st" value="135.0" step="0.5"></div>
-                <div><label>Offset (°C)</label><input type="number" id="set-to" value="10" step="0.1"></div>
-                <div><label>Steam Limit (s)</label><input type="number" id="set-sl" value="120" step="1"></div>
+                <div><label>Brew Temp (°C)</label><input type="number" data-s="machine" data-k="brew_temp" step="0.5" min="0" max="130" required disabled></div>
+                <div><label>Steam Temp (°C)</label><input type="number" data-s="machine" data-k="steam_temp" step="0.5" min="0" max="165" required disabled></div>
+                <div><label>Offset (°C)</label><input type="number" data-s="machine" data-k="temp_offset" step="0.1" min="-20" max="60" required disabled></div>
+                <div><label>Steam Limit (s) — 0 ends steam at once</label><input type="number" data-s="machine" data-k="steam_time_limit_s" step="1" min="0" max="600" required disabled></div>
             </div>
 
             <h3>Other Settings</h3>
             <div class="grid-2">
-                <div><label>Flow Limit Gain (bar/tick per ml/s over)</label><input type="number" id="set-frb" value="0.025" step="0.001"></div>
-                <div><label>Feed Forward Percentage (%)</label><input type="number" id="set-fhm" value="100" step="1" min="0" max="200"></div>
-                <div><label>Flow sensor (Edges/L)</label><input type="number" id="set-fepl" value="98324" step="1"></div>
-                <div><label>Sleep Timeout (min)</label><input type="number" id="set-slt" value="20" step="1"></div>
+                <div><label>Flow Limit Gain (unused by firmware)</label><input type="number" data-s="machine" data-k="flow_limit_kp" step="0.001" min="0" max="10" required disabled></div>
+                <div><label>Feed Forward Percentage (%) — 0 disables</label><input type="number" data-s="machine" data-k="feed_forward_percents" step="1" min="0" max="200" required disabled></div>
+                <div><label>Flow sensor (Edges/L)</label><input type="number" data-s="machine" data-k="flow_pulses_per_liter" step="1" min="1" max="1000000" required disabled></div>
+                <div><label>Sleep Timeout (min) — 0 sleeps at once</label><input type="number" data-s="machine" data-k="sleep_timeout_min" step="1" min="0" max="1440" required disabled></div>
             </div>
-            <button onclick="saveMachine()" style="width: 100%; margin-top: 15px;">Save Machine Settings</button>
+            <button class="js-flash" data-save="machine" style="width: 100%; margin-top: 15px;" disabled>Save Machine Settings</button>
         </div>
         <div class="panel">
             <h3>PID: Temperature</h3>
             <div class="grid-3">
-                <div><label>Kp</label><input type="number" id="set-tkp" value="2.0" step="0.1"></div>
-                <div><label>Ki</label><input type="number" id="set-tki" value="0.01" step="0.001"></div>
-                <div><label>Kd</label><input type="number" id="set-tkd" value="5.0" step="0.1"></div>
+                <div><label>Kp</label><input type="number" data-s="temp_pid" data-k="kp" step="0.1" min="0" max="1000" required disabled></div>
+                <div><label>Ki</label><input type="number" data-s="temp_pid" data-k="ki" step="0.001" min="0" max="1000" required disabled></div>
+                <div><label>Kd</label><input type="number" data-s="temp_pid" data-k="kd" step="0.1" min="0" max="1000" required disabled></div>
             </div>
             <h3>PID: Pressure</h3>
             <div class="grid-3">
-                <div><label>Kp</label><input type="number" id="set-pkp" value="2.0" step="0.1"></div>
-                <div><label>Ki</label><input type="number" id="set-pki" value="0.1" step="0.01"></div>
-                <div><label>Kd</label><input type="number" id="set-pkd" value="0.5" step="0.1"></div>
+                <div><label>Kp</label><input type="number" data-s="press_pid" data-k="kp" step="0.1" min="0" max="1000" required disabled></div>
+                <div><label>Ki</label><input type="number" data-s="press_pid" data-k="ki" step="0.01" min="0" max="1000" required disabled></div>
+                <div><label>Kd</label><input type="number" data-s="press_pid" data-k="kd" step="0.1" min="0" max="1000" required disabled></div>
             </div>
             <h3>PID: Flow</h3>
             <div class="grid-3">
-                <div><label>Kp</label><input type="number" id="set-fkp" value="8.0" step="0.1"></div>
-                <div><label>Ki</label><input type="number" id="set-fki" value="15.0" step="0.1"></div>
-                <div><label>Kd</label><input type="number" id="set-fkd" value="0.0" step="0.1"></div>
+                <div><label>Kp</label><input type="number" data-s="flow_pid" data-k="kp" step="0.1" min="0" max="1000" required disabled></div>
+                <div><label>Ki</label><input type="number" data-s="flow_pid" data-k="ki" step="0.1" min="0" max="1000" required disabled></div>
+                <div><label>Kd</label><input type="number" data-s="flow_pid" data-k="kd" step="0.1" min="0" max="1000" required disabled></div>
             </div>
-            <button onclick="savePids()" style="width: 100%; margin-top: 15px;">Save PID Tuning</button>
+            <button class="js-flash" data-save="pids" style="width: 100%; margin-top: 15px;" disabled>Save PID Tuning</button>
         </div>
 
         <div class="panel">
             <h3>Wi-Fi Configuration</h3>
             <div class="grid-2">
-                <div><label>SSID</label><input type="text" id="set-ssid" placeholder="Network Name"></div>
-                <div><label>Password</label><input type="password" id="set-pass" placeholder="Network Password"></div>
+                <div><label>SSID</label><input type="text" id="set-ssid" maxlength="32" placeholder="Network Name" disabled></div>
+                <div><label>Password</label><input type="password" id="set-pass" maxlength="64" placeholder="Required — never shown" disabled></div>
             </div>
-            <button onclick="saveWifi()" style="width: 100%; margin-top: 15px;">Save Wi-Fi Settings</button>
+            <p class="hint">The stored password is never displayed. Enter it again to save Wi-Fi settings.</p>
+            <button class="js-flash" data-save="wifi" style="width: 100%; margin-top: 15px;" disabled>Save Wi-Fi Settings</button>
         </div>
     </div>
 
 <script>
     // --- TABS ---
-    function openTab(evt, tabName) {
-        const tabContents = document.getElementsByClassName("tab-content");
-        for (let i = 0; i < tabContents.length; i++) {
-            tabContents[i].style.display = "none";
-            tabContents[i].classList.remove("active");
+    function openTab(tabName, btn) {
+        for (const el of document.getElementsByClassName("tab-content")) {
+            el.style.display = "none";
+            el.classList.remove("active");
         }
-        const tabButtons = document.getElementsByClassName("tab-button");
-        for (let i = 0; i < tabButtons.length; i++) {
-            tabButtons[i].classList.remove("active");
+        for (const el of document.getElementsByClassName("tab-button")) {
+            el.classList.remove("active");
         }
-        document.getElementById(tabName).style.display = "block";
-        document.getElementById(tabName).classList.add("active");
-        if(evt) evt.currentTarget.classList.add("active");
+        const target = document.getElementById(tabName);
+        target.style.display = "block";
+        target.classList.add("active");
+        if (btn) btn.classList.add("active");
     }
 
+    // --- CHART ---
+    // 4 Hz polling with no cap grew both arrays without bound for as long as the
+    // machine stayed out of Idle. 240 samples is a 60 s window, which outlasts
+    // any shot, and the buffer is trimmed rather than left to the GC.
+    const CHART_POINTS = 240;
     let chart = null;
     try {
         const chartEl = document.getElementById('telemetryChart');
@@ -184,202 +227,482 @@
         console.warn("Chart.js not available:", e);
     }
 
-    // --- CORE COMMAND FUNCTION WITH RETRY ---
-    async function sendCommand(cmd, payload = {}, retries = 2) {
-        for (let attempt = 0; attempt <= retries; attempt++) {
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 3000);
-                const resp = await fetch('/api/cmd', { 
-                    method: 'POST', 
-                    headers: { 'Content-Type': 'application/json' }, 
-                    body: JSON.stringify({ cmd: cmd, ...payload }),
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-                if (resp.ok) {
-                    return true;
-                }
-            } catch (e) {
-                console.warn(`Command '${cmd}' attempt ${attempt + 1} failed:`, e);
-            }
-            if (attempt < retries) {
-                await new Promise(r => setTimeout(r, 100));
-            }
+    function chartReset() {
+        if (!chart) return;
+        chart.data.labels.length = 0;
+        chart.data.datasets.forEach(d => { d.data.length = 0; });
+        chart.update('none');
+    }
+
+    function chartPush(p, fl) {
+        if (!chart) return;
+        const d = chart.data;
+        d.labels.push(d.labels.length ? d.labels[d.labels.length - 1] + 1 : 0);
+        d.datasets[0].data.push(p);
+        d.datasets[1].data.push(fl);
+        while (d.labels.length > CHART_POINTS) {
+            d.labels.shift();
+            d.datasets[0].data.shift();
+            d.datasets[1].data.shift();
         }
-        console.error(`Command '${cmd}' failed after ${retries + 1} attempts`);
-        return false;
+        chart.update('none');
+    }
+
+    // --- FIRMWARE CONTRACT ---
+    // Positional array indexed by telemetry `st`, mirroring MachineState in
+    // src/state.rs. Renumber both sides in the same commit.
+    const STATE_NAMES = ["IDLE", "BREWING", "STEAMING", "SLEEPING", "PUMPING", "COOLING", "HOT WATER"];
+    // MachineState::is_busy(). While busy the coordinator parks a settings save
+    // in a single `pending` slot *without* applying it to RAM, and a second save
+    // silently replaces the first, so flash writes are blocked unless idle/asleep.
+    const BUSY_STATES = new Set([1, 2, 4, 5, 6]);
+    // Sections of GET /api/settings that map 1:1 onto numeric form inputs.
+    const NUMERIC_SECTIONS = ["machine", "temp_pid", "press_pid", "flow_pid"];
+    const SECTION_LABEL = { machine: "Machine", temp_pid: "Temp PID", press_pid: "Pressure PID", flow_pid: "Flow PID" };
+
+    // --- UI STATE ---
+    let online = false;          // last telemetry poll succeeded
+    let pollFailures = 0;        // two consecutive misses before declaring offline
+    let settingsLoaded = false;  // nothing reaches flash before a successful read
+    let cmdInFlight = false;     // one request at a time; the server has 2 sockets
+    let machineState = null;
+
+    const $ = id => document.getElementById(id);
+    const fieldsOf = s => document.querySelectorAll(`[data-s="${s}"]`);
+    const encoder = new TextEncoder();
+    const byteLen = s => encoder.encode(s).length;
+
+    let toastTimer = null;
+    function toast(msg, kind) {
+        const el = $('toast');
+        el.textContent = msg;
+        el.className = kind || '';
+        el.style.display = 'block';
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { el.style.display = 'none'; }, 5000);
+    }
+
+    async function request(path, opts = {}, timeoutMs = 3000) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+        try {
+            return await fetch(path, { ...opts, signal: ctrl.signal });
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    // Replaces window.confirm, which blocks the event loop: telemetry stopped
+    // updating for as long as the dialog was open, including mid-shot.
+    function askConfirm(message) {
+        const dlg = $('confirm-dialog');
+        $('confirm-text').textContent = message;
+        return new Promise(resolve => {
+            const onClick = ev => {
+                const btn = ev.target.closest('[data-confirm]');
+                if (!btn) return;
+                dlg.removeEventListener('click', onClick);
+                if (dlg.close) dlg.close(); else dlg.removeAttribute('open');
+                resolve(btn.dataset.confirm === '1');
+            };
+            dlg.addEventListener('click', onClick);
+            if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
+        });
+    }
+
+    // The single place that decides what may be clicked.
+    function refreshControls() {
+        const canAct = online && !cmdInFlight;
+        const canFlash = canAct && machineState !== null && !BUSY_STATES.has(machineState);
+        document.querySelectorAll('.js-action').forEach(b => { b.disabled = !canAct; });
+        // STOP is never gated on `cmdInFlight`: it is the one control that must
+        // stay reachable while another request is still outstanding.
+        document.querySelectorAll('.js-stop').forEach(b => { b.disabled = !online; });
+        document.querySelectorAll('.js-flash').forEach(b => {
+            // Settings saves additionally need a successful load, so a failed read
+            // can never be turned into a write of stale form values.
+            const needsSettings = b.dataset.save !== undefined;
+            const blockedByBusy = canAct && !canFlash;
+            const blockedByRead = canFlash && needsSettings && !settingsLoaded;
+            b.disabled = !canFlash || (needsSettings && !settingsLoaded);
+            b.title = blockedByBusy
+                ? 'Unavailable while the machine is running — the firmware would drop the write.'
+                : blockedByRead
+                    ? 'Settings could not be read from the machine, so they cannot be written back.'
+                    : '';
+        });
+    }
+
+    function setOnline(value) {
+        if (value === online) return;
+        online = value;
+        $('conn-dot').className = 'dot ' + (value ? 'ok' : 'off');
+        $('readouts').classList.toggle('stale', !value);
+        if (!value) {
+            machineState = null;
+            $('machine-state').textContent = 'NO LINK';
+        }
+        refreshControls();
+    }
+
+    // --- COMMANDS ---
+    // Sends a command exactly once.
+    //
+    // POST /api/cmd is NOT idempotent: coordinator.rs stops the machine on any
+    // command arriving while an operation runs, so re-sending after a lost reply
+    // would abort the shot the first attempt just started. A 200 only means the
+    // request parsed — the command may still have been dropped by a full queue —
+    // so callers confirm through the telemetry poll, never via this return value.
+    async function sendCommand(cmd, payload = {}) {
+        if (cmdInFlight) return false;
+        cmdInFlight = true;
+        refreshControls();
+        try {
+            const resp = await request('/api/cmd', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cmd: cmd, ...payload })
+            });
+            if (!resp.ok) toast(`Machine rejected '${cmd}' (HTTP ${resp.status}).`, 'err');
+            return resp.ok;
+        } catch (e) {
+            toast(`No response from the machine — '${cmd}' may not have been applied.`, 'err');
+            return false;
+        } finally {
+            cmdInFlight = false;
+            refreshControls();
+        }
+    }
+
+    // `stop` is the one command safe to repeat — (Idle, Stop) is a documented
+    // harmless resync in coordinator.rs — and the one where persistence matters.
+    async function sendStop() {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            // Never give up just because another request holds the single slot:
+            // wait for it rather than burning an attempt.
+            while (cmdInFlight) await new Promise(r => setTimeout(r, 50));
+            if (await sendCommand('stop')) return;
+            await new Promise(r => setTimeout(r, 150));
+        }
+        toast('Could not reach the machine to stop it. Use the physical switch.', 'err');
     }
 
     // --- TELEMETRY POLLING ---
-    let lastState = 0; let ticks = 0; let isPolling = false;
-    let currentSessionTemp = 0.0;
-    
-    async function adjustSessionTemp(delta) {
-        let newTemp = Math.round((currentSessionTemp + delta) * 10) / 10;
-        document.getElementById('val-sbt').innerText = newTemp.toFixed(1) + " °C";
-        const ok = await sendCommand('set_session_temp', { temp: newTemp });
-        if (ok) {
-            currentSessionTemp = newTemp;
-        }
-    }
+    let lastState = 0; let pollInFlight = false;
+    let currentSessionTemp = null;
     let brewStartTime = 0; let lastBrewTime = 0;
-    async function pollTelemetry() {
-        if (isPolling) return;
-        isPolling = true;
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2000);
-            const res = await fetch('/api/telemetry', { signal: controller.signal });
-            clearTimeout(timeoutId);
-            if (res.ok) {
-                const data = await res.json();
-                
-                document.getElementById('val-t').innerText = Number(data.t).toFixed(1); 
-                if (data.sbt !== undefined) {
-                    currentSessionTemp = Number(data.sbt);
-                    document.getElementById('val-sbt').innerText = currentSessionTemp.toFixed(1) + " °C";
-                }
-                document.getElementById('val-p').innerText = Number(data.p).toFixed(1);
-                document.getElementById('val-fl').innerText = Number(data.fl).toFixed(1); 
-                document.getElementById('val-vol').innerText = Number(data.vol).toFixed(1);
-                document.getElementById('machine-state').innerText = ["IDLE", "BREWING", "STEAMING", "SLEEPING", "PUMPING", "COOLING", "HOT WATER"][data.st] || "UNKNOWN";
-                
-                if (data.st === 1 || data.st === 4) {
-                    if (lastState !== 1 && lastState !== 4) brewStartTime = Date.now();
-                    lastBrewTime = (Date.now() - brewStartTime) / 1000.0;
-                }
-                document.getElementById('val-time').innerText = lastBrewTime.toFixed(1);
 
-                if (chart) {
-                    if (lastState === 0 && data.st !== 0) { chart.data.labels = []; chart.data.datasets.forEach(d => d.data = []); ticks = 0; }
-                    if (data.st !== 0) { chart.data.labels.push(ticks++); chart.data.datasets[0].data.push(data.p); chart.data.datasets[1].data.push(data.fl); chart.update(); }
-                }
-                lastState = data.st;
-            }
-        } catch (e) {} finally {
-            isPolling = false;
-            setTimeout(pollTelemetry, 250);
+    async function adjustSessionTemp(delta) {
+        if (currentSessionTemp === null) return;
+        const next = Math.round((currentSessionTemp + delta) * 10) / 10;
+        // Advance the local base too, so consecutive taps accumulate. If the
+        // command is lost the next poll overwrites both with the device value.
+        currentSessionTemp = next;
+        $('val-sbt').textContent = next.toFixed(1) + ' °C';
+        await sendCommand('set_session_temp', { temp: next });
+    }
+
+    function renderTelemetry(d) {
+        $('val-t').textContent = Number(d.t).toFixed(1);
+        $('val-p').textContent = Number(d.p).toFixed(1);
+        $('val-fl').textContent = Number(d.fl).toFixed(1);
+        $('val-vol').textContent = Number(d.vol).toFixed(1);
+        // Skipped while a command is in flight so a poll cannot roll the stepper
+        // back to the pre-command value between tap and apply.
+        if (!cmdInFlight && d.sbt !== undefined) {
+            currentSessionTemp = Number(d.sbt);
+            $('val-sbt').textContent = currentSessionTemp.toFixed(1) + ' °C';
+        }
+        $('machine-state').textContent = STATE_NAMES[d.st] || 'UNKNOWN';
+        if (d.st !== machineState) {
+            machineState = d.st;
+            refreshControls();
+        }
+
+        if (d.st === 1 || d.st === 4) {
+            if (lastState !== 1 && lastState !== 4) brewStartTime = Date.now();
+            lastBrewTime = (Date.now() - brewStartTime) / 1000.0;
+        }
+        $('val-time').textContent = lastBrewTime.toFixed(1);
+
+        if (chart) {
+            if (lastState === 0 && d.st !== 0) chartReset();
+            if (d.st !== 0) chartPush(d.p, d.fl);
+        }
+        lastState = d.st;
+    }
+
+    async function pollTelemetry() {
+        if (pollInFlight) return;   // skip this tick rather than queue it
+        pollInFlight = true;
+        try {
+            const res = await request('/api/telemetry', {}, 2000);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            pollFailures = 0;
+            setOnline(true);
+            renderTelemetry(data);
+        } catch (e) {
+            // One miss is routine with a 2-socket server; two in a row is a link
+            // problem worth showing.
+            if (++pollFailures >= 2) setOnline(false);
+        } finally {
+            pollInFlight = false;
         }
     }
 
     // --- SETTINGS ---
-    async function saveMachine() {
-        const ok = await sendCommand('save_machine', {
-            machine: {
-                brew_temp: parseFloat(document.getElementById('set-bt').value) || 92.0,
-                steam_temp: parseFloat(document.getElementById('set-st').value) || 135.0,
-                steam_time_limit_s: parseFloat(document.getElementById('set-sl').value) || 120.0,
-                sleep_timeout_min: parseFloat(document.getElementById('set-slt').value) || 20.0,
-                temp_offset: parseFloat(document.getElementById('set-to').value) || 0.0,
-                flow_pulses_per_liter: parseFloat(document.getElementById('set-fepl').value) || 98324.0,
-                flow_limit_kp: parseFloat(document.getElementById('set-frb').value) || 0.025,
-                feed_forward_percents: parseFloat(document.getElementById('set-fhm').value) || 100.0,
+    const labelOf = el => {
+        const l = el.parentElement && el.parentElement.querySelector('label');
+        return (SECTION_LABEL[el.dataset.s] || el.dataset.s) + ' → ' + (l ? l.textContent : el.dataset.k);
+    };
+
+    // Reads one numeric section from the form, refusing anything the firmware
+    // could not use. Deliberately not `parseFloat(x) || fallback`: that idiom
+    // replaced malformed input with an invented value *and* made a legitimate 0
+    // impossible to save (e.g. feed_forward_percents = 0, documented as
+    // "disabled" in settings.rs).
+    function readSection(section) {
+        const out = {};
+        for (const el of fieldsOf(section)) {
+            const v = Number.parseFloat(el.value);
+            if (!Number.isFinite(v) || !el.checkValidity()) {
+                el.focus();
+                throw new Error('Check ' + labelOf(el) + ' — not a number, or outside the allowed range.');
             }
-        });
-        alert(ok ? "Machine Settings Saved!" : "Failed to save Machine Settings!");
-    }
-    
-    async function savePids() {
-        const ok = await sendCommand('save_pids', {
-            temp_pid: {
-                kp: parseFloat(document.getElementById('set-tkp').value) || 0,
-                ki: parseFloat(document.getElementById('set-tki').value) || 0,
-                kd: parseFloat(document.getElementById('set-tkd').value) || 0,
-            },
-            press_pid: {
-                kp: parseFloat(document.getElementById('set-pkp').value) || 0,
-                ki: parseFloat(document.getElementById('set-pki').value) || 0,
-                kd: parseFloat(document.getElementById('set-pkd').value) || 0,
-            },
-            flow_pid: {
-                kp: parseFloat(document.getElementById('set-fkp').value) || 0,
-                ki: parseFloat(document.getElementById('set-fki').value) || 0,
-                kd: parseFloat(document.getElementById('set-fkd').value) || 0,
-            }
-        });
-        alert(ok ? "PID Settings Saved!" : "Failed to save PID Settings!");
-    }
-    
-    async function saveWifi() {
-        const ok = await sendCommand('save_wifi', {
-            wifi: {
-                ssid: document.getElementById('set-ssid').value,
-                password: document.getElementById('set-pass').value
-            }
-        });
-        alert(ok ? "Wi-Fi Settings Saved!" : "Failed to save Wi-Fi Settings!");
+            out[el.dataset.k] = v;
+        }
+        return out;
     }
 
-    async function loadSettings() {
-        try {
-            const res = await fetch('/api/settings'); 
-            if (!res.ok) return;
-            const data = await res.json();
-            if (data.machine) {
-                document.getElementById('set-bt').value = data.machine.brew_temp;
-                document.getElementById('set-st').value = data.machine.steam_temp;
-                if (data.machine.steam_time_limit_s !== undefined) document.getElementById('set-sl').value = data.machine.steam_time_limit_s;
-                if (data.machine.sleep_timeout_min !== undefined) document.getElementById('set-slt').value = data.machine.sleep_timeout_min;
-                if (data.machine.temp_offset !== undefined) document.getElementById('set-to').value = data.machine.temp_offset;
-                if (data.machine.flow_pulses_per_liter !== undefined) document.getElementById('set-fepl').value = data.machine.flow_pulses_per_liter;
-                if (data.machine.flow_limit_kp !== undefined) document.getElementById('set-frb').value = data.machine.flow_limit_kp;
-                if (data.machine.feed_forward_percents !== undefined) document.getElementById('set-fhm').value = data.machine.feed_forward_percents;
-            }
-            if (data.temp_pid) {
-                if (data.temp_pid.kp !== undefined) document.getElementById('set-tkp').value = data.temp_pid.kp;
-                if (data.temp_pid.ki !== undefined) document.getElementById('set-tki').value = data.temp_pid.ki;
-                if (data.temp_pid.kd !== undefined) document.getElementById('set-tkd').value = data.temp_pid.kd;
-            }
-            if (data.press_pid) {
-                if (data.press_pid.kp !== undefined) document.getElementById('set-pkp').value = data.press_pid.kp;
-                if (data.press_pid.ki !== undefined) document.getElementById('set-pki').value = data.press_pid.ki;
-                if (data.press_pid.kd !== undefined) document.getElementById('set-pkd').value = data.press_pid.kd;
-            }
-            if (data.flow_pid) {
-                if (data.flow_pid.kp !== undefined) document.getElementById('set-fkp').value = data.flow_pid.kp;
-                if (data.flow_pid.ki !== undefined) document.getElementById('set-fki').value = data.flow_pid.ki;
-                if (data.flow_pid.kd !== undefined) document.getElementById('set-fkd').value = data.flow_pid.kd;
-            }
-            if (data.wifi) {
-                if (data.wifi.ssid !== undefined) document.getElementById('set-ssid').value = data.wifi.ssid;
-                if (data.wifi.password !== undefined) document.getElementById('set-pass').value = data.wifi.password;
-            }
-        } catch (e) {}
+    // MachineSettings/PidSettings have no optional fields, so a partial response
+    // must not half-fill the form and then be written back.
+    function fillSection(section, obj) {
+        if (!obj) return false;
+        let complete = true;
+        for (const el of fieldsOf(section)) {
+            const v = obj[el.dataset.k];
+            if (typeof v !== 'number') { complete = false; continue; }
+            el.value = v;
+        }
+        return complete;
     }
+
+    async function loadSettings(attempts = 3) {
+        for (let i = 0; i < attempts; i++) {
+            try {
+                const res = await request('/api/settings', {}, 3000);
+                if (res.ok) {
+                    const data = await res.json();
+                    let complete = true;
+                    for (const s of NUMERIC_SECTIONS) complete = fillSection(s, data[s]) && complete;
+                    // The SSID is safe to show. The password deliberately is not
+                    // copied into the DOM, so it can neither be read off the page
+                    // nor echoed back on the next save.
+                    if (data.wifi && typeof data.wifi.ssid === 'string') $('set-ssid').value = data.wifi.ssid;
+                    if (complete) {
+                        settingsLoaded = true;
+                        document.querySelectorAll('[data-s], #set-ssid, #set-pass').forEach(el => { el.disabled = false; });
+                        refreshControls();
+                        return true;
+                    }
+                }
+            } catch (e) { /* retried below */ }
+            if (i < attempts - 1) await new Promise(r => setTimeout(r, 300 * (i + 1)));
+        }
+        settingsLoaded = false;
+        refreshControls();
+        return false;
+    }
+
+    function wifiPayload() {
+        const ssid = $('set-ssid').value.trim();
+        const password = $('set-pass').value;
+        if (!ssid) throw new Error('Enter a network name.');
+        // WifiSettings has no optional fields, so a blank password would be
+        // written as an empty string and lock the machine off the network.
+        if (!password) throw new Error('Enter the Wi-Fi password. The stored one is never shown, so it must be re-typed to save.');
+        if (byteLen(ssid) > 32) throw new Error('Network name is too long (max 32 bytes).');
+        if (byteLen(password) > 64) throw new Error('Password is too long (max 64 bytes).');
+        return { wifi: { ssid: ssid, password: password } };
+    }
+
+    async function saveSettings(which) {
+        if (!settingsLoaded) return;
+        let payload, cmd;
+        try {
+            if (which === 'machine') {
+                cmd = 'save_machine';
+                payload = { machine: readSection('machine') };
+            } else if (which === 'pids') {
+                cmd = 'save_pids';
+                payload = {
+                    temp_pid: readSection('temp_pid'),
+                    press_pid: readSection('press_pid'),
+                    flow_pid: readSection('flow_pid')
+                };
+            } else {
+                cmd = 'save_wifi';
+                payload = wifiPayload();
+            }
+        } catch (e) {
+            toast(e.message, 'err');
+            return;
+        }
+
+        if (!await sendCommand(cmd, payload)) return;
+
+        // A 200 does not mean the write happened, so repaint from the device:
+        // anything that was dropped visibly reverts instead of being announced
+        // as saved.
+        if (which === 'wifi') $('set-pass').value = '';
+        const ok = await loadSettings(1);
+        toast(ok ? 'Saved — values reloaded from the machine.'
+                 : 'Sent, but the machine could not be re-read to confirm. Saving is disabled until it responds.',
+              ok ? 'ok' : 'err');
+    }
+
+    // --- EVENT DELEGATION ---
+    // One listener per event type instead of inline handlers reaching into
+    // globals. Rows rendered at runtime therefore need no wiring of their own,
+    // and nothing in the markup depends on a function name.
+    document.addEventListener('click', ev => {
+        const btn = ev.target.closest('button');
+        if (!btn || btn.disabled) return;
+        const d = btn.dataset;
+        if (d.tab !== undefined) return openTab(d.tab, btn);
+        if (d.save !== undefined) return saveSettings(d.save);
+        if (d.cmd !== undefined) return void sendCommand(d.cmd);
+        if (d.adjust !== undefined) return void adjustSessionTemp(parseFloat(d.adjust));
+        switch (d.act) {
+            case 'stop': return void sendStop();
+            case 'add-step': return addStep();
+            case 'remove-step': return removeStep(parseInt(btn.closest('tr').dataset.i));
+            case 'run-custom': return void runCustomProfile();
+            case 'save-profile': return void saveProfileToSlot();
+            case 'run-slot': return void runSlot(parseInt(d.slot));
+            case 'edit-slot': return void editSlot(parseInt(d.slot));
+            case 'delete-slot': return void deleteSlot(parseInt(d.slot));
+        }
+    });
+
+    $('step-body').addEventListener('input', ev => {
+        const input = ev.target;
+        if (!input.dataset.f) return;
+        const idx = parseInt(input.closest('tr').dataset.i);
+        const v = Number.parseFloat(input.value);
+        steps[idx][input.dataset.f] = Number.isFinite(v) && v > 0 ? v : 0.0;
+        renderSteps();
+    });
+
+    $('prof-name').addEventListener('input', updateNameCount);
 
     // --- PROFILE EDITOR ---
+    // Mirrors profiles.rs: MAX_STEPS = 5, MAX_PROFILES = 10 (the slot <select>).
     const MAX_STEPS = 5;
-    let steps = [{ time_s: 15.0, volume: 0.0, pressure: 9.0, flow: 0.0 }];
-    
+    // operations.rs: STEP_SAFETY_S caps every step, and pressure >= this value
+    // switches the pump from pressure control to raw duty.
+    const STEP_SAFETY_S = 120;
+    const DIRECT_PUMP_BAR = 10.0;
+    const STEP_FIELDS = [
+        { k: 'time_s',   step: '0.5', min: '0', max: '600' },
+        { k: 'volume',   step: '1',   min: '0', max: '2000' },
+        { k: 'pressure', step: '0.5', min: '0', max: '100' },
+        { k: 'flow',     step: '0.5', min: '0', max: '20' },
+    ];
+    let steps = [{ time_s: 0.0, volume: 0.0, pressure: 0.0, flow: 0.0 }];
+
+    // Every field is sent explicitly. The firmware's Option<f32> fields are
+    // read with `.unwrap_or(0.0)`, so 0 and null are wire-identical, and an
+    // empty box therefore means "no limit" rather than "missing".
     function sanitizeStep(step) {
+        const num = v => { const n = Number.parseFloat(v); return Number.isFinite(n) && n > 0 ? n : 0.0; };
+        return { time_s: num(step.time_s), volume: num(step.volume), pressure: num(step.pressure), flow: num(step.flow) };
+    }
+
+    // Spells out what execute_profile() will actually do with this row.
+    function describeStep(step) {
+        const s = sanitizeStep(step);
+        if (s.time_s <= 0 && s.volume <= 0) {
+            return { warn: true, text: 'Skipped — a step with neither a time nor a volume limit is dropped by the firmware.' };
+        }
+        let drive;
+        if (s.pressure >= DIRECT_PUMP_BAR) {
+            drive = `raw pump power ${Math.min(s.pressure, 100)}% (values from ${DIRECT_PUMP_BAR} up are duty, not bar)`;
+        } else if (s.flow > 0) {
+            drive = `flow held at ${s.flow} ml/s — the ${s.pressure > 0 ? s.pressure + ' bar setting is ignored' : 'pressure is whatever the OPV allows'}`;
+        } else if (s.pressure > 0) {
+            drive = `${s.pressure} bar`;
+        } else {
+            drive = 'pump off';
+        }
+        const ends = [];
+        if (s.time_s > 0) ends.push(`${s.time_s} s`);
+        if (s.volume > 0) ends.push(`${s.volume} ml total`);
+        const capped = s.time_s > STEP_SAFETY_S;
         return {
-            time_s: parseFloat(step.time_s) || 0.0,
-            volume: parseFloat(step.volume) || 0.0,
-            pressure: parseFloat(step.pressure) || 0.0,
-            flow: parseFloat(step.flow) || 0.0,
+            warn: s.pressure >= DIRECT_PUMP_BAR || capped || (s.flow > 0 && s.pressure > 0),
+            text: `${drive}, until ${ends.join(' or ')}` + (capped ? ` — but cut off at ${STEP_SAFETY_S} s.` : '.'),
         };
     }
 
+    // Rows are reconciled in place rather than rebuilt, so adding or removing a
+    // step never blows away focus or a half-typed value in another row.
     function renderSteps() {
-        const tbody = document.getElementById('step-body'); 
-        tbody.innerHTML = '';
+        const tbody = $('step-body');
+        while (tbody.children.length > steps.length * 2) tbody.removeChild(tbody.lastChild);
+        while (tbody.children.length < steps.length * 2) {
+            const row = document.createElement('tr');
+            row.className = 'step-row';
+            for (const f of STEP_FIELDS) {
+                const td = document.createElement('td');
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.step = f.step; input.min = f.min; input.max = f.max;
+                input.placeholder = '—';
+                input.dataset.f = f.k;
+                td.appendChild(input);
+                row.appendChild(td);
+            }
+            const tdBtn = document.createElement('td');
+            const del = document.createElement('button');
+            del.className = 'danger';
+            del.dataset.act = 'remove-step';
+            del.textContent = 'X';
+            tdBtn.appendChild(del);
+            row.appendChild(tdBtn);
+            const note = document.createElement('tr');
+            const noteTd = document.createElement('td');
+            noteTd.colSpan = 5;
+            noteTd.className = 'step-note';
+            note.appendChild(noteTd);
+            tbody.appendChild(row);
+            tbody.appendChild(note);
+        }
         steps.forEach((step, idx) => {
-            const t = step.time_s ?? 0.0;
-            const v = step.volume ?? 0.0;
-            const p = step.pressure ?? 0.0;
-            const f = step.flow ?? 0.0;
-            tbody.innerHTML += `<tr>
-                <td><input type="number" step="0.5" value="${t}" onchange="steps[${idx}].time_s=parseFloat(this.value)||0"></td>
-                <td><input type="number" step="1.0" value="${v}" onchange="steps[${idx}].volume=parseFloat(this.value)||0"></td>
-                <td><input type="number" step="0.5" value="${p}" onchange="steps[${idx}].pressure=parseFloat(this.value)||0"></td>
-                <td><input type="number" step="0.5" value="${f}" onchange="steps[${idx}].flow=parseFloat(this.value)||0"></td>
-                <td><button class="danger" onclick="removeStep(${idx})">X</button></td></tr>`;
+            const row = tbody.children[idx * 2];
+            row.dataset.i = idx;
+            for (const input of row.querySelectorAll('input')) {
+                const v = step[input.dataset.f];
+                // Never fight the field the user is currently typing in.
+                if (document.activeElement !== input) input.value = v > 0 ? v : '';
+            }
+            const d = describeStep(step);
+            const noteTd = tbody.children[idx * 2 + 1].firstChild;
+            noteTd.textContent = `Step ${idx + 1}: ${d.text}`;
+            noteTd.className = 'step-note' + (d.warn ? ' warn' : '');
         });
     }
-    
+
+    function updateNameCount() {
+        const n = byteLen($('prof-name').value.trim());
+        const el = $('name-count');
+        el.textContent = n + '/32 bytes';
+        el.className = 'count' + (n > 32 ? ' over' : '');
+    }
+
     function addStep() {
-        if (steps.length >= MAX_STEPS) return alert(`A profile is limited to ${MAX_STEPS} steps.`);
+        if (steps.length >= MAX_STEPS) return toast(`A profile is limited to ${MAX_STEPS} steps.`, 'err');
         steps.push({ time_s: 0.0, volume: 0.0, pressure: 0.0, flow: 0.0 }); 
         renderSteps();
     }
@@ -390,76 +713,97 @@
     }
     
     async function runCustomProfile() {
-        const name = document.getElementById('prof-name').value.trim();
-        if (!name) return alert("Validation Error: Profile needs a name.");
-        if (steps.length === 0) return alert("Validation Error: Profile needs at least one step.");
+        const name = $('prof-name').value.trim();
+        if (!name) return toast("The profile needs a name.", 'err');
+        if (steps.length === 0) return toast("The profile needs at least one step.", 'err');
+        if (byteLen(name) > 32) return toast("Profile name is too long (max 32 bytes).", 'err');
         const cleanSteps = steps.map(sanitizeStep);
-        await sendCommand('profile', { profile: { name: name.substring(0, 32), steps: cleanSteps } });
+        if (cleanSteps.every(s => s.time_s <= 0 && s.volume <= 0)) {
+            return toast("Every step would be skipped — give at least one of them a time or a volume.", 'err');
+        }
+        await sendCommand('profile', { profile: { name: name, steps: cleanSteps } });
     }
-    renderSteps();
 
     // --- PROFILE CRUD ---
     async function loadProfilesList() {
         try {
-            const res = await fetch('/api/profiles'); 
+            const res = await fetch('/api/profiles');
             if (!res.ok) return;
             const data = await res.json();
-            const tbody = document.getElementById('saved-profiles-body'); 
-            tbody.innerHTML = '';
-            if (data.length === 0) { 
-                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#888;">No profiles saved yet.</td></tr>'; 
-                return; 
+            const tbody = $('saved-profiles-body');
+            tbody.textContent = '';
+            if (data.length === 0) {
+                const tr = tbody.insertRow();
+                const td = tr.insertCell();
+                td.colSpan = 3;
+                td.style.cssText = 'text-align:center; color:#888;';
+                td.textContent = 'No profiles saved yet.';
+                return;
             }
-            data.forEach(p => {
-                tbody.innerHTML += `<tr><td>${p.slot}</td><td><strong>${p.name}</strong></td>
-                    <td style="text-align: right;">
-                        <button class="success" style="padding: 5px 10px;" onclick="runSlot(${p.slot})">Run</button>
-                        <button style="padding: 5px 10px;" onclick="editSlot(${p.slot})">Edit</button>
-                        <button class="danger" style="padding: 5px 10px;" onclick="deleteSlot(${p.slot})">X</button>
-                    </td></tr>`;
-            });
+            // Built with textContent, never innerHTML: the name is arbitrary
+            // UTF-8 that any unauthenticated LAN client can persist to flash via
+            // save_profile, so interpolating it into markup is stored XSS.
+            for (const p of data) {
+                const tr = tbody.insertRow();
+                tr.insertCell().textContent = p.slot;
+                const nameCell = tr.insertCell();
+                const strong = document.createElement('strong');
+                strong.textContent = p.name;
+                nameCell.appendChild(strong);
+                const actions = tr.insertCell();
+                actions.style.textAlign = 'right';
+                for (const [label, cls, act] of [['Run', 'js-action success', 'run-slot'],
+                                                 ['Edit', 'js-action', 'edit-slot'],
+                                                 ['X', 'js-flash danger', 'delete-slot']]) {
+                    const b = document.createElement('button');
+                    b.className = cls;
+                    b.style.padding = '5px 10px';
+                    b.dataset.act = act;
+                    b.dataset.slot = p.slot;
+                    b.textContent = label;
+                    actions.appendChild(b);
+                }
+            }
+            refreshControls();
         } catch (e) {}
     }
-    
-    async function runSlot(slot) { 
-        if (confirm(`Execute profile from slot ${slot}?`)) { 
-            await sendCommand('run_slot', { slot: slot }); 
-        } 
+
+    async function runSlot(slot) {
+        if (await askConfirm(`Execute the profile in slot ${slot}?`)) {
+            await sendCommand('run_slot', { slot: slot });
+        }
     }
-    
-    async function deleteSlot(slot) { 
-        if (confirm(`Permanently delete profile in slot ${slot}?`)) { 
-            const ok = await sendCommand('delete_profile', { slot: slot }); 
-            if (ok) {
-                await loadProfilesList(); 
-            } else {
-                alert("Failed to delete profile.");
-            }
+
+    async function deleteSlot(slot) {
+        if (await askConfirm(`Permanently delete the profile in slot ${slot}?`)) {
+            // The 200 says nothing about the delete, so reload and let the list
+            // itself show whether the slot is gone.
+            await sendCommand('delete_profile', { slot: slot });
+            await loadProfilesList(); 
         } 
     }
     
     async function editSlot(slot) {
         for (let attempt = 0; attempt <= 2; attempt++) {
             try {
-                openTab(null, 'tab-home');
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 3000);
-                const res = await fetch(`/api/profile/${slot}`, { signal: controller.signal }); 
-                clearTimeout(timeoutId);
+                openTab('tab-home', document.querySelector('.tab-button[data-tab="tab-home"]'));
+                const res = await request(`/api/profile/${slot}`, {}, 3000);
                 if (res.ok) {
                     const p = await res.json();
-                    document.getElementById('prof-slot').value = slot; 
-                    document.getElementById('prof-name').value = p.name || '';
-                    steps = (p.steps || []).map(sanitizeStep); 
-                    if (steps.length === 0) {
-                        steps = [{ time_s: 15.0, volume: 0.0, pressure: 9.0, flow: 0.0 }];
-                    }
-                    renderSteps(); 
-                    document.getElementById('profile-editor').scrollIntoView({ behavior: 'smooth' });
+                    $('prof-slot').value = slot;
+                    $('prof-name').value = p.name || '';
+                    updateNameCount();
+                    // Shown exactly as the device holds it. A stored profile with
+                    // no steps used to open as a fabricated 9 bar shot the user
+                    // never wrote, which a single Save would then persist.
+                    steps = (p.steps || []).map(sanitizeStep);
+                    renderSteps();
+                    if (steps.length === 0) toast(`Slot ${slot} holds no steps — add one before saving.`);
+                    $('profile-editor').scrollIntoView({ behavior: 'smooth' });
                     return;
                 }
                 if (res.status === 404) {
-                    alert(`Profile slot ${slot} is empty.`);
+                    toast(`Profile slot ${slot} is empty.`, 'err');
                     return;
                 }
             } catch (e) { 
@@ -469,35 +813,42 @@
                 await new Promise(r => setTimeout(r, 150));
             }
         }
-        alert(`Failed to fetch profile data for slot ${slot}. Please retry.`);
+        toast(`Could not read slot ${slot} from the machine.`, 'err');
     }
     
     async function saveProfileToSlot() {
-        const name = document.getElementById('prof-name').value.trim(); 
-        const slot = parseInt(document.getElementById('prof-slot').value);
-        if (!name) return alert("Invalid Profile: Name cannot be empty.");
-        if (steps.length === 0) return alert("Invalid Profile: Add at least one step.");
-        if (steps.length > MAX_STEPS) return alert(`Invalid Profile: Max ${MAX_STEPS} steps allowed.`);
+        const name = $('prof-name').value.trim();
+        const slot = parseInt($('prof-slot').value);
+        if (!name) return toast("Profile name cannot be empty.", 'err');
+        if (steps.length === 0) return toast("Add at least one step.", 'err');
+        if (steps.length > MAX_STEPS) return toast(`A profile is limited to ${MAX_STEPS} steps.`, 'err');
+        // heapless::String<32> counts bytes, not characters, so a multi-byte name
+        // that looks short enough would fail to parse on the device.
+        if (byteLen(name) > 32) return toast("Profile name is too long (max 32 bytes).", 'err');
         
         const cleanSteps = steps.map(sanitizeStep);
-        const ok = await sendCommand('save_profile', { 
-            slot: slot, 
-            profile: { name: name.substring(0, 32), steps: cleanSteps } 
-        });
-        
-        if (ok) {
-            alert(`Profile saved to Slot ${slot}!`); 
-            await loadProfilesList();
-        } else {
-            alert(`Failed to save profile to Slot ${slot}. Please retry.`);
+        if (cleanSteps.every(s => s.time_s <= 0 && s.volume <= 0)) {
+            return toast("Every step would be skipped — give at least one of them a time or a volume.", 'err');
         }
+        if (!await sendCommand('save_profile', { slot: slot, profile: { name: name, steps: cleanSteps } })) return;
+        // The 200 does not confirm the write; the reloaded list does.
+        await loadProfilesList();
+        toast(`Sent to slot ${slot} — check the list above.`, 'ok');
     }
 
-    // --- SYNCHRONIZED BOOT SEQUENCE ---
+    // --- BOOT ---
     async function bootMachineUI() {
-        await loadSettings();
-        await loadProfilesList();
+        renderSteps();
+        updateNameCount();
+        refreshControls();
+        // Telemetry starts first and never blocks on the other two: it is what
+        // drives the connection indicator and the flash-write gating.
         pollTelemetry();
+        setInterval(pollTelemetry, 250);
+        const [okSettings] = await Promise.all([loadSettings(), loadProfilesList()]);
+        if (!okSettings) {
+            toast('Could not read settings from the machine. Saving stays disabled — reload the page to retry.', 'err');
+        }
     }
 
     // Start the UI
