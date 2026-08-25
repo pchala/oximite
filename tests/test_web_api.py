@@ -35,6 +35,7 @@ from common import (
     get_settings_http,
     get_profiles_http,
     get_profile_http,
+    wait_for_ack,
 )
 
 
@@ -67,7 +68,7 @@ class TestWebEndpoints(OximiteTestCase):
         self.assertEqual(status, 200)
         self.assertIsInstance(data, dict)
 
-        required_keys = {"t", "sbt", "p", "fl", "vol", "st"}
+        required_keys = {"t", "sbt", "p", "fl", "vol", "st", "ack"}
         self.assertTrue(required_keys.issubset(data.keys()), f"Missing keys in telemetry: {required_keys - data.keys()}")
 
         self.assertIsInstance(data["t"], (int, float), "Actual temperature must be a number")
@@ -76,6 +77,7 @@ class TestWebEndpoints(OximiteTestCase):
         self.assertIsInstance(data["fl"], (int, float), "Flow rate must be a number")
         self.assertIsInstance(data["vol"], (int, float), "Volume must be a number")
         self.assertIsInstance(data["st"], int, "Machine state must be an integer")
+        self.assertIsInstance(data["ack"], int, "Command ack counter must be an integer")
         self.assertIn(data["st"], range(7), f"State discriminant {data['st']} out of range 0..6")
 
     def test_04_settings_schema(self):
@@ -601,9 +603,32 @@ class TestHttpProtocolCompliance(OximiteTestCase):
 
             resp_str = response.decode("utf-8", errors="replace")
             self.assertIn("HTTP/1.1 200 OK", resp_str, "Segmented POST should succeed with 200 OK")
-            self.assertIn('{"status":"ok"}', resp_str)
+            self.assertIn('"status":"ok"', resp_str)
+            self.assertIn('"ack":', resp_str, "Command reply must carry an ack ticket")
         finally:
             s.close()
+
+    def test_07_command_ack_ticket_is_reached(self):
+        """The ticket returned by POST /api/cmd must show up in telemetry's `ack`."""
+        served_before = get_telemetry_http()["ack"]
+        # `stop` while idle is a documented harmless resync in coordinator.rs.
+        status, resp = http_post_cmd("stop")
+        self.assertEqual(status, 200)
+        ticket = resp.get("ack")
+        self.assertIsInstance(ticket, int, "Command reply must carry an integer ack ticket")
+        self.assertGreater(ticket, served_before, "Ticket must be ahead of the served count")
+        self.assertTrue(wait_for_ack(ticket), "Telemetry ack never reached the returned ticket")
+
+    def test_08_command_with_missing_field_is_rejected(self):
+        """A command missing its payload field must 400, not be silently dropped."""
+        for cmd in ["set_session_temp", "direct_pump", "save_machine", "delete_profile"]:
+            status, _ = http_post_cmd(cmd)
+            self.assertEqual(status, 400, f"'{cmd}' without its field should be 400, got {status}")
+
+    def test_09_unknown_command_is_rejected(self):
+        """An unrecognised command name must 400 rather than report success."""
+        status, _ = http_post_cmd("definitely_not_a_command")
+        self.assertEqual(status, 400)
 
 
 if __name__ == "__main__":

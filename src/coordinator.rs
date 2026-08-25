@@ -414,14 +414,21 @@ pub async fn coordinator_task(valve: Output<'static>) {
                     stop_to_idle().await;
                     break;
                 }
-                Either3::Second(cmd) => match serve(cmd, &mut last_activity, &mut pending).await {
-                    Outcome::Continue => continue,
-                    Outcome::Cancel => break,
-                    Outcome::Start(next) => {
-                        current = Some(next);
-                        break;
+                Either3::Second(cmd) => {
+                    let outcome = serve(cmd, &mut last_activity, &mut pending).await;
+                    // Acked here, once the command has been acted on, so a
+                    // waiting client learns the machine obeyed it — being
+                    // queued says nothing about what the machine did.
+                    state::mark_served();
+                    match outcome {
+                        Outcome::Continue => continue,
+                        Outcome::Cancel => break,
+                        Outcome::Start(next) => {
+                            current = Some(next);
+                            break;
+                        }
                     }
-                },
+                }
                 // Auto-sleep. The `Idle` check short-circuits before
                 // `sleep_timeout()` reads settings, so this stays cheap while
                 // an operation is running.

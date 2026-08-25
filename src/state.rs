@@ -1,5 +1,7 @@
+use core::cell::Cell;
 use core::sync::atomic::Ordering;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::Watch;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -133,16 +135,45 @@ impl defmt::Format for MachineCommand {
 /// debounce pass — without spending much RAM on the large `RunProfile` variant.
 static COMMAND_QUEUE: Channel<CriticalSectionRawMutex, MachineCommand, 4> = Channel::new();
 
-/// Queues a command for the coordinator, dropping it if the queue is full.
+/// Next ack ticket.
 ///
-/// Deliberately non-blocking: the callers are the button poller and HTTP
-/// request handlers, which must not stall waiting on the coordinator. A full
-/// queue means the coordinator is wedged, which the warning surfaces instead
-/// of hiding.
-pub fn send_command(cmd: MachineCommand) {
-    if COMMAND_QUEUE.try_send(cmd).is_err() {
-        defmt::warn!("Command queue full — command dropped");
-    }
+/// Bumped inside the same critical section as the push because tickets are only
+/// meaningful in queue order, and both cores produce commands: the button task
+/// on core0 and the web tasks on core1.
+static NEXT_TICKET: BlockingMutex<CriticalSectionRawMutex, Cell<u32>> =
+    BlockingMutex::new(Cell::new(0));
+
+/// Commands the coordinator has finished serving. Tickets start at 1, so 0
+/// means nothing has been served yet and ticket N is applied once this reaches N.
+static SERVED: AtomicU32 = AtomicU32::new(0);
+
+/// Queues a command, returning its ack ticket, or `None` if the queue is full.
+///
+/// Non-blocking, because the callers are the button poller and HTTP request
+/// handlers and neither may stall on the coordinator. The ticket is what makes
+/// that safe: a caller who needs to know the command was acted on watches
+/// [`get_ack`] reach it, and a `None` means the command never made it.
+#[must_use = "a dropped ticket cannot be confirmed; use `let _ =` if the caller does not need one"]
+pub fn send_command(cmd: MachineCommand) -> Option<u32> {
+    NEXT_TICKET.lock(|t| {
+        if COMMAND_QUEUE.try_send(cmd).is_err() {
+            defmt::warn!("Command queue full — command dropped");
+            return None;
+        }
+        let ticket = t.get().wrapping_add(1);
+        t.set(ticket);
+        Some(ticket)
+    })
+}
+
+/// Records that the coordinator finished serving one command. Coordinator only.
+pub fn mark_served() {
+    SERVED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Highest ticket the coordinator has served.
+pub fn get_ack() -> u32 {
+    SERVED.load(Ordering::Relaxed)
 }
 
 /// Waits for the next queued command. Single-consumer: only the coordinator

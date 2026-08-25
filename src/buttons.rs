@@ -64,7 +64,8 @@ pub async fn run_button_task(
         for db in debouncers.iter_mut() {
             if let Some(cmd) = db.poll() {
                 defmt::info!("Button pressed: {:?}", cmd);
-                send_command(cmd);
+                // A front-panel press has no client waiting on a ticket.
+                let _ = send_command(cmd);
             }
         }
 

@@ -11,8 +11,8 @@
 //! The browser and the HIL test rig want different things, so they get
 //! different payloads rather than one union of both:
 //!
-//! * **Port 80, `GET /api/telemetry`** -- [`UiTelemetry`] as JSON. Six fields,
-//!   ~60 bytes, offset-corrected and rounded for display. Polled at ~4 Hz by a
+//! * **Port 80, `GET /api/telemetry`** -- [`UiTelemetry`] as JSON. Seven fields,
+//!   ~70 bytes, offset-corrected and rounded for display. Polled at ~4 Hz by a
 //!   browser that has no decoder, so human-readable JSON is the right call.
 //! * **Port 8080** -- [`DiagFrame`] as postcard. Fifteen fields, 55 bytes,
 //!   *raw* controller values at the full 50 Hz control rate. Binary because at
@@ -32,8 +32,8 @@ use serde::{Deserialize, Serialize};
 use crate::profiles::BrewProfile;
 use crate::settings::{MachineSettings, PidSettings, Settings, WifiSettings};
 use crate::state::{
-    get_session_brew_temp, get_state, get_telemetry, send_command, MachineCommand, MachineState,
-    Telemetry, TELEMETRY_WATCH,
+    get_ack, get_session_brew_temp, get_state, get_telemetry, send_command, MachineCommand,
+    MachineState, Telemetry, TELEMETRY_WATCH,
 };
 
 static INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
@@ -71,6 +71,9 @@ struct UiTelemetry {
     fl: f32,
     vol: f32,
     st: u32,
+    /// Highest command ticket the coordinator has served, which is how a client
+    /// tells a command that was merely queued from one the machine acted on.
+    ack: u32,
 }
 
 /// Wire-format version for the port 8080 stream.
@@ -166,6 +169,16 @@ struct ProfileHeader<'a> {
     name: &'a str,
 }
 
+/// Reply to an accepted command.
+///
+/// `ack` is the ticket the caller watches for in telemetry: the machine has
+/// only obeyed the command once telemetry's `ack` reaches this value.
+#[derive(Serialize)]
+struct CommandAck {
+    status: &'static str,
+    ack: u32,
+}
+
 const JSON_OK_HEADER: &str =
     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
 
@@ -182,6 +195,9 @@ enum HttpError {
     /// Malformed request, or a body that is not a valid `ApiCommand`.
     BadRequest,
     NotFound,
+    /// Command queue full, so the command was never queued and the machine will
+    /// never run it.
+    Busy,
 }
 
 impl HttpError {
@@ -195,6 +211,9 @@ impl HttpError {
             }
             HttpError::BadRequest => Some("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"),
             HttpError::NotFound => Some("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"),
+            HttpError::Busy => {
+                Some("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n")
+            }
         }
     }
 }
@@ -293,64 +312,68 @@ async fn graceful_close(socket: &mut TcpSocket<'_>) {
     socket.abort();
 }
 
-async fn handle_api_command(payload: ApiCommand<'_>) {
-    match payload.cmd {
-        "power" => send_command(MachineCommand::TogglePower),
-        "brew" => send_command(MachineCommand::Brew),
-        "stop" => send_command(MachineCommand::Stop),
-        "steam" => send_command(MachineCommand::Steam),
-        "flush" => send_command(MachineCommand::Flush),
+/// Maps one API command onto a [`MachineCommand`], or says why it cannot be.
+///
+/// Every field a command needs is mandatory, so a caller is never handed a
+/// success for a command that could not be built and therefore never ran.
+async fn build_command(payload: ApiCommand<'_>) -> Result<MachineCommand, HttpError> {
+    Ok(match payload.cmd {
+        "power" => MachineCommand::TogglePower,
+        "brew" => MachineCommand::Brew,
+        "stop" => MachineCommand::Stop,
+        "steam" => MachineCommand::Steam,
+        "flush" => MachineCommand::Flush,
         "direct_pump" => {
-            if let Some(p) = payload.power {
-                send_command(MachineCommand::DirectPump(p));
-            }
+            MachineCommand::DirectPump(payload.power.ok_or(HttpError::BadRequest)?)
         }
         "set_session_temp" => {
-            if let Some(t) = payload.temp {
-                send_command(MachineCommand::SetSessionTemp(t));
-            }
+            MachineCommand::SetSessionTemp(payload.temp.ok_or(HttpError::BadRequest)?)
         }
-        "save_machine" => {
-            if let Some(m) = payload.machine {
-                send_command(MachineCommand::SaveMachine(m));
-            }
-        }
-        "save_pids" => {
-            if let (Some(t), Some(p)) = (payload.temp_pid, payload.press_pid) {
-                send_command(MachineCommand::SavePids(t, p, payload.flow_pid));
-            }
-        }
+        "save_machine" => MachineCommand::SaveMachine(payload.machine.ok_or(HttpError::BadRequest)?),
+        "save_pids" => MachineCommand::SavePids(
+            payload.temp_pid.ok_or(HttpError::BadRequest)?,
+            payload.press_pid.ok_or(HttpError::BadRequest)?,
+            payload.flow_pid,
+        ),
         "save_wifi" => {
-            if let Some(w) = payload.wifi {
-                defmt::info!("API: New SSID: {}", w.ssid.as_str());
-                send_command(MachineCommand::SaveWifi(w));
-            }
+            let w = payload.wifi.ok_or(HttpError::BadRequest)?;
+            defmt::info!("API: New SSID: {}", w.ssid.as_str());
+            MachineCommand::SaveWifi(w)
         }
-        "profile" => {
-            if let Some(p) = payload.profile {
-                send_command(MachineCommand::RunProfile(p));
-            }
-        }
+        "profile" => MachineCommand::RunProfile(payload.profile.ok_or(HttpError::BadRequest)?),
         "run_slot" => {
-            if let Some(slot) = payload.slot {
-                if let Some(p) = crate::profiles::get_profile_from_ram(slot).await {
-                    send_command(MachineCommand::RunProfile(p));
-                }
-            }
+            let slot = payload.slot.ok_or(HttpError::BadRequest)?;
+            let p = crate::profiles::get_profile_from_ram(slot)
+                .await
+                .ok_or(HttpError::NotFound)?;
+            MachineCommand::RunProfile(p)
         }
-        "save_profile" => {
-            if let (Some(slot), Some(p)) = (payload.slot, payload.profile) {
-                send_command(MachineCommand::SaveProfile(slot, p));
-            }
-        }
+        "save_profile" => MachineCommand::SaveProfile(
+            payload.slot.ok_or(HttpError::BadRequest)?,
+            payload.profile.ok_or(HttpError::BadRequest)?,
+        ),
         "delete_profile" => {
-            if let Some(slot) = payload.slot {
-                send_command(MachineCommand::DeleteProfile(slot));
+            MachineCommand::DeleteProfile(payload.slot.ok_or(HttpError::BadRequest)?)
+        }
+        other => {
+            defmt::warn!("API: Unknown command {}", other);
+            return Err(HttpError::BadRequest);
+        }
+    })
+}
+
+/// Runs one command from the diag socket.
+///
+/// That socket is a one-way binary stream with no reply channel, so a command
+/// it cannot run is logged — the test rig reads the log.
+async fn dispatch_diag_command(payload: ApiCommand<'_>) {
+    match build_command(payload).await {
+        Ok(cmd) => {
+            if send_command(cmd).is_none() {
+                defmt::warn!("Diag: command dropped, queue full");
             }
         }
-        _ => {
-            defmt::warn!("API: Unknown command {}", payload.cmd);
-        }
+        Err(_) => defmt::warn!("Diag: command rejected"),
     }
 }
 
@@ -377,6 +400,7 @@ async fn ui_telemetry(a: Telemetry) -> UiTelemetry {
         fl: r2(a.flow_rate_ml_s),
         vol: r2(a.volume_ml),
         st: st_val as u32,
+        ack: get_ack(),
     }
 }
 
@@ -506,9 +530,17 @@ async fn serve(socket: &mut TcpSocket<'_>, request: &str) -> Result<(), HttpErro
     } else if request.starts_with("POST /api/cmd") {
         let payload = parse_command(request)?;
         defmt::info!("API Command Received: {}", payload.cmd);
-        handle_api_command(payload).await;
-        let _ = socket.write_all(JSON_OK_HEADER.as_bytes()).await;
-        let _ = socket.write_all(b"{\"status\":\"ok\"}").await;
+        let cmd = build_command(payload).await?;
+        let ticket = send_command(cmd).ok_or(HttpError::Busy)?;
+        write_json(
+            socket,
+            &mut buf,
+            &CommandAck {
+                status: "ok",
+                ack: ticket,
+            },
+        )
+        .await;
     } else {
         return Err(HttpError::NotFound);
     }
@@ -640,7 +672,7 @@ pub async fn tcp_telemetry_task(stack: &'static embassy_net::Stack<'static>) {
                                             if let Ok((payload, _)) =
                                                 serde_json_core::from_str::<ApiCommand>(json_str)
                                             {
-                                                handle_api_command(payload).await;
+                                                dispatch_diag_command(payload).await;
                                             }
                                         }
                                         line_pos = 0;

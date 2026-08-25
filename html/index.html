@@ -345,33 +345,82 @@
         refreshControls();
     }
 
+    // --- COMMAND ACKS ---
+    // The machine names every command it accepts with a ticket, and telemetry
+    // reports the highest ticket it has actually served. Watching that number
+    // reach the ticket is the only proof a command was obeyed — HTTP only ever
+    // says the machine took the request.
+    let lastAck = 0;
+    let pendingTicket = 0;   // highest ticket not yet seen in telemetry
+    let ackWaiters = [];
+
+    function noteAck(ack) {
+        if (!Number.isFinite(ack)) return;
+        lastAck = ack;
+        if (ack >= pendingTicket) pendingTicket = 0;
+        ackWaiters = ackWaiters.filter(w => {
+            if (ack < w.ticket) return true;
+            clearTimeout(w.timer);
+            w.resolve(true);
+            return false;
+        });
+    }
+
+    // Resolves false on timeout, so an unreachable machine surfaces as a failed
+    // command instead of a caller that waits forever.
+    function waitForAck(ticket, timeoutMs = 3000) {
+        if (!Number.isFinite(ticket)) return Promise.resolve(false);
+        if (lastAck >= ticket) return Promise.resolve(true);
+        return new Promise(resolve => {
+            const w = { ticket: ticket, resolve: resolve };
+            w.timer = setTimeout(() => {
+                ackWaiters = ackWaiters.filter(x => x !== w);
+                resolve(false);
+            }, timeoutMs);
+            ackWaiters.push(w);
+        });
+    }
+
     // --- COMMANDS ---
-    // Sends a command exactly once.
+    // Sends a command exactly once and resolves true only once the machine
+    // reports having acted on it.
     //
     // POST /api/cmd is NOT idempotent: coordinator.rs stops the machine on any
     // command arriving while an operation runs, so re-sending after a lost reply
-    // would abort the shot the first attempt just started. A 200 only means the
-    // request parsed — the command may still have been dropped by a full queue —
-    // so callers confirm through the telemetry poll, never via this return value.
+    // would abort the shot the first attempt just started. Hence one attempt and
+    // a ticket to confirm it with. A 503 is the exception — it means the queue
+    // refused the command outright, so nothing was started and a retry is safe.
     async function sendCommand(cmd, payload = {}) {
         if (cmdInFlight) return false;
         cmdInFlight = true;
         refreshControls();
+        let ticket;
         try {
             const resp = await request('/api/cmd', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ cmd: cmd, ...payload })
             });
-            if (!resp.ok) toast(`Machine rejected '${cmd}' (HTTP ${resp.status}).`, 'err');
-            return resp.ok;
+            if (!resp.ok) {
+                toast(resp.status === 503
+                    ? `Machine is not keeping up — '${cmd}' was not queued. Try again.`
+                    : `Machine rejected '${cmd}' (HTTP ${resp.status}).`, 'err');
+                return false;
+            }
+            ticket = (await resp.json()).ack;
+            if (ticket > pendingTicket) pendingTicket = ticket;
         } catch (e) {
             toast(`No response from the machine — '${cmd}' may not have been applied.`, 'err');
             return false;
         } finally {
+            // The socket is free once the reply lands, and confirmation can take
+            // a telemetry poll, so waiting for it must not block the next command.
             cmdInFlight = false;
             refreshControls();
         }
+        if (await waitForAck(ticket)) return true;
+        toast(`Machine did not confirm '${cmd}'.`, 'err');
+        return false;
     }
 
     // `stop` is the one command safe to repeat — (Idle, Stop) is a documented
@@ -403,13 +452,14 @@
     }
 
     function renderTelemetry(d) {
+        noteAck(d.ack);
         $('val-t').textContent = Number(d.t).toFixed(1);
         $('val-p').textContent = Number(d.p).toFixed(1);
         $('val-fl').textContent = Number(d.fl).toFixed(1);
         $('val-vol').textContent = Number(d.vol).toFixed(1);
-        // Skipped while a command is in flight so a poll cannot roll the stepper
-        // back to the pre-command value between tap and apply.
-        if (!cmdInFlight && d.sbt !== undefined) {
+        // A snapshot the machine took before it served our last command still
+        // carries the old value, so it must not repaint the stepper.
+        if (d.ack >= pendingTicket && d.sbt !== undefined) {
             currentSessionTemp = Number(d.sbt);
             $('val-sbt').textContent = currentSessionTemp.toFixed(1) + ' °C';
         }
@@ -552,9 +602,8 @@
 
         if (!await sendCommand(cmd, payload)) return;
 
-        // A 200 does not mean the write happened, so repaint from the device:
-        // anything that was dropped visibly reverts instead of being announced
-        // as saved.
+        // The ack covers the coordinator, not the flash write it delegates, so
+        // repaint from the device: a write that never landed visibly reverts.
         if (which === 'wifi') $('set-pass').value = '';
         const ok = await loadSettings(1);
         toast(ok ? 'Saved — values reloaded from the machine.'
@@ -776,8 +825,8 @@
 
     async function deleteSlot(slot) {
         if (await askConfirm(`Permanently delete the profile in slot ${slot}?`)) {
-            // The 200 says nothing about the delete, so reload and let the list
-            // itself show whether the slot is gone.
+            // The ack covers the coordinator, not the flash write it delegates,
+            // so the reloaded list is what proves the slot is gone.
             await sendCommand('delete_profile', { slot: slot });
             await loadProfilesList(); 
         } 
@@ -831,7 +880,8 @@
             return toast("Every step would be skipped — give at least one of them a time or a volume.", 'err');
         }
         if (!await sendCommand('save_profile', { slot: slot, profile: { name: name, steps: cleanSteps } })) return;
-        // The 200 does not confirm the write; the reloaded list does.
+        // The ack covers the coordinator, not the flash write it delegates; the
+        // reloaded list is what proves the profile is stored.
         await loadProfilesList();
         toast(`Sent to slot ${slot} — check the list above.`, 'ok');
     }

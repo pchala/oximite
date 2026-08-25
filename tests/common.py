@@ -184,6 +184,19 @@ def get_telemetry_http(timeout: float = 3.0) -> Dict[str, Any]:
     return data
 
 
+def wait_for_ack(ticket: int, timeout: float = 5.0) -> bool:
+    """Polls telemetry until the coordinator reports having served `ticket`."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if get_telemetry_http(timeout=2.0).get("ack", -1) >= ticket:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.1)
+    return False
+
+
 def get_settings_http(timeout: float = 3.0) -> Dict[str, Any]:
     """Fetches machine settings from GET /api/settings."""
     status, data = http_get("/api/settings", timeout=timeout)
