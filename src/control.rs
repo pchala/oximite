@@ -191,17 +191,7 @@ pub fn setup_triac_sm(
     sm.set_enable(true);
 }
 
-/// Channel weights for the unified normalised pump controller. Each channel is
-/// mapped to `1 + w * (measurement / ceiling - 1)`, so `w` sets how steeply it
-/// approaches its ceiling without moving the fixed point, which stays at 1.0
-/// for any `w`. Because the physical gain a channel sees is `k * w / ceiling`,
-/// these also fix the split of the single shared gain set between the two:
-/// `W_FLOW = 1.0` is the reference, and `W_PRESSURE` is chosen so a 9 bar
-/// ceiling reproduces the 10 %/bar the pressure loop was tuned to when it
-/// worked directly in bar. The larger weight also gives the ceiling the right
-/// shape — the pressure channel stays dormant until within `1/W_PRESSURE` of
-/// the target, then bites hard.
-const W_PRESSURE: f32 = 7.5;
+const W_PRESSURE: f32 = 4.0;
 const W_FLOW: f32 = 1.0;
 
 /// Pump power percentage to the triac's firing delay, as a fraction of the

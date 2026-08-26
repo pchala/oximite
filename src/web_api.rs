@@ -323,13 +323,13 @@ async fn build_command(payload: ApiCommand<'_>) -> Result<MachineCommand, HttpEr
         "stop" => MachineCommand::Stop,
         "steam" => MachineCommand::Steam,
         "flush" => MachineCommand::Flush,
-        "direct_pump" => {
-            MachineCommand::DirectPump(payload.power.ok_or(HttpError::BadRequest)?)
-        }
+        "direct_pump" => MachineCommand::DirectPump(payload.power.ok_or(HttpError::BadRequest)?),
         "set_session_temp" => {
             MachineCommand::SetSessionTemp(payload.temp.ok_or(HttpError::BadRequest)?)
         }
-        "save_machine" => MachineCommand::SaveMachine(payload.machine.ok_or(HttpError::BadRequest)?),
+        "save_machine" => {
+            MachineCommand::SaveMachine(payload.machine.ok_or(HttpError::BadRequest)?)
+        }
         "save_pids" => MachineCommand::SavePids(
             payload.temp_pid.ok_or(HttpError::BadRequest)?,
             payload.press_pid.ok_or(HttpError::BadRequest)?,

@@ -63,8 +63,13 @@ pub async fn adc_task(
     mut ch_p: Channel<'static>,
     mut ch_t: Channel<'static>,
 ) {
-    let (mut p_ema, mut t_ema) = (0.0f32, 0.0f32);
+    let mut t_ema = 0.0f32;
     let mut initialized = false;
+
+    const P_WINDOW: usize = 10;
+    let mut p_buffer = [0.0f32; P_WINDOW];
+    let mut p_index = 0;
+    let mut p_sum = 0.0f32;
 
     let mut ticker = embassy_time::Ticker::every(Duration::from_hz(500));
 
@@ -76,18 +81,28 @@ pub async fn adc_task(
         let raw_t = sample_avg(&mut adc, &mut ch_t).await;
 
         if !initialized {
-            p_ema = raw_p;
+            for i in p_buffer.iter_mut().take(P_WINDOW) {
+                *i = raw_p;
+            }
+            p_sum = raw_p * P_WINDOW as f32;
             t_ema = raw_t;
             initialized = true;
         } else {
-            const ALPHA_P: f32 = 0.01; // ~0.8 Hz cutoff (rejects ~200ms beat from unsynced ADC/pump sampling)
+            // --- Pressure: Boxcar Filter (SMA) ---
+            p_sum -= p_buffer[p_index];
+            p_buffer[p_index] = raw_p;
+            p_sum += raw_p;
+            p_index = (p_index + 1) % P_WINDOW;
+
+            // --- Temperature: Keep the EMA ---
             const ALPHA_T: f32 = 0.2; // ~20.0 Hz Cutoff
-            p_ema = p_ema + ALPHA_P * (raw_p - p_ema);
             t_ema = t_ema + ALPHA_T * (raw_t - t_ema);
         }
 
+        let p_mean_raw = p_sum / P_WINDOW as f32;
+
         // Convert the filtered counts to physical units
-        let p_bar = get_pressure_from_adc(p_ema);
+        let p_bar = get_pressure_from_adc(p_mean_raw);
         let t_c = get_temp_from_adc(t_ema);
 
         SENSOR_WATCH.sender().send(SensorReading {

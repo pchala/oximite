@@ -92,17 +92,11 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
         ki: 0.8,
         kd: 20.0,
     },
-    // Dimensionless: the unified controller normalises each channel against its
-    // own ceiling, so the physical gain is `k * w / target`. At a 9 bar ceiling
-    // with `W_PRESSURE = 7.5` this is exactly the 10 %/bar, 20 %/bar/s the loop
-    // was tuned to when it worked directly in bar. `Ti = kp/ki = 0.5 s` suits
-    // the 199 ms pressure filter and is deliberately unchanged.
     press_pid: PidSettings {
         kp: 12.0,
-        ki: 24.0,
+        ki: 36.0,
         kd: 0.0,
     },
-
     flow_pid: PidSettings {
         kp: 4.0,
         ki: 30.0,
