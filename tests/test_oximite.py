@@ -287,7 +287,7 @@ class TestOximite(unittest.TestCase):
 #               {"volume": 10.0, "flow": 2.0},
 #               {"volume": 75.0, "flow": 2.5},
 #               {"volume": 80.0, "flow": 1.0},
-               {"volume": 100.0, "flow": 2.5},
+               {"volume": 100.0, "pressure": 9.0, "flow": 3.0},
 
             ],
         }
