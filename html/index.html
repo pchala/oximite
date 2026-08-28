@@ -151,7 +151,6 @@
 
             <h3>Other Settings</h3>
             <div class="grid-2">
-                <div><label>Flow Limit Gain (unused by firmware)</label><input type="number" data-s="machine" data-k="flow_limit_kp" step="0.001" min="0" max="10" required disabled></div>
                 <div><label>Feed Forward Percentage (%) — 0 disables</label><input type="number" data-s="machine" data-k="feed_forward_percents" step="1" min="0" max="200" required disabled></div>
                 <div><label>Flow sensor (Edges/L)</label><input type="number" data-s="machine" data-k="flow_pulses_per_liter" step="1" min="1" max="1000000" required disabled></div>
                 <div><label>Sleep Timeout (min) — 0 sleeps at once</label><input type="number" data-s="machine" data-k="sleep_timeout_min" step="1" min="0" max="1440" required disabled></div>
@@ -165,17 +164,11 @@
                 <div><label>Ki</label><input type="number" data-s="temp_pid" data-k="ki" step="0.001" min="0" max="1000" required disabled></div>
                 <div><label>Kd</label><input type="number" data-s="temp_pid" data-k="kd" step="0.1" min="0" max="1000" required disabled></div>
             </div>
-            <h3>PID: Pressure</h3>
+            <h3>PID: Pump</h3>
             <div class="grid-3">
-                <div><label>Kp</label><input type="number" data-s="press_pid" data-k="kp" step="0.1" min="0" max="1000" required disabled></div>
-                <div><label>Ki</label><input type="number" data-s="press_pid" data-k="ki" step="0.01" min="0" max="1000" required disabled></div>
-                <div><label>Kd</label><input type="number" data-s="press_pid" data-k="kd" step="0.1" min="0" max="1000" required disabled></div>
-            </div>
-            <h3>PID: Flow</h3>
-            <div class="grid-3">
-                <div><label>Kp</label><input type="number" data-s="flow_pid" data-k="kp" step="0.1" min="0" max="1000" required disabled></div>
-                <div><label>Ki</label><input type="number" data-s="flow_pid" data-k="ki" step="0.1" min="0" max="1000" required disabled></div>
-                <div><label>Kd</label><input type="number" data-s="flow_pid" data-k="kd" step="0.1" min="0" max="1000" required disabled></div>
+                <div><label>Kp</label><input type="number" data-s="pump_pid" data-k="kp" step="0.1" min="0" max="1000" required disabled></div>
+                <div><label>Ki</label><input type="number" data-s="pump_pid" data-k="ki" step="0.01" min="0" max="1000" required disabled></div>
+                <div><label>Kd</label><input type="number" data-s="pump_pid" data-k="kd" step="0.1" min="0" max="1000" required disabled></div>
             </div>
             <button class="js-flash" data-save="pids" style="width: 100%; margin-top: 15px;" disabled>Save PID Tuning</button>
         </div>
@@ -257,8 +250,8 @@
     // silently replaces the first, so flash writes are blocked unless idle/asleep.
     const BUSY_STATES = new Set([1, 2, 4, 5, 6]);
     // Sections of GET /api/settings that map 1:1 onto numeric form inputs.
-    const NUMERIC_SECTIONS = ["machine", "temp_pid", "press_pid", "flow_pid"];
-    const SECTION_LABEL = { machine: "Machine", temp_pid: "Temp PID", press_pid: "Pressure PID", flow_pid: "Flow PID" };
+    const NUMERIC_SECTIONS = ["machine", "temp_pid", "pump_pid"];
+    const SECTION_LABEL = { machine: "Machine", temp_pid: "Temp PID", pump_pid: "Pump PID" };
 
     // --- UI STATE ---
     let online = false;          // last telemetry poll succeeded
@@ -588,8 +581,7 @@
                 cmd = 'save_pids';
                 payload = {
                     temp_pid: readSection('temp_pid'),
-                    press_pid: readSection('press_pid'),
-                    flow_pid: readSection('flow_pid')
+                    pump_pid: readSection('pump_pid')
                 };
             } else {
                 cmd = 'save_wifi';

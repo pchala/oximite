@@ -40,7 +40,8 @@ impl PidController {
     }
     /// `target` is provided by the caller on every call rather than stored
     /// internally, since callers already track the current setpoint locally
-    /// (and may recompute it, e.g. flow-limiting, right before each update).
+    /// (and may recompute it, e.g. the normalised setpoint, right before each
+    /// update).
     pub fn update(&mut self, target: f32, measurement: f32) -> f32 {
         const OUTPUT_MAX: f32 = 100.0;
         let now = Instant::now();

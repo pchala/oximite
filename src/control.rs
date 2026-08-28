@@ -48,25 +48,26 @@ pub async fn set_target_temp(mode: TargetTempMode) {
 pub enum PumpMode {
     Idle,
     DirectPump(f32),
-    /// Both fields are ceilings, and whichever binds first governs the pump.
-    /// A `bar` of 0.0 means "no pressure ceiling", which selects the plain flow
-    /// loop; any non-zero `bar` selects the unified normalised controller.
-    Pressure {
-        bar: f32,
-        flow_limit_ml_s: f32,
+    /// Both fields are targets, and whichever binds first governs the pump.
+    /// Either may be 0.0, meaning "this channel names no target"; the unified
+    /// normalised controller then runs on whichever one is left. Both 0.0
+    /// leaves the pump idle.
+    Unified {
+        target_bar: f32,
+        target_ml_s: f32,
     },
 }
 
 impl PumpMode {
-    /// (bar, flow_limit_ml_s) for Pressure mode, or (0.0, 0.0) otherwise —
-    /// lets the control loop treat "not in Pressure mode" the same as "no
-    /// pressure target" without a separate match everywhere it's needed.
-    fn pressure_and_flow_limit(&self) -> (f32, f32) {
+    /// (bar, ml/s) for `Unified`, or (0.0, 0.0) otherwise — lets the control
+    /// loop treat "not in Unified mode" the same as "no target" without a
+    /// separate match everywhere it's needed.
+    fn targets(&self) -> (f32, f32) {
         match *self {
-            PumpMode::Pressure {
-                bar,
-                flow_limit_ml_s,
-            } => (bar, flow_limit_ml_s),
+            PumpMode::Unified {
+                target_bar,
+                target_ml_s,
+            } => (target_bar, target_ml_s),
             _ => (0.0, 0.0),
         }
     }
@@ -275,16 +276,11 @@ pub async fn ac_sync_control_task(
 
     // Load initial settings
     let initial_s = Settings::get().await;
-    // Drives the pump whenever a step names a pressure ceiling, from the
+    // Drives the pump whenever a step names either target, from the
     // normalised measurement built in the duty match below.
-    let mut pump_pid = PidController::new(&initial_s.press_pid);
+    let mut pump_pid = PidController::new(&initial_s.pump_pid);
 
     let mut temp_pid = PidController::new(&initial_s.temp_pid);
-
-    // Drives pump duty straight from the flow error. Used for steps that name
-    // no pressure ceiling, where the OPV is the pressure backstop rather than
-    // the sensor.
-    let mut flow_pid = PidController::new(&initial_s.flow_pid);
 
     // Dynamic targets
     let mut mode = PumpMode::Idle;
@@ -329,25 +325,18 @@ pub async fn ac_sync_control_task(
         let flow_ml_s = crate::flow_meter::flow_rate_ml_s();
 
         // --- Command & Signal Processing ---
-        let (mut target_p, mut flow_limit) = mode.pressure_and_flow_limit();
+        let (mut target_p, mut target_q) = mode.targets();
         if let Some(new_mode) = SIG_PUMP_MODE.try_take() {
-            let (new_bar, new_fl) = new_mode.pressure_and_flow_limit();
-            pump_pid.set_coeffs(&s.press_pid);
-            // The normalised setpoint is always 1.0, so `reset_if_reactivated`
-            // can never see the 0 -> non-zero edge it looks for. Key the reset
-            // off the pump itself instead, preserving "only the start of a shot
-            // clears the integral".
-            let was_active = target_p > 0.0 || flow_limit > 0.0;
-            let now_active = new_bar > 0.0 || new_fl > 0.0;
+            let (new_p, new_q) = new_mode.targets();
+            pump_pid.set_coeffs(&s.pump_pid);
+            let was_active = target_p > 0.0 || target_q > 0.0;
+            let now_active = new_p > 0.0 || new_q > 0.0;
             if !was_active && now_active {
                 pump_pid.reset();
             }
-            flow_pid.set_coeffs(&s.flow_pid);
-            // Only the start of a shot clears the integral.
-            flow_pid.reset_if_reactivated(flow_limit, new_fl);
             mode = new_mode;
-            target_p = new_bar;
-            flow_limit = new_fl;
+            target_p = new_p;
+            target_q = new_q;
         }
         let direct_pump = match mode {
             PumpMode::DirectPump(power) => Some(power),
@@ -365,10 +354,6 @@ pub async fn ac_sync_control_task(
         }
 
         // --- Pump Control (Triac Phase Angle) ---
-        // Setpoint the pressure channel actually chased, kept at 0 whenever the
-        // pressure loop isn't running so telemetry never reports a stale
-        // target left over from the previous shot.
-        let mut active_target_p = 0.0;
         // Set by the duty match below: true while the flow channel is the one
         // holding the pump back.
         let mut flow_controlled = false;
@@ -376,31 +361,23 @@ pub async fn ac_sync_control_task(
             // Direct-pump mode (hot water / cooldown flush / flush) needs no
             // flow control — it's raw power, not an espresso shot.
             Some(dp) => dp.clamp(0.0, 100.0),
-            // A pressure ceiling puts the unified normalised controller in
-            // charge. Each channel is mapped onto a common dimensionless axis
-            // where its own ceiling is exactly 1.0, and the larger value wins —
-            // taking the max of the measurements yields the min of the duties,
-            // so the tighter constraint governs. The mapping is affine rather
-            // than a plain ratio so the fixed point stays at the ceiling for
-            // any weight; `w * measurement / target` would settle at
-            // `target / w` instead.
-            None if target_p > 0.0 => {
-                active_target_p = target_p;
-                let u_p = 1.0 + W_PRESSURE * (p_ema / target_p - 1.0);
-                // An absent flow ceiling must never win the max().
-                let u_q = if flow_limit > 0.0 {
-                    1.0 + W_FLOW * (flow_ml_s / flow_limit - 1.0)
+            // Any target puts the unified normalised controller in charge.
+            // Each channel is mapped onto a common dimensionless axis where its
+            // own target is exactly 1.0, and the larger value wins
+            // An absent target maps to -inf and can never win.
+            None if target_p > 0.0 || target_q > 0.0 => {
+                let u_p = if target_p > 0.0 {
+                    1.0 + W_PRESSURE * (p_ema / target_p - 1.0)
+                } else {
+                    f32::NEG_INFINITY
+                };
+                let u_q = if target_q > 0.0 {
+                    1.0 + W_FLOW * (flow_ml_s / target_q - 1.0)
                 } else {
                     f32::NEG_INFINITY
                 };
                 flow_controlled = u_q >= u_p;
                 pump_pid.update(1.0, u_q.max(u_p))
-            }
-            // No pressure ceiling: the flow error drives duty directly and
-            // maximum pressure is whatever the OPV allows.
-            None if flow_limit > 0.0 => {
-                flow_controlled = true;
-                flow_pid.update(flow_limit, flow_ml_s)
             }
             None => 0.0,
         };
@@ -438,8 +415,7 @@ pub async fn ac_sync_control_task(
             pressure_bar: p_ema,
             temp_c: t_ema,
             target_bar: target_p,
-            effective_target_bar: active_target_p,
-            flow_limit_ml_s: flow_limit,
+            target_ml_s: target_q,
             flow_rate_ml_s: flow_ml_s,
             volume_ml: crate::flow_meter::shot_volume_ml(),
             flow_controlled,

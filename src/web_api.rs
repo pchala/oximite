@@ -45,8 +45,7 @@ struct ApiCommand<'a> {
     slot: Option<u8>,
     machine: Option<MachineSettings>,
     temp_pid: Option<PidSettings>,
-    press_pid: Option<PidSettings>,
-    flow_pid: Option<PidSettings>,
+    pump_pid: Option<PidSettings>,
     wifi: Option<WifiSettings>,
     power: Option<f32>,
     temp: Option<f32>,
@@ -82,7 +81,7 @@ struct UiTelemetry {
 /// The client checks it on the header and on every frame, so a firmware /
 /// test-suite mismatch surfaces as a clear error instead of plausible-looking
 /// numbers decoded at the wrong offsets.
-const DIAG_VER: u8 = 1;
+const DIAG_VER: u8 = 2;
 
 /// "OXID" in little-endian byte order — lets the client confirm it is talking
 /// to this protocol before it trusts any offsets.
@@ -93,10 +92,10 @@ const DIAG_MAGIC: u32 = 0x4449_584F;
 /// frame at low tick counts and grow it later — silently desynchronising a
 /// client that reads fixed-size records. `postcard::to_slice` is checked
 /// against this at runtime.
-const DIAG_FRAME_LEN: usize = 55;
+const DIAG_FRAME_LEN: usize = 51;
 
 /// Serialized size of [`DiagHeader`], sent exactly once per connection.
-const DIAG_HEADER_LEN: usize = 54;
+const DIAG_HEADER_LEN: usize = 42;
 
 /// Sent once when a client connects, before any frames.
 ///
@@ -120,12 +119,9 @@ struct DiagHeader {
     temp_kp: f32,
     temp_ki: f32,
     temp_kd: f32,
-    press_kp: f32,
-    press_ki: f32,
-    press_kd: f32,
-    flow_kp: f32,
-    flow_ki: f32,
-    flow_kd: f32,
+    pump_kp: f32,
+    pump_ki: f32,
+    pump_kd: f32,
 }
 
 /// One control tick, exactly as the controller saw it.
@@ -149,11 +145,9 @@ struct DiagFrame {
     ett: f32,
     p: f32,
     tp: f32,
-    /// Setpoint the pressure PID chased, after flow limiting.
-    etp: f32,
     fl: f32,
-    /// Active flow setpoint, 0 when the pump isn't flow-controlled.
-    fll: f32,
+    /// Active flow setpoint, 0 when the step names no flow target.
+    tfl: f32,
     vol: f32,
     hp: f32,
     /// Pump triac duty, 0-100.
@@ -332,8 +326,7 @@ async fn build_command(payload: ApiCommand<'_>) -> Result<MachineCommand, HttpEr
         }
         "save_pids" => MachineCommand::SavePids(
             payload.temp_pid.ok_or(HttpError::BadRequest)?,
-            payload.press_pid.ok_or(HttpError::BadRequest)?,
-            payload.flow_pid,
+            payload.pump_pid.ok_or(HttpError::BadRequest)?,
         ),
         "save_wifi" => {
             let w = payload.wifi.ok_or(HttpError::BadRequest)?;
@@ -447,9 +440,8 @@ fn encode_diag_frame(a: &Telemetry, buf: &mut [u8; DIAG_FRAME_LEN]) -> Option<us
         ett: a.effective_target_temp,
         p: a.pressure_bar,
         tp: a.target_bar,
-        etp: a.effective_target_bar,
         fl: a.flow_rate_ml_s,
-        fll: a.flow_limit_ml_s,
+        tfl: a.target_ml_s,
         vol: a.volume_ml,
         hp: a.heater_duty,
         pump: a.pump_duty,
@@ -594,12 +586,9 @@ async fn encode_diag_header(buf: &mut [u8; DIAG_HEADER_LEN]) -> Option<usize> {
         temp_kp: s.temp_pid.kp,
         temp_ki: s.temp_pid.ki,
         temp_kd: s.temp_pid.kd,
-        press_kp: s.press_pid.kp,
-        press_ki: s.press_pid.ki,
-        press_kd: s.press_pid.kd,
-        flow_kp: s.flow_pid.kp,
-        flow_ki: s.flow_pid.ki,
-        flow_kd: s.flow_pid.kd,
+        pump_kp: s.pump_pid.kp,
+        pump_ki: s.pump_pid.ki,
+        pump_kd: s.pump_pid.kd,
     };
 
     encode_fixed(&header, buf, DIAG_HEADER_LEN, "header")

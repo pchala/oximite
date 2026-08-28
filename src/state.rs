@@ -51,11 +51,7 @@ pub enum MachineCommand {
     Flush,
     DirectPump(f32),
     SaveMachine(crate::settings::MachineSettings),
-    SavePids(
-        crate::settings::PidSettings,
-        crate::settings::PidSettings,
-        Option<crate::settings::PidSettings>,
-    ),
+    SavePids(crate::settings::PidSettings, crate::settings::PidSettings),
     SaveWifi(crate::settings::WifiSettings),
     /// Store a profile in `slot`, mirroring it to flash. Routed through the
     /// coordinator rather than signalled straight to the flash task so it is
@@ -83,7 +79,7 @@ impl MachineCommand {
     pub fn ambient(&self) -> Ambient {
         match self {
             MachineCommand::SaveMachine(_)
-            | MachineCommand::SavePids(_, _, _)
+            | MachineCommand::SavePids(_, _)
             | MachineCommand::SaveWifi(_)
             | MachineCommand::SaveProfile(_, _)
             | MachineCommand::DeleteProfile(_) => Ambient::RamAndFlash,
@@ -111,7 +107,7 @@ impl defmt::Format for MachineCommand {
             MachineCommand::Flush => defmt::write!(fmt, "Flush"),
             MachineCommand::DirectPump(p) => defmt::write!(fmt, "DirectPump({})", p),
             MachineCommand::SaveMachine(_) => defmt::write!(fmt, "SaveMachine"),
-            MachineCommand::SavePids(_, _, _) => defmt::write!(fmt, "SavePids"),
+            MachineCommand::SavePids(_, _) => defmt::write!(fmt, "SavePids"),
             MachineCommand::SaveWifi(_) => defmt::write!(fmt, "SaveWifi"),
             MachineCommand::SaveProfile(slot, _) => defmt::write!(fmt, "SaveProfile({})", slot),
             MachineCommand::DeleteProfile(slot) => defmt::write!(fmt, "DeleteProfile({})", slot),
@@ -221,28 +217,25 @@ pub struct Telemetry {
     pub tick: u32,
     pub pressure_bar: f32,
     pub temp_c: f32,
-    /// Setpoint the profile asked for. 0 whenever the pump is under flow
-    /// control, which ignores pressure entirely.
+    /// Setpoint the profile asked for, 0 when the step names no pressure
+    /// target.
     pub target_bar: f32,
-    /// Setpoint the pressure PID chased this tick, or 0 when the pressure loop
-    /// isn't running (idle, direct pump, or flow control).
-    pub effective_target_bar: f32,
     pub target_temp: f32,
     /// `target_temp` plus the brew-flow feed-forward — what the temperature PID
     /// actually chased. Diverges from `target_temp` by several degrees during a
     /// shot, which otherwise reads as unexplained overshoot.
     pub effective_target_temp: f32,
-    pub flow_limit_ml_s: f32,
+    pub target_ml_s: f32,
     /// Flow reading the controller acted on this tick. Carried here so a log
     /// row is one coherent snapshot; the web task runs on the other core and
     /// would otherwise sample flow at a different instant than pressure.
     pub flow_rate_ml_s: f32,
     /// Shot volume as of this tick, for the same reason.
     pub volume_ml: f32,
-    /// True while the flow channel is the binding constraint on the pump —
-    /// either the plain flow loop is running, or the unified controller picked
-    /// flow over pressure. Without it a log can't tell a flow-controlled step
-    /// from a pressure step that happens to be flowing.
+    /// True while the flow channel is the binding constraint on the pump — the
+    /// unified controller picked flow over pressure. Without it a log can't
+    /// tell a flow-controlled step from a pressure step that happens to be
+    /// flowing.
     pub flow_controlled: bool,
     pub heater_duty: f32,
     /// Triac duty the pump was driven at this tick, 0-100.

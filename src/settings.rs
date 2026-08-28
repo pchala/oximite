@@ -24,11 +24,6 @@ pub struct MachineSettings {
     /// `brew_temp + 2 * temp_offset`.
     pub temp_offset: f32,
     pub flow_pulses_per_liter: f32,
-    /// Unused: flow limiting is a dedicated PID on pump duty
-    /// (`Settings::flow_pid`). Kept so `sys_machine` blobs in flash still
-    /// deserialize — dropping the field makes the whole section fail to parse
-    /// and silently reset to defaults.
-    pub flow_limit_kp: f32,
     /// Scales the flow-proportional temperature feed-forward applied during a
     /// brew, as a percentage of the built-in nominal gain: 100 = nominal,
     /// 0 = disabled.
@@ -63,15 +58,11 @@ pub struct Settings {
     pub machine: MachineSettings,
     pub temp_pid: PidSettings,
     /// Drives the unified normalised pump controller, which governs any profile
-    /// step that names a pressure ceiling. Both channels are scaled against
-    /// their own ceilings so the setpoint is a dimensionless 1.0, which makes
-    /// these gains dimensionless too — the physical gain on a channel is
-    /// `k * w / target`, with the weights in `control.rs`.
-    pub press_pid: PidSettings,
-    /// Drives pump duty directly from the flow error, for steps that name no
-    /// pressure ceiling. Output units are 0-100 % triac duty, matching
-    /// `PidController`'s built-in clamp.
-    pub flow_pid: PidSettings,
+    /// step that names a target. Both channels are scaled against their own
+    /// targets so the setpoint is a dimensionless 1.0, which makes these gains
+    /// dimensionless too — the physical gain on a channel is `k * w / target`,
+    /// with the weights in `control.rs`.
+    pub pump_pid: PidSettings,
     pub wifi: WifiSettings,
 }
 
@@ -84,7 +75,6 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
         sleep_timeout_min: 20.0,
         temp_offset: 10.0,
         flow_pulses_per_liter: 98324.0, // 49162 physical pulses/L × 2 edges per pulse
-        flow_limit_kp: 0.025,
         feed_forward_percents: 100.0,
     },
     temp_pid: PidSettings {
@@ -92,14 +82,9 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
         ki: 0.8,
         kd: 20.0,
     },
-    press_pid: PidSettings {
+    pump_pid: PidSettings {
         kp: 12.0,
         ki: 36.0,
-        kd: 0.0,
-    },
-    flow_pid: PidSettings {
-        kp: 4.0,
-        ki: 30.0,
         kd: 0.0,
     },
     wifi: WifiSettings {
@@ -127,8 +112,7 @@ impl Default for Settings {
 pub struct ControlSettings {
     pub machine: MachineSettings,
     pub temp_pid: PidSettings,
-    pub press_pid: PidSettings,
-    pub flow_pid: PidSettings,
+    pub pump_pid: PidSettings,
 }
 
 impl From<&Settings> for ControlSettings {
@@ -139,8 +123,7 @@ impl From<&Settings> for ControlSettings {
         Self {
             machine: s.machine,
             temp_pid: s.temp_pid,
-            press_pid: s.press_pid,
-            flow_pid: s.flow_pid,
+            pump_pid: s.pump_pid,
         }
     }
 }
@@ -211,8 +194,7 @@ impl SettingsStore {
 
         let mut loaded = load_section!(flash, &mut scratch, b"sys_machine", s.machine);
         loaded |= load_section!(flash, &mut scratch, b"sys_temp_pid", s.temp_pid);
-        loaded |= load_section!(flash, &mut scratch, b"sys_press_pid", s.press_pid);
-        loaded |= load_section!(flash, &mut scratch, b"sys_flow_pid", s.flow_pid);
+        loaded |= load_section!(flash, &mut scratch, b"sys_pump_pid", s.pump_pid);
         loaded |= load_section!(flash, &mut scratch, b"sys_wifi", s.wifi);
 
         if loaded {
@@ -252,9 +234,8 @@ impl SettingsStore {
 // ==========================================
 pub enum FlashUpdate {
     SaveMachine(MachineSettings),
-    /// (temp, pressure, flow). Flow is optional so an older UI that only knows
-    /// about two PIDs leaves the flow gains untouched instead of zeroing them.
-    SavePids(PidSettings, PidSettings, Option<PidSettings>),
+    /// (temp, pressure).
+    SavePids(PidSettings, PidSettings),
     SaveWifi(WifiSettings),
     SaveProfile(u8),
     DeleteProfile(u8),
@@ -278,12 +259,9 @@ pub async fn flash_update_task(
             FlashUpdate::SaveMachine(m) => {
                 let _ = SettingsStore::save_section(&mut flash, b"sys_machine", &m).await;
             }
-            FlashUpdate::SavePids(t, p, f) => {
+            FlashUpdate::SavePids(t, p) => {
                 let _ = SettingsStore::save_section(&mut flash, b"sys_temp_pid", &t).await;
-                let _ = SettingsStore::save_section(&mut flash, b"sys_press_pid", &p).await;
-                if let Some(f) = f {
-                    let _ = SettingsStore::save_section(&mut flash, b"sys_flow_pid", &f).await;
-                }
+                let _ = SettingsStore::save_section(&mut flash, b"sys_pump_pid", &p).await;
             }
             FlashUpdate::SaveWifi(w) => {
                 let _ = SettingsStore::save_section(&mut flash, b"sys_wifi", &w).await;

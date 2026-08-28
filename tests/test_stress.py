@@ -615,8 +615,7 @@ class TestOximiteStress(OximiteTestCase):
             ("save_machine", {"machine": orig_settings["machine"]}),
             ("save_pids", {
                 "temp_pid": orig_settings["temp_pid"],
-                "press_pid": orig_settings["press_pid"],
-                "flow_pid": orig_settings["flow_pid"],
+                "pump_pid": orig_settings["pump_pid"],
             }),
             ("save_wifi", {"wifi": orig_settings["wifi"]}),
             ("save_profile", {
@@ -682,8 +681,7 @@ class TestOximiteStress(OximiteTestCase):
                 http_post_cmd("save_machine", {"machine": orig_settings["machine"]})
                 http_post_cmd("save_pids", {
                     "temp_pid": orig_settings["temp_pid"],
-                    "press_pid": orig_settings["press_pid"],
-                    "flow_pid": orig_settings["flow_pid"],
+                    "pump_pid": orig_settings["pump_pid"],
                 })
                 http_post_cmd("save_wifi", {"wifi": orig_settings["wifi"]})
                 http_post_cmd("set_session_temp", {"temp": orig_telem["sbt"]})

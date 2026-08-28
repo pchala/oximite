@@ -142,16 +142,13 @@ async fn apply_ambient(cmd: &MachineCommand) {
             edit_settings(|s| s.machine = *m).await;
             SIG_FLASH_UPDATE.signal(FlashUpdate::SaveMachine(*m));
         }
-        MachineCommand::SavePids(t, p, f) => {
+        MachineCommand::SavePids(t, p) => {
             edit_settings(|s| {
                 s.temp_pid = *t;
-                s.press_pid = *p;
-                if let Some(f) = f {
-                    s.flow_pid = *f;
-                }
+                s.pump_pid = *p;
             })
             .await;
-            SIG_FLASH_UPDATE.signal(FlashUpdate::SavePids(*t, *p, *f));
+            SIG_FLASH_UPDATE.signal(FlashUpdate::SavePids(*t, *p));
         }
         MachineCommand::SaveWifi(w) => {
             defmt::info!("Settings: New SSID: {}", w.ssid.as_str());

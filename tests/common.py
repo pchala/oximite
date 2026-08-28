@@ -53,25 +53,24 @@ STATE_NAMES = {
 # ==========================================
 # DIAGNOSTIC WIRE FORMAT (port 8080)
 # ==========================================
-DIAG_VER = 1
+DIAG_VER = 2
 DIAG_MAGIC = 0x4449584F  # "OXID"
 
-DIAG_HEADER_FMT = '<IBB12f'
+DIAG_HEADER_FMT = '<IBB9f'
 DIAG_HEADER_FIELDS = [
     'magic', 'ver', 'frame_len',
     'temp_offset', 'brew_temp', 'steam_temp',
     'temp_kp', 'temp_ki', 'temp_kd',
-    'press_kp', 'press_ki', 'press_kd',
-    'flow_kp', 'flow_ki', 'flow_kd',
+    'pump_kp', 'pump_ki', 'pump_kd',
 ]
 DIAG_HEADER_LEN = struct.calcsize(DIAG_HEADER_FMT)
 
-DIAG_FRAME_FMT = '<BII11fBB'
+DIAG_FRAME_FMT = '<BII10fBB'
 DIAG_FRAME_FIELDS = [
     'ver', 'seq', 'ms',
     't', 'tt', 'ett',
-    'p', 'tp', 'etp',
-    'fl', 'fll', 'vol', 'hp', 'pump',
+    'p', 'tp',
+    'fl', 'tfl', 'vol', 'hp', 'pump',
     'fc', 'st',
 ]
 DIAG_FRAME_LEN = struct.calcsize(DIAG_FRAME_FMT)
@@ -358,8 +357,8 @@ def plot_results(history: List[Dict[str, Any]], title: str, diag_header: Optiona
     def col(k):
         return [d.get(k, 0) for d in history]
 
-    p, tp, etp = col('p'), col('tp'), col('etp')
-    vol, fl, fll = col('vol'), col('fl'), col('fll')
+    p, tp = col('p'), col('tp')
+    vol, fl, tfl = col('vol'), col('fl'), col('tfl')
     hp, pump = col('hp'), col('pump')
     t, tt, ett = col('t'), col('tt'), col('ett')
 
@@ -386,7 +385,6 @@ def plot_results(history: List[Dict[str, Any]], title: str, diag_header: Optiona
     color_p = 'tab:blue'
     ax_press.set_ylabel("Pressure (Bar)", color=color_p, fontweight='bold')
     line1 = ax_press.plot(x, tp, label="Profile Target", linestyle="--", color='grey')
-    line_etp = ax_press.plot(x, etp, label="Applied Target (pressure loop)", linestyle=":", color='tab:green', linewidth=2)
     line2 = ax_press.plot(x, p, label="Actual Pressure", color=color_p, linewidth=2)
     ax_press.tick_params(axis='y', labelcolor=color_p)
     ax_press.set_ylim(bottom=0)
@@ -396,7 +394,7 @@ def plot_results(history: List[Dict[str, Any]], title: str, diag_header: Optiona
     line_pump = ax_pump.plot(x, pump, label="Pump Power", color='tab:brown', alpha=0.6)
     ax_pump.set_ylim(-5, 105)
 
-    lines_mid = line1 + line_etp + line2 + line_pump
+    lines_mid = line1 + line2 + line_pump
     ax_press.legend(lines_mid, [l.get_label() for l in lines_mid], loc='upper left')
     ax_press.grid(True, alpha=0.3)
 
@@ -405,7 +403,7 @@ def plot_results(history: List[Dict[str, Any]], title: str, diag_header: Optiona
     ax_flow.set_xlabel("Time (Seconds)", fontweight='bold')
     ax_flow.set_ylabel("Flow Rate (ml/s)", color=color_f, fontweight='bold')
     line3 = ax_flow.plot(x, fl, label="Flow Rate", color=color_f, linewidth=2)
-    line_fll = ax_flow.plot(x, fll, label="Flow Setpoint", linestyle="--", color='grey')
+    line_tfl = ax_flow.plot(x, tfl, label="Flow Setpoint", linestyle="--", color='grey')
     ax_flow.tick_params(axis='y', labelcolor=color_f)
     ax_flow.set_ylim(bottom=0)
 
@@ -413,7 +411,7 @@ def plot_results(history: List[Dict[str, Any]], title: str, diag_header: Optiona
     ax_vol.set_ylabel("Volume (ml)", color='tab:cyan', fontweight='bold')
     line_vol = ax_vol.plot(x, vol, label="Volume", color='tab:cyan', alpha=0.7)
 
-    lines_bot = line3 + line_fll + line_vol
+    lines_bot = line3 + line_tfl + line_vol
     ax_flow.legend(lines_bot, [l.get_label() for l in lines_bot], loc='upper left')
     ax_flow.grid(True, alpha=0.3)
 

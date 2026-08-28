@@ -456,7 +456,7 @@ class TestOximite(unittest.TestCase):
     #         "machine": {"brew_temp": 92.0, "steam_temp": 135.0, "temp_offset": -2.5,
     #         "steam_time_limit_s": 10.0, "sleep_timeout_min": 20.0},
     #         "temp_pid": {"kp": 2.0, "ki": 0.01, "kd": 5.0},
-    #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
+    #         "pump_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }
     #     self.send_command({"cmd": "save_settings", "settings": settings})
     #     time.sleep(0.5)
@@ -483,7 +483,7 @@ class TestOximite(unittest.TestCase):
     #         "machine": {"brew_temp": 98.0, "steam_temp": 135.0, "temp_offset": -2.5,
     #         "steam_time_limit_s": 60.0, "sleep_timeout_min": 20.0},
     #         "temp_pid": {"kp": 5.0, "ki": 0.1, "kd": 10.0},
-    #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
+    #         "pump_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }
     #     self.send_command({"cmd": "save_settings", "settings": settings})
     #     time.sleep(2.0)
@@ -496,7 +496,7 @@ class TestOximite(unittest.TestCase):
     #         "machine": {"brew_temp": 92.0, "steam_temp": 135.0, "temp_offset": -2.5,
     #         "steam_time_limit_s": 120.0, "sleep_timeout_min": 20.0},
     #         "temp_pid": {"kp": 2.0, "ki": 0.01, "kd": 5.0},
-    #         "press_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
+    #         "pump_pid": {"kp": 2.0, "ki": 0.1, "kd": 0.5}
     #     }})
     #     print("Settings restored.")
 
@@ -564,8 +564,8 @@ class TestOximite(unittest.TestCase):
         common_plot_pressure_step_response(self.snapshot_history(), title)
 
     def test_91_pressure_pid_tuning_sweep(self):
-        """Automated PID tuning sweep for pressure control (blind basket test)."""
-        print("\nRunning: Pressure PID Tuning Sweep...")
+        """Automated tuning sweep for the pump PID (blind basket test)."""
+        print("\nRunning: Pump PID Tuning Sweep...")
 
         # Define specific combinations of Kp, Ki, Kd for pressure
         pids = [
@@ -585,7 +585,7 @@ class TestOximite(unittest.TestCase):
             # Step 1: Set PID settings
             cmd_payload = {
                 "cmd": "save_settings",
-                "press_pid": pid,
+                "pump_pid": pid,
             }
             self.send_command(cmd_payload)
             self.send_command({"cmd": "stop"})

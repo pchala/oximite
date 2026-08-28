@@ -86,7 +86,7 @@ class TestWebEndpoints(OximiteTestCase):
         self.assertEqual(status, 200)
         self.assertIsInstance(data, dict)
 
-        for section in ["machine", "temp_pid", "press_pid", "flow_pid", "wifi"]:
+        for section in ["machine", "temp_pid", "pump_pid", "wifi"]:
             self.assertIn(section, data, f"Missing section '{section}' in settings")
 
         m = data["machine"]
@@ -95,7 +95,7 @@ class TestWebEndpoints(OximiteTestCase):
         self.assertIn("temp_offset", m)
         self.assertIn("sleep_timeout_min", m)
 
-        for pid_sec in ["temp_pid", "press_pid", "flow_pid"]:
+        for pid_sec in ["temp_pid", "pump_pid"]:
             pid = data[pid_sec]
             self.assertIn("kp", pid)
             self.assertIn("ki", pid)
@@ -302,8 +302,7 @@ class TestSettingsUpdatesNoPump(OximiteTestCase):
             http_post_cmd("save_machine", {"machine": self.orig_settings["machine"]})
             http_post_cmd("save_pids", {
                 "temp_pid": self.orig_settings["temp_pid"],
-                "press_pid": self.orig_settings["press_pid"],
-                "flow_pid": self.orig_settings["flow_pid"],
+                "pump_pid": self.orig_settings["pump_pid"],
             })
             http_post_cmd("save_wifi", {"wifi": self.orig_settings["wifi"]})
             http_post_cmd("set_session_temp", {"temp": self.orig_telemetry["sbt"]})
@@ -347,21 +346,19 @@ class TestSettingsUpdatesNoPump(OximiteTestCase):
     def test_03_save_pid_tuning_settings(self):
         """`save_pids` command should update PID tuning values in /api/settings."""
         temp_pid = {"kp": 9.5, "ki": 0.85, "kd": 18.0}
-        press_pid = {"kp": 12.0, "ki": 18.0, "kd": 0.5}
-        flow_pid = {"kp": 5.0, "ki": 25.0, "kd": 0.1}
+        pump_pid = {"kp": 12.0, "ki": 18.0, "kd": 0.5}
 
         status, resp = http_post_cmd("save_pids", {
             "temp_pid": temp_pid,
-            "press_pid": press_pid,
-            "flow_pid": flow_pid,
+            "pump_pid": pump_pid,
         })
         self.assertEqual(status, 200)
         time.sleep(0.2)
 
         current = get_settings_http()
         self.assertAlmostEqual(current["temp_pid"]["kp"], 9.5, places=1)
-        self.assertAlmostEqual(current["press_pid"]["kp"], 12.0, places=1)
-        self.assertAlmostEqual(current["flow_pid"]["kp"], 5.0, places=1)
+        self.assertAlmostEqual(current["pump_pid"]["kp"], 12.0, places=1)
+        self.assertAlmostEqual(current["pump_pid"]["ki"], 18.0, places=1)
 
 
 class TestStateTransitionsNoPump(OximiteTestCase):

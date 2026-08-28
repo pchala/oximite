@@ -70,9 +70,9 @@ async fn execute_profile(profile: BrewProfile) {
         if pressure >= 10.0 {
             pump.set_mode(PumpMode::DirectPump(pressure));
         } else {
-            pump.set_mode(PumpMode::Pressure {
-                bar: pressure,
-                flow_limit_ml_s: flow,
+            pump.set_mode(PumpMode::Unified {
+                target_bar: pressure,
+                target_ml_s: flow,
             });
         }
 
@@ -108,7 +108,7 @@ async fn execute_profile(profile: BrewProfile) {
     }
     defmt::info!("Profile '{}' completed\r\n", profile.name.as_str());
     // `pump` drops here (or at the cancellation point if aborted), sending
-    // PumpMode::Idle to reset pressure target, flow limit, and direct pump.
+    // PumpMode::Idle to reset both targets and direct pump.
 }
 
 /// Holds the boiler at steam temperature for the configured limit. The target
