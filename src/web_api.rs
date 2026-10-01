@@ -294,7 +294,7 @@ fn parse_slot(request: &str) -> Result<u8, HttpError> {
 async fn graceful_close(socket: &mut TcpSocket<'_>) {
     let _ = socket.flush().await;
     socket.close();
-    let _ = embassy_time::with_timeout(Duration::from_millis(50), async {
+    let _ = with_timeout(Duration::from_millis(50), async {
         let mut trash = [0u8; 16];
         loop {
             if let Ok(0) | Err(_) = socket.read(&mut trash).await {
@@ -304,6 +304,11 @@ async fn graceful_close(socket: &mut TcpSocket<'_>) {
     })
     .await;
     socket.abort();
+}
+
+/// A field the command cannot run without; its absence is a bad request.
+fn required<T>(field: Option<T>) -> Result<T, HttpError> {
+    field.ok_or(HttpError::BadRequest)
 }
 
 /// Maps one API command onto a [`MachineCommand`], or says why it cannot be.
@@ -317,37 +322,29 @@ async fn build_command(payload: ApiCommand<'_>) -> Result<MachineCommand, HttpEr
         "stop" => MachineCommand::Stop,
         "steam" => MachineCommand::Steam,
         "flush" => MachineCommand::Flush,
-        "direct_pump" => MachineCommand::DirectPump(payload.power.ok_or(HttpError::BadRequest)?),
-        "set_session_temp" => {
-            MachineCommand::SetSessionTemp(payload.temp.ok_or(HttpError::BadRequest)?)
+        "direct_pump" => MachineCommand::DirectPump(required(payload.power)?),
+        "set_session_temp" => MachineCommand::SetSessionTemp(required(payload.temp)?),
+        "save_machine" => MachineCommand::SaveMachine(required(payload.machine)?),
+        "save_pids" => {
+            MachineCommand::SavePids(required(payload.temp_pid)?, required(payload.pump_pid)?)
         }
-        "save_machine" => {
-            MachineCommand::SaveMachine(payload.machine.ok_or(HttpError::BadRequest)?)
-        }
-        "save_pids" => MachineCommand::SavePids(
-            payload.temp_pid.ok_or(HttpError::BadRequest)?,
-            payload.pump_pid.ok_or(HttpError::BadRequest)?,
-        ),
         "save_wifi" => {
-            let w = payload.wifi.ok_or(HttpError::BadRequest)?;
+            let w = required(payload.wifi)?;
             defmt::info!("API: New SSID: {}", w.ssid.as_str());
             MachineCommand::SaveWifi(w)
         }
-        "profile" => MachineCommand::RunProfile(payload.profile.ok_or(HttpError::BadRequest)?),
+        "profile" => MachineCommand::RunProfile(required(payload.profile)?),
         "run_slot" => {
-            let slot = payload.slot.ok_or(HttpError::BadRequest)?;
+            let slot = required(payload.slot)?;
             let p = crate::profiles::get_profile_from_ram(slot)
                 .await
                 .ok_or(HttpError::NotFound)?;
             MachineCommand::RunProfile(p)
         }
-        "save_profile" => MachineCommand::SaveProfile(
-            payload.slot.ok_or(HttpError::BadRequest)?,
-            payload.profile.ok_or(HttpError::BadRequest)?,
-        ),
-        "delete_profile" => {
-            MachineCommand::DeleteProfile(payload.slot.ok_or(HttpError::BadRequest)?)
+        "save_profile" => {
+            MachineCommand::SaveProfile(required(payload.slot)?, required(payload.profile)?)
         }
+        "delete_profile" => MachineCommand::DeleteProfile(required(payload.slot)?),
         other => {
             defmt::warn!("API: Unknown command {}", other);
             return Err(HttpError::BadRequest);
@@ -368,6 +365,14 @@ async fn dispatch_diag_command(payload: ApiCommand<'_>) {
         }
         Err(_) => defmt::warn!("Diag: command rejected"),
     }
+}
+
+/// Parses one newline-delimited JSON command from the diag socket. Lines that
+/// are not valid UTF-8 or not a valid `ApiCommand` are silently skipped.
+fn parse_diag_line(line: &[u8]) -> Option<ApiCommand<'_>> {
+    let json = from_utf8(line).ok()?;
+    let (payload, _) = serde_json_core::from_str::<ApiCommand>(json).ok()?;
+    Some(payload)
 }
 
 /// Builds the display payload for one telemetry snapshot.
@@ -650,29 +655,21 @@ pub async fn tcp_telemetry_task(stack: &'static embassy_net::Stack<'static>) {
                         }
                     }
                 }
-                Either::Second(r) => {
-                    match r {
-                        Ok(0) => break, // Connection closed
-                        Ok(n) => {
-                            for &b in read_buf.iter().take(n) {
-                                if b == b'\n' {
-                                    if line_pos > 0 {
-                                        if let Ok(json_str) = from_utf8(&line_buf[..line_pos]) {
-                                            if let Ok((payload, _)) =
-                                                serde_json_core::from_str::<ApiCommand>(json_str)
-                                            {
-                                                dispatch_diag_command(payload).await;
-                                            }
-                                        }
-                                        line_pos = 0;
-                                    }
-                                } else if b != 0 && line_pos < line_buf.len() {
-                                    line_buf[line_pos] = b;
-                                    line_pos += 1;
+                // Peer closed the connection, or the read failed.
+                Either::Second(Ok(0) | Err(_)) => break,
+                Either::Second(Ok(n)) => {
+                    for &b in &read_buf[..n] {
+                        if b == b'\n' {
+                            if line_pos > 0 {
+                                if let Some(payload) = parse_diag_line(&line_buf[..line_pos]) {
+                                    dispatch_diag_command(payload).await;
                                 }
+                                line_pos = 0;
                             }
+                        } else if b != 0 && line_pos < line_buf.len() {
+                            line_buf[line_pos] = b;
+                            line_pos += 1;
                         }
-                        Err(_) => break, // Error reading
                     }
                 }
             }

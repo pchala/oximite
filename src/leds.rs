@@ -64,7 +64,7 @@ pub fn setup_ws2812_sm(
 /// with no `await` between them, so the PIO never stalls mid-frame — a stall
 /// forces the line low and would latch the pixels early.
 fn write_frame(sm: &mut LedSm, leds: &[Rgb; 2]) {
-    const BRIGHTNESS: u32 = 30; // ~20% (50/255)
+    const BRIGHTNESS: u32 = 30; // ~12% (30/256)
 
     for led in leds {
         // Apply brightness scaling

@@ -72,6 +72,13 @@ impl PumpMode {
         }
     }
 
+    /// Whether this mode names at least one target, i.e. whether the unified
+    /// controller is in charge of the pump.
+    fn has_target(&self) -> bool {
+        let (bar, ml_s) = self.targets();
+        bar > 0.0 || ml_s > 0.0
+    }
+
     /// Signals the mode directly, for callers outside a `PumpGuard`
     pub fn apply(self) {
         SIG_PUMP_MODE.signal(self);
@@ -309,7 +316,7 @@ pub async fn ac_sync_control_task(
             // Validate period (should be ~10,000us for 50Hz or ~8,333us for 60Hz)
             if half_wave_us > 7_500.0 && half_wave_us < 11_500.0 {
                 const ALPHA_AC: f32 = 0.10;
-                ac_ema = ac_ema + ALPHA_AC * (half_wave_us - ac_ema);
+                ac_ema += ALPHA_AC * (half_wave_us - ac_ema);
             }
         }
 
@@ -325,23 +332,14 @@ pub async fn ac_sync_control_task(
         let flow_ml_s = crate::flow_meter::flow_rate_ml_s();
 
         // --- Command & Signal Processing ---
-        let (mut target_p, mut target_q) = mode.targets();
         if let Some(new_mode) = SIG_PUMP_MODE.try_take() {
-            let (new_p, new_q) = new_mode.targets();
             pump_pid.set_coeffs(&s.pump_pid);
-            let was_active = target_p > 0.0 || target_q > 0.0;
-            let now_active = new_p > 0.0 || new_q > 0.0;
-            if !was_active && now_active {
+            if !mode.has_target() && new_mode.has_target() {
                 pump_pid.reset();
             }
             mode = new_mode;
-            target_p = new_p;
-            target_q = new_q;
         }
-        let direct_pump = match mode {
-            PumpMode::DirectPump(power) => Some(power),
-            _ => None,
-        };
+        let (target_p, target_q) = mode.targets();
         if let Some(ba) = SIG_BREW_ACTIVE.try_take() {
             brew_active = ba;
         }
@@ -357,15 +355,15 @@ pub async fn ac_sync_control_task(
         // Set by the duty match below: true while the flow channel is the one
         // holding the pump back.
         let mut flow_controlled = false;
-        let p_output: f32 = match direct_pump {
+        let p_output: f32 = match mode {
             // Direct-pump mode (hot water / cooldown flush / flush) needs no
             // flow control — it's raw power, not an espresso shot.
-            Some(dp) => dp.clamp(0.0, 100.0),
+            PumpMode::DirectPump(dp) => dp.clamp(0.0, 100.0),
             // Any target puts the unified normalised controller in charge.
             // Each channel is mapped onto a common dimensionless axis where its
             // own target is exactly 1.0, and the larger value wins
             // An absent target maps to -inf and can never win.
-            None if target_p > 0.0 || target_q > 0.0 => {
+            _ if mode.has_target() => {
                 let u_p = if target_p > 0.0 {
                     1.0 + W_PRESSURE * (p_ema / target_p - 1.0)
                 } else {
@@ -379,7 +377,7 @@ pub async fn ac_sync_control_task(
                 flow_controlled = u_q >= u_p;
                 pump_pid.update(1.0, u_q.max(u_p))
             }
-            None => 0.0,
+            _ => 0.0,
         };
 
         // If output is set, push the phase delay to the Triac PIO

@@ -353,8 +353,7 @@ async fn serve(
 /// the outer loop body ends, so a replacement operation is never constructed
 /// until the previous one has fully released the pump and valve.
 #[embassy_executor::task]
-pub async fn coordinator_task(valve: Output<'static>) {
-    let mut valve = valve;
+pub async fn coordinator_task(mut valve: Output<'static>) {
     // Assigned at the top of every outer iteration, which is also the point
     // an operation ends — see the comment there.
     let mut last_activity;

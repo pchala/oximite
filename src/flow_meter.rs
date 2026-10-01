@@ -69,7 +69,7 @@ impl RateWindow {
     }
 
     /// `stop` resets `head` to 0, so a partial window always occupies
-    /// `ticks[..len]` and a full one the whole array
+    /// `ticks[..len]` and a full one the whole array.
     /// `None` only when the window is empty: a pushed sample is never 0.
     fn rate(&self, flow_numerator: f32) -> Option<f32> {
         let s = &self.ticks[..self.len];
@@ -188,7 +188,8 @@ pub async fn run_flow_task(mut sm: StateMachine<'static, PIO2, 0>) {
                 let total = shot_volume_ml() + added;
                 VOLUME_ML.store(total.to_bits(), Ordering::Relaxed);
             }
-            // report zero and drop the window. `reset_volume`
+            // No edge for 200 ms (pump stopped) or a `reset_volume`: report
+            // zero and drop the window.
             Ok(Either::Second(_)) | Err(_) => window.stop(),
         }
     }

@@ -16,10 +16,7 @@ const SAMPLE_KEEP: usize = 5;
 /// Raw ADC counts to boiler temperature in °C, by linear interpolation between
 /// the two `NTC_LUT` entries that bracket the reading.
 fn get_temp_from_adc(raw_adc: f32) -> f32 {
-    let mut raw_val = raw_adc;
-    raw_val = raw_val.clamp(0.0, 4095.0);
-
-    let index_f = raw_val / 4.0;
+    let index_f = raw_adc.clamp(0.0, 4095.0) / 4.0;
     let index = index_f as usize;
 
     if index >= 1024 {
@@ -42,9 +39,9 @@ fn get_pressure_from_adc(raw_adc: f32) -> f32 {
     ((raw_adc * ADC_TO_VOLTS - V_AT_ZERO_BAR) * BAR_PER_VOLT).max(0.0)
 }
 
-// Samples `SAMPLE_TOTAL` conversions from `ch`, discarding the leading ones
-// (letting the sample-and-hold cap settle) and returning the average of the
-// last `SAMPLE_KEEP`.
+/// Samples `SAMPLE_TOTAL` conversions from `ch`, discarding the leading ones
+/// (letting the sample-and-hold cap settle) and returning the average of the
+/// last `SAMPLE_KEEP`.
 async fn sample_avg(adc: &mut Adc<'static, Async>, ch: &mut Channel<'static>) -> f32 {
     let discard = SAMPLE_TOTAL - SAMPLE_KEEP;
     let mut sum: u32 = 0;
@@ -81,9 +78,7 @@ pub async fn adc_task(
         let raw_t = sample_avg(&mut adc, &mut ch_t).await;
 
         if !initialized {
-            for i in p_buffer.iter_mut().take(P_WINDOW) {
-                *i = raw_p;
-            }
+            p_buffer = [raw_p; P_WINDOW];
             p_sum = raw_p * P_WINDOW as f32;
             t_ema = raw_t;
             initialized = true;
@@ -96,7 +91,7 @@ pub async fn adc_task(
 
             // --- Temperature: Keep the EMA ---
             const ALPHA_T: f32 = 0.2; // ~20.0 Hz Cutoff
-            t_ema = t_ema + ALPHA_T * (raw_t - t_ema);
+            t_ema += ALPHA_T * (raw_t - t_ema);
         }
 
         let p_mean_raw = p_sum / P_WINDOW as f32;

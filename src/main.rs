@@ -160,8 +160,7 @@ async fn main(spawner: Spawner) {
         ..
     } = embassy_rp::pio::Pio::new(p.PIO2, Irqs);
 
-    let adc_peri = p.ADC;
-    let adc = Adc::new(adc_peri, Irqs, AdcConfig::default());
+    let adc = Adc::new(p.ADC, Irqs, AdcConfig::default());
 
     // Flow meter and WS2812 LEDs both live on PIO2 (unrelated to the
     // zero-cross-synced group below), freeing two PIO0 SM slots for the

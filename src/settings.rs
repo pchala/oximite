@@ -212,20 +212,17 @@ impl SettingsStore {
     ) -> Result<(), ()> {
         let mut scratch = [0u8; FS_SCRATCH];
         let mut buf = [0u8; FS_SCRATCH];
-        if let Ok(len) = serde_json_core::to_slice(data, &mut buf) {
-            store_item(
-                flash,
-                FS_RANGE,
-                &mut NoCache::new(),
-                &mut scratch,
-                key,
-                &&buf[..len],
-            )
-            .await
-            .map_err(|_| ())
-        } else {
-            Err(())
-        }
+        let len = serde_json_core::to_slice(data, &mut buf).map_err(|_| ())?;
+        store_item(
+            flash,
+            FS_RANGE,
+            &mut NoCache::new(),
+            &mut scratch,
+            key,
+            &&buf[..len],
+        )
+        .await
+        .map_err(|_| ())
     }
 }
 

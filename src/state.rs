@@ -271,7 +271,7 @@ pub fn get_telemetry() -> Telemetry {
 
 // The Watch channel acts as our centralized, broadcasted state for tasks that want notifications.
 pub static MACHINE_STATE: Watch<CriticalSectionRawMutex, MachineState, 4> = Watch::new();
-static CURRENT_STATE: AtomicU8 = AtomicU8::new(0); // 0 = Idle
+static CURRENT_STATE: AtomicU8 = AtomicU8::new(MachineState::Idle as u8);
 
 pub fn get_state() -> MachineState {
     // The raw value is only ever written via set_state(), so it always
