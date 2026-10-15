@@ -18,7 +18,6 @@ mod state;
 mod web_api;
 mod wifi_task;
 
-use core::ptr::addr_of_mut;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{Adc, Config as AdcConfig};
 use embassy_rp::bind_interrupts;
@@ -26,12 +25,12 @@ use embassy_rp::flash::Flash;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::multicore::{spawn_core1, Stack as CoreStack};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0, PIO1, PIO2};
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::settings::SettingsStore;
 
-static mut CORE1_STACK: CoreStack<32768> = CoreStack::new();
+static CORE1_STACK: ConstStaticCell<CoreStack<32768>> = ConstStaticCell::new(CoreStack::new());
 static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new();
 
 bind_interrupts!(pub struct Irqs {
@@ -124,26 +123,22 @@ async fn main(spawner: Spawner) {
     cortex_m::peripheral::NVIC::mask(embassy_rp::interrupt::Interrupt::DMA_IRQ_0);
 
     defmt::info!("Spawning Core 1...");
-    spawn_core1(
-        p.CORE1,
-        unsafe { &mut *addr_of_mut!(CORE1_STACK) },
-        move || {
-            unsafe {
-                (*cortex_m::peripheral::SCB::PTR).vtor.write(vtor);
-                cortex_m::asm::dsb();
-                cortex_m::asm::isb();
-                cortex_m::peripheral::NVIC::unmask(embassy_rp::interrupt::Interrupt::PIO1_IRQ_0);
-                cortex_m::peripheral::NVIC::unmask(embassy_rp::interrupt::Interrupt::DMA_IRQ_0);
-            }
-            defmt::info!("Core 1: Starting...");
+    spawn_core1(p.CORE1, CORE1_STACK.take(), move || {
+        unsafe {
+            (*cortex_m::peripheral::SCB::PTR).vtor.write(vtor);
+            cortex_m::asm::dsb();
+            cortex_m::asm::isb();
+            cortex_m::peripheral::NVIC::unmask(embassy_rp::interrupt::Interrupt::PIO1_IRQ_0);
+            cortex_m::peripheral::NVIC::unmask(embassy_rp::interrupt::Interrupt::DMA_IRQ_0);
+        }
+        defmt::info!("Core 1: Starting...");
 
-            let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
-            executor.run(|spawner| {
-                defmt::info!("Core 1: Spawning wifi_init_task");
-                spawner.spawn(wifi_task::wifi_init_task(spawner, pwr, spi, force_ap).unwrap());
-            })
-        },
-    );
+        let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
+        executor.run(|spawner| {
+            defmt::info!("Core 1: Spawning wifi_init_task");
+            spawner.spawn(wifi_task::wifi_init_task(spawner, pwr, spi, force_ap).unwrap());
+        })
+    });
 
     let embassy_rp::pio::Pio {
         common: mut common0,

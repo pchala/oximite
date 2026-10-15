@@ -2,8 +2,8 @@ use crate::board::{FLASH_SIZE, FS_RANGE, FS_SCRATCH};
 use crate::profiles::{delete_profile_from_flash, get_profile_from_ram, save_profile_to_flash};
 use embassy_rp::flash::{Async, Flash, Instance};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
-use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use sequential_storage::cache::NoCache;
 use sequential_storage::map::{fetch_item, store_item};
@@ -238,7 +238,9 @@ pub enum FlashUpdate {
     DeleteProfile(u8),
 }
 
-pub static SIG_FLASH_UPDATE: Signal<CriticalSectionRawMutex, FlashUpdate> = Signal::new();
+/// A queue, not a `Signal`: a `Signal` keeps only the latest value, so a
+/// profile save arriving before a settings save hit flash would drop it.
+pub static SIG_FLASH_UPDATE: Channel<CriticalSectionRawMutex, FlashUpdate, 4> = Channel::new();
 
 #[embassy_executor::task]
 pub async fn flash_update_task(
@@ -246,7 +248,7 @@ pub async fn flash_update_task(
 ) {
     let mut state_rx = crate::state::MACHINE_STATE.receiver().unwrap();
     loop {
-        let event = SIG_FLASH_UPDATE.wait().await;
+        let event = SIG_FLASH_UPDATE.receive().await;
 
         while crate::state::get_state().is_busy() {
             state_rx.changed().await;

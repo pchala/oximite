@@ -140,7 +140,7 @@ async fn apply_ambient(cmd: &MachineCommand) {
     match cmd {
         MachineCommand::SaveMachine(m) => {
             edit_settings(|s| s.machine = *m).await;
-            SIG_FLASH_UPDATE.signal(FlashUpdate::SaveMachine(*m));
+            SIG_FLASH_UPDATE.send(FlashUpdate::SaveMachine(*m)).await;
         }
         MachineCommand::SavePids(t, p) => {
             edit_settings(|s| {
@@ -148,20 +148,20 @@ async fn apply_ambient(cmd: &MachineCommand) {
                 s.pump_pid = *p;
             })
             .await;
-            SIG_FLASH_UPDATE.signal(FlashUpdate::SavePids(*t, *p));
+            SIG_FLASH_UPDATE.send(FlashUpdate::SavePids(*t, *p)).await;
         }
         MachineCommand::SaveWifi(w) => {
             defmt::info!("Settings: New SSID: {}", w.ssid.as_str());
             edit_settings(|s| s.wifi = w.clone()).await;
-            SIG_FLASH_UPDATE.signal(FlashUpdate::SaveWifi(w.clone()));
+            SIG_FLASH_UPDATE.send(FlashUpdate::SaveWifi(w.clone())).await;
         }
         MachineCommand::SaveProfile(slot, p) => {
             crate::profiles::save_profile_to_ram(*slot, p.clone()).await;
-            SIG_FLASH_UPDATE.signal(FlashUpdate::SaveProfile(*slot));
+            SIG_FLASH_UPDATE.send(FlashUpdate::SaveProfile(*slot)).await;
         }
         MachineCommand::DeleteProfile(slot) => {
             crate::profiles::delete_profile_from_ram(*slot).await;
-            SIG_FLASH_UPDATE.signal(FlashUpdate::DeleteProfile(*slot));
+            SIG_FLASH_UPDATE.send(FlashUpdate::DeleteProfile(*slot)).await;
         }
         MachineCommand::SetSessionTemp(t) => {
             state::set_session_brew_temp(*t);
