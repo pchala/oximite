@@ -96,7 +96,6 @@ pub async fn adc_task(
 
         let p_mean_raw = p_sum / P_WINDOW as f32;
 
-        // Convert the filtered counts to physical units
         let p_bar = get_pressure_from_adc(p_mean_raw);
         let t_c = get_temp_from_adc(t_ema);
 

@@ -278,10 +278,9 @@ pub async fn ac_sync_control_task(
     mut sm_pump: StateMachine<'static, PIO0, 2>,
     mut sm_heater: StateMachine<'static, PIO0, 0>,
 ) {
-    // EMA filter for AC period
+    // Half-wave period in us, seeded at 50 Hz until a zero-cross is measured
     let mut ac_ema = 10_000.0;
 
-    // Load initial settings
     let initial_s = Settings::get().await;
     // Drives the pump whenever a step names either target, from the
     // normalised measurement built in the duty match below.
@@ -289,7 +288,6 @@ pub async fn ac_sync_control_task(
 
     let mut temp_pid = PidController::new(&initial_s.temp_pid);
 
-    // Dynamic targets
     let mut mode = PumpMode::Idle;
     let mut target_t = initial_s.machine.brew_temp;
     let mut feed_forward: f32 = 0.0;
@@ -380,7 +378,7 @@ pub async fn ac_sync_control_task(
             _ => 0.0,
         };
 
-        // If output is set, push the phase delay to the Triac PIO
+        // No push means the triac SM stays blocked, so the pump is off this half-wave
         if p_output > 0.0 {
             let delay = get_delay_fraction(p_output) * ac_ema;
             sm_pump.tx().push(delay as u32);
@@ -407,7 +405,6 @@ pub async fn ac_sync_control_task(
         }
 
         // --- Global Telemetry Update ---
-        // Published at the end of the tick
         TELEMETRY_WATCH.sender().send(Telemetry {
             tick,
             pressure_bar: p_ema,

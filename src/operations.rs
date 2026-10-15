@@ -67,6 +67,8 @@ async fn execute_profile(profile: BrewProfile) {
             volume
         );
 
+        // 10 bar or more is beyond what the pump controller targets, so the
+        // value is treated as raw pump power (%) instead of a pressure.
         if pressure >= 10.0 {
             pump.set_mode(PumpMode::DirectPump(pressure));
         } else {

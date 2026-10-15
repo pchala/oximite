@@ -104,7 +104,7 @@ impl Default for Settings {
 // ==========================================
 
 /// Subset of `Settings` actually needed by the hard-real-time AC-sync control
-/// loop (`control::ac_sync_control_task`, ~100Hz). Kept `Copy` and published
+/// loop (`control::ac_sync_control_task`, ~50 Hz). Kept `Copy` and published
 /// via `Watch` so the hot loop can grab the latest values with a plain copy —
 /// no mutex lock/await and no cloning of unrelated fields (profile name,
 /// Wi-Fi credentials) on every tick.
@@ -231,7 +231,7 @@ impl SettingsStore {
 // ==========================================
 pub enum FlashUpdate {
     SaveMachine(MachineSettings),
-    /// (temp, pressure).
+    /// (temp, pump).
     SavePids(PidSettings, PidSettings),
     SaveWifi(WifiSettings),
     SaveProfile(u8),

@@ -14,7 +14,7 @@
 //! * **Port 80, `GET /api/telemetry`** -- [`UiTelemetry`] as JSON. Seven fields,
 //!   ~70 bytes, offset-corrected and rounded for display. Polled at ~4 Hz by a
 //!   browser that has no decoder, so human-readable JSON is the right call.
-//! * **Port 8080** -- [`DiagFrame`] as postcard. Fifteen fields, 55 bytes,
+//! * **Port 8080** -- [`DiagFrame`] as postcard. Fifteen fields, 51 bytes,
 //!   *raw* controller values at the full 50 Hz control rate. Binary because at
 //!   50 Hz JSON float formatting dominates this path and a blocked TCP write
 //!   costs a control frame.

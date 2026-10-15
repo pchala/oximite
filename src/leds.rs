@@ -67,7 +67,6 @@ fn write_frame(sm: &mut LedSm, leds: &[Rgb; 2]) {
     const BRIGHTNESS: u32 = 30; // ~12% (30/256)
 
     for led in leds {
-        // Apply brightness scaling
         let r = (led.r as u32 * BRIGHTNESS) >> 8;
         let g = (led.g as u32 * BRIGHTNESS) >> 8;
         let b = (led.b as u32 * BRIGHTNESS) >> 8;
@@ -171,7 +170,6 @@ pub async fn led_task(mut sm: LedSm) {
 
         write_frame(&mut sm, &[led0, led1]);
 
-        // Refresh at ~10 Hz or immediately when the state changes.
         let _ = select(Timer::after(Duration::from_millis(100)), state_rx.changed()).await;
     }
 }

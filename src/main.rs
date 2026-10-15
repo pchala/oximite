@@ -208,7 +208,6 @@ async fn main(spawner: Spawner) {
     let btn_flush = Input::new(p.PIN_8, Pull::Up);
     spawner.spawn(buttons::run_button_task(btn_power, btn_brew, btn_steam, btn_flush).unwrap());
 
-    // Spawn the decoupled architectural tasks
     spawner.spawn(settings::flash_update_task(flash).unwrap());
     spawner.spawn(coordinator::coordinator_task(valve_output).unwrap());
 }

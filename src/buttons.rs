@@ -69,7 +69,6 @@ pub async fn run_button_task(
             }
         }
 
-        // 10ms poll interval for the integrator
         Timer::after(Duration::from_millis(10)).await;
     }
 }
