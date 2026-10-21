@@ -8,38 +8,11 @@ Support development by [leaving a tip on Ko-fi](https://ko-fi.com/J5E121FXSB).
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/J5E121FXSB)
 
-## Repository
+## Getting started
 
-| Path                       | Content                                                                              |
-| -------------------------- | ------------------------------------------------------------------------------------ |
-| `docs/`                    | Documentation                                                                        |
-| `firmware/`                | Rust `no_std` + Embassy firmware crate for RP2350 (`src/`, `Cargo.toml`, `build.rs`) |
-| `firmware/html/`           | Embedded web interface assets                                                        |
-| `firmware/cyw43-firmware/` | Binary Wi-Fi blobs from third party. Do not edit                                     |
-| `pcb/`                     | KiCad schematic, PCB layout, project symbols, and footprints                         |
-| `mech/`                    | OpenSCAD 3D models for mounting brackets                                             |
-| `tests/`                   | Automated hardware-in-the-loop and network test suite                                |
-
-## Getting Started
-
-### Build & Check
-
-Ensure the Rust `thumbv8m.main-none-eabihf` target is installed.
-
-```powershell
-cd firmware
-cargo check
-cargo clippy
-```
-
-### Automated Tests
-
-Run the integration test suite:
-
-```powershell
-cd tests
-uv run python -m unittest test_oximite.py
-```
+- Repository layout, build, and test commands: [AGENTS.md](AGENTS.md).
+- Documentation: [docs/](docs/). Start at [Requirements](docs/requirements.md).
+- First-time setup: [Operations](docs/operations.md).
 
 ## Disclaimer
 

@@ -28,7 +28,7 @@ flowchart TD
 
 ### Flow meter placement
 
-- **Inlet only:** The Digmesa Nano DM60 plastic flow meter (49,162 pulses/L) MUST be installed on the low-pressure suction side (between reservoir and pump inlet). Its plastic body cannot withstand pump pressure (up to 15 bar).
+- **Inlet only:** The plastic flow meter (see [BOM](bom.md)) MUST be installed on the low-pressure suction side (between reservoir and pump inlet). Its plastic body cannot withstand pump pressure (up to 15 bar).
 - **Air bubbles:** Mount horizontally with nozzle pointing down to prevent trapped air pockets that cause pulse jitter.
 - **Recirculation:** The OPV bypass connects back to the pump inlet after the flow meter through an inlet T-fitting. Recirculated water does not affect water volume.
 
@@ -39,14 +39,4 @@ flowchart TD
 
 ## 3. Front panel switch layout
 
-The machine front panel mounts two 3-position momentary mini toggle switches (spring return to center):
-- **Left Switch:**
-  - **UP (GP5):** Power (wakes machine from sleep or puts it to sleep).
-  - **MIDDLE:** Neutral (center-off, open circuit).
-  - **DOWN (GP7):** Steam (toggles boiler heating to steam setpoint).
-- **Right Switch:**
-  - **UP (GP8):** Flush (runs grouphead flush at 80% duty; hold on boot to enter AP mode).
-  - **MIDDLE:** Neutral (center-off, open circuit).
-  - **DOWN (GP6):** Brew (starts or aborts the active extraction profile).
-
-  
+The machine front panel mounts two 3-position momentary mini toggle switches (spring return to center). The center position is off. Mount the power/steam switch on the left and the flush/brew switch on the right. [Hardware pinout](pinout.md) defines the GPIO and function of each switch position.

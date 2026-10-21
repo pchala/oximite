@@ -52,9 +52,9 @@ flowchart TB
 
 ### Core 0 responsibilities
 
-- **Control loop task (`control.rs`):** Synchronously driven by the AC zero-cross rising edge from PIO0 SM1. Drains FIFO, filters period with EMA, reads current pressure/temperature/flow, updates PID loops, and writes actuator outputs.
-- **Flow meter task (`flow_meter.rs`):** Measures half-period pulse intervals from the Digmesa Nano turbine on PIO2 SM0 (49,162 pulses/L, 98,324 edges/L). Calculates instantaneous flow rate and accumulates shot volume in ml.
-- **State coordinator (`coordinator.rs`):** Manages transitions across machine states (`Idle`, `Brewing`, `Steaming`, `Sleeping`, `Pumping`, `Cooling`, `HotWater`) and steps through extraction profiles.
+- **Control loop task (`control.rs`):** PIO0 SM1 times the LOW window that starts at the zero-cross falling edge. SM1 pushes the measurement at the next rising edge, and this push wakes the task. Drains FIFO, filters period with EMA, reads current pressure/temperature/flow, updates PID loops, and writes actuator outputs.
+- **Flow meter task (`flow_meter.rs`):** Measures half-period pulse intervals from the flow turbine on PIO2 SM0. PIO counts two edges per pulse. The turbine constant is in the [BOM](hardware/bom.md). Calculates instantaneous flow rate and accumulates shot volume in ml.
+- **State coordinator (`coordinator.rs`):** Manages transitions across machine states and steps through extraction profiles. The `MachineState` wire values are 0=Idle, 1=Brewing, 2=Steaming, 3=Sleeping, 4=Pumping, 5=Cooling, 6=HotWater. [Operations](operations.md) describes each mode.
 - **Button debouncer (`buttons.rs`):** Debounces GP5..GP8 physical inputs.
 - **Flash persistence (`settings.rs`, `profiles.rs`):** Sole owner of flash writes using `sequential-storage`.
 
@@ -129,7 +129,7 @@ Oximite persists settings and extraction profiles in the upper sectors of the RP
 | Application binary | ~512 KiB | Executable firmware (`.text`, `.rodata`)          |
 | CYW43 Wi-Fi blobs  | ~256 KiB | Wi-Fi 43439A0 firmware and CLM blob               |
 | Settings storage   | 16 KiB   | Wi-Fi credentials, PID gains, target temperatures |
-| Profiles storage   | 32 KiB   | Up to 10 multi-step extraction profiles           |
+| Profiles storage   | 32 KiB   | Multi-step extraction profiles (limit: REQ-16)    |
 
 ### Storage ownership
 

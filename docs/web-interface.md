@@ -28,7 +28,7 @@ Core 1 runs an asynchronous HTTP server using `embassy-net`. It serves the singl
     "ack": 42
   }
   ```
-  Fields: `t` (grouphead temp), `sbt` (session brew temp setpoint), `p` (pressure), `fl` (flow rate), `vol` (volume), `st` (state enum: 0=Idle, 1=Brewing, 2=Steaming, 3=Sleeping, 4=Pumping, 5=Cooling, 6=HotWater), `ack` (command ticket acknowledged).
+  Fields: `t` (grouphead temp), `sbt` (session brew temp setpoint), `p` (pressure), `fl` (flow rate), `vol` (volume), `st` (machine state, see `MachineState` in [Firmware design](firmware.md)), `ack` (command ticket acknowledged).
 
 ### 3. Machine control
 
@@ -56,6 +56,6 @@ Core 1 runs an asynchronous HTTP server using `embassy-net`. It serves the singl
 ### 5. Extraction profiles
 
 - **`GET /api/profiles`**  
-  Returns all persisted multi-step profiles (up to 10).
+  Returns all persisted multi-step profiles. REQ-16 sets the limit.
 - **`POST /api/profiles`**  
   Saves or overwrites a profile definition.

@@ -5,7 +5,7 @@ This document specifies the bidirectional TCP protocol on port 8080.
 ## Overview
 
 Port 8080 opens a single streaming connection for telemetry recording, automated testing, and companion applications.
-- **Downlink (Controller -> Client):** One fixed-size binary header on connection, followed by one 55-byte [postcard](https://github.com/jamesmunns/postcard) binary record per control tick (50 Hz).
+- **Downlink (Controller -> Client):** One fixed-size binary header on connection, followed by one [postcard](https://github.com/jamesmunns/postcard) binary record per control tick (50 Hz).
 - **Uplink (Client -> Controller):** Newline-delimited JSON commands parsed asynchronously.
 
 ## Connection handshake
@@ -29,25 +29,25 @@ Upon client connection, the controller sends an initial diagnostic header before
 
 ## Telemetry frame layout
 
-Each 50 Hz tick emits a serialized binary frame:
+Each 50 Hz tick emits one postcard-serialized frame. The table lists the fields in serialization order. The firmware frame struct (`DiagFrame` in `web_api.rs`) defines the encoded size. Read the size from the `frame_len` field of the handshake header.
 
-| Offset | Field | Type | Description |
-|---|---|---|---|
-| 0 | `ver` | `u8` | Frame protocol version |
-| 1 | `seq` | `u32` | Cumulative control-loop tick counter |
-| 5 | `ms` | `u32` | Device uptime in milliseconds |
-| 9 | `t` | `f32` | Raw boiler temperature (°C) |
-| 13 | `tt` | `f32` | Target temperature (°C) |
-| 17 | `ett` | `f32` | Effective temperature setpoint with flow feed-forward (°C) |
-| 21 | `p` | `f32` | Measured grouphead pressure (bar) |
-| 25 | `tp` | `f32` | Target pressure (bar) |
-| 29 | `fl` | `f32` | Measured flow rate (ml/s) |
-| 33 | `tfl` | `f32` | Target flow rate (ml/s) |
-| 37 | `vol` | `f32` | Cumulative shot volume (ml) |
-| 41 | `hp` | `f32` | Boiler heating power ratio (0.0 to 1.0) |
-| 45 | `pump` | `f32` | Pump triac duty cycle (0.0 to 100.0) |
-| 49 | `fc` | `u8` | Flow limit active constraint flag (0 or 1) |
-| 50 | `st` | `u8` | Machine state (0=Idle, 1=Brewing, 2=Steaming, 3=Sleeping, 4=Pumping, 5=Cooling, 6=HotWater) |
+| Field | Type | Description |
+|---|---|---|
+| `ver` | `u8` | Frame protocol version |
+| `seq` | `u32` | Cumulative control-loop tick counter |
+| `ms` | `u32` | Device uptime in milliseconds |
+| `t` | `f32` | Raw boiler temperature (°C) |
+| `tt` | `f32` | Target temperature (°C) |
+| `ett` | `f32` | Effective temperature setpoint with flow feed-forward (°C) |
+| `p` | `f32` | Measured grouphead pressure (bar) |
+| `tp` | `f32` | Target pressure (bar) |
+| `fl` | `f32` | Measured flow rate (ml/s) |
+| `tfl` | `f32` | Target flow rate (ml/s) |
+| `vol` | `f32` | Cumulative shot volume (ml) |
+| `hp` | `f32` | Boiler heating power ratio (0.0 to 1.0) |
+| `pump` | `f32` | Pump triac duty cycle (0.0 to 100.0) |
+| `fc` | `u8` | Flow limit active constraint flag (0 or 1) |
+| `st` | `u8` | Machine state (see `MachineState` in [Firmware design](firmware.md)) |
 
 ## Uplink JSON commands
 

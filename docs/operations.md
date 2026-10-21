@@ -9,8 +9,8 @@ This document describes machine setup, operational modes, and safety procedures.
    - On first boot with unconfigured Wi-Fi, the machine starts as an open Access Point named `oximite-setup`.
    - Connect a smartphone or laptop, browse to `http://192.168.4.1`, and enter the local Wi-Fi SSID and password.
 3. **Safe-boot override:**
-   - If Wi-Fi credentials change or the network is unreachable, hold the **Right Toggle Switch UP** (GP8 Flush) while powering on the machine.
-   - The firmware detects GP8 held low and forces AP mode (`force_ap = true`), ignoring stored credentials.
+   - If Wi-Fi credentials change or the network is unreachable, hold the **Right Toggle Switch UP** while you power on the machine (REQ-12).
+   - The firmware ignores the stored credentials and starts in AP mode.
 
 ## Operational modes
 
