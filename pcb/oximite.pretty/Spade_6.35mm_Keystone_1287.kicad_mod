@@ -1,0 +1,226 @@
+(footprint "Spade_6.35mm_Keystone_1287"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(descr "Keystone 1287 quick-fit faston tab, 6.35mm (0.250in) x 0.81mm, PCB mount, 2 solder pins on 5.08mm centres, both pins electrically common. Rated 30A. Used for all mains connections on oximite.")
+	(tags "faston spade quick-fit 6.35mm 250 mains keystone 1287")
+	(property "Reference" "J1"
+		(at 0 -4.6 0)
+		(layer "F.SilkS")
+		(uuid "34b30a6a-94ba-4528-9b1a-94b2c6efeb6a")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "L in"
+		(at 0 4.6 0)
+		(layer "F.Fab")
+		(uuid "e1d30d7b-dc14-47de-be81-9a1d6d40fb6c")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" "https://www.keyelco.com/product-pdf.cfm?p=1287"
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "2f3fdcab-05f4-4fc9-b0de-4b952e193de3")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" "6.35mm faston tab, PCB mount"
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "7c40e764-d8d8-4370-8256-7c71737b5b6c")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_rect
+		(start -4.5 -2.6)
+		(end 4.5 2.6)
+		(stroke
+			(width 0.12)
+			(type default)
+		)
+		(fill no)
+		(layer "F.SilkS")
+		(uuid "26f2695f-46be-4ae0-b9e3-d2e4abde8522")
+	)
+	(fp_line
+		(start -4.6 -3.1)
+		(end -4.6 3.1)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "3bc302b7-7f38-4852-851a-b0354a45adb9")
+	)
+	(fp_line
+		(start -4.6 -3.1)
+		(end 4.6 -3.1)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "d212ced8-3a06-4733-b96b-507a26fa7e5a")
+	)
+	(fp_line
+		(start -4.6 3.1)
+		(end 4.6 3.1)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "955bf515-069b-4cf0-89b8-6710aac35ed1")
+	)
+	(fp_line
+		(start 4.6 -3.1)
+		(end 4.6 3.1)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "bcc36ec4-8de4-494a-bbfe-b69c1ae981b7")
+	)
+	(fp_line
+		(start -4.1 -2.6)
+		(end -4.1 2.6)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "ad8cd0ba-032b-4954-b4a5-3bdedfd6c5e8")
+	)
+	(fp_line
+		(start -4.1 -2.6)
+		(end 4.1 -2.6)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "c5d3250b-d7d0-4f76-bd7d-d6321e039b7b")
+	)
+	(fp_line
+		(start -4.1 2.6)
+		(end 4.1 2.6)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "49fddd4a-4fae-43eb-8edc-e9cfc6623e88")
+	)
+	(fp_line
+		(start -4 -2.5)
+		(end -4 2.5)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "9f371f07-7165-4061-b8ef-44614626c882")
+	)
+	(fp_line
+		(start -4 -2.5)
+		(end 4 -2.5)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "114e1b21-a7d2-4e3e-a18a-51ab64881170")
+	)
+	(fp_line
+		(start -4 2.5)
+		(end 4 2.5)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "91c54f98-7087-4d26-8636-7bb2eb5d5813")
+	)
+	(fp_line
+		(start -3.18 -0.4)
+		(end 3.18 -0.4)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "17794bf8-5329-4cd7-9e38-faa8cabc6125")
+	)
+	(fp_line
+		(start -3.18 0.4)
+		(end 3.18 0.4)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "574ff13f-f607-4f73-990d-cf02b3c2c3e0")
+	)
+	(fp_line
+		(start 4 -2.5)
+		(end 4 2.5)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "141485ca-7921-4f05-83c0-0f8355eb8658")
+	)
+	(fp_line
+		(start 4.1 -2.6)
+		(end 4.1 2.6)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "f091f437-6d21-48d2-8ab7-ea3ce5441d03")
+	)
+	(pad "1" thru_hole rect
+		(at -2.54 0)
+		(size 3.4 3.4)
+		(drill 1.8)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "9e198519-7f68-44f3-8095-716ee7831d41")
+	)
+	(pad "1" thru_hole circle
+		(at 2.54 0)
+		(size 3.4 3.4)
+		(drill 1.8)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "d00825aa-65b5-4e16-80f8-90f7214bf370")
+	)
+	(embedded_fonts no)
+)

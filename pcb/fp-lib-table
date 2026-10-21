@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "oximite")(type "KiCad")(uri "${KIPRJMOD}/oximite.pretty")(options "")(descr "Oximite custom spades, transformer and elevated Pimoroni Pico headers"))
+)

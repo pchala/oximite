@@ -1,0 +1,6 @@
+(version 1)
+
+(rule "Mains to logic separation"
+  (condition "(A.NetClass == 'Mains' && B.NetClass == 'Logic') || (A.NetClass == 'Logic' && B.NetClass == 'Mains')")
+  (constraint clearance (min 8mm))
+  (constraint physical_clearance (min 8mm)))

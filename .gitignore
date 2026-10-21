@@ -1,3 +1,17 @@
-# Cargo build artifacts
-/target/
-**/.idea
+# Rust build artifacts
+target/
+**/target/
+
+# Python bytecode and virtual environments
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.venv/
+**/.venv/
+.pytest_cache/
+
+# IDE and OS files
+.vscode/
+*~
+.DS_Store
+Thumbs.db

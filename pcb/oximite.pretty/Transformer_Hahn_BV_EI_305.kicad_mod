@@ -1,0 +1,253 @@
+(footprint "Transformer_Hahn_BV_EI_305"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(descr "HAHN BV EI 305 8022, scheme 1: four fitted pins, primary 1/5 and secondary 7/9. Catalogue ten-position grid is not fully populated. Top-view footprint mirrors the pin-side drawing. 20mm rows, 5mm grid; maximum case 27.8x32.8mm.")
+	(tags "transformer mains EI30 hahn erp 2.3VA 230V 7.5V")
+	(property "Reference" "T1"
+		(at 0 -17.9 0)
+		(layer "F.SilkS")
+		(uuid "a06c4894-ec8c-4708-9be4-de9118b73eea")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "BV EI 305 8022"
+		(at 0 17.9 0)
+		(layer "F.Fab")
+		(uuid "df9b1798-d920-43e2-b826-5a2531d7d8f8")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" "https://www.hahn-trafo.com"
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "b60e1386-7de4-4da9-a930-576d40a511b5")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "a141795e-4347-4e2e-b50d-0c699a931dbf")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+	)
+	(attr through_hole)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_line
+		(start -13.9 -16.4)
+		(end 13.9 -16.4)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "f4de34c9-eccb-483b-892e-cf771223fb5c")
+	)
+	(fp_line
+		(start -13.9 16.4)
+		(end -13.9 -16.4)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "745fcbd3-a2a0-4dd7-b831-095b5dd24d58")
+	)
+	(fp_line
+		(start 13.9 -16.4)
+		(end 13.9 16.4)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "19bb5002-8f03-4b32-a1f2-6b6a5da1c215")
+	)
+	(fp_line
+		(start 13.9 16.4)
+		(end -13.9 16.4)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "6949af3d-2191-4e9b-a94b-5a3facba7db7")
+	)
+	(fp_line
+		(start -14.15 -16.65)
+		(end 14.15 -16.65)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "6aa27f22-f79c-4713-90c5-ce126c91ba3d")
+	)
+	(fp_line
+		(start -14.15 16.65)
+		(end -14.15 -16.65)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "4dc7de6c-bc8f-4977-af26-da4e8e7ba8b6")
+	)
+	(fp_line
+		(start 14.15 -16.65)
+		(end 14.15 16.65)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "9b0d17f8-4f82-455c-91dd-1cd49098dadc")
+	)
+	(fp_line
+		(start 14.15 16.65)
+		(end -14.15 16.65)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "70aebcb3-3b95-4c6d-9a48-bf360399a95b")
+	)
+	(fp_line
+		(start -13.9 -16.4)
+		(end 13.9 -16.4)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "09d3b0f8-9de2-4481-b10a-7751eb6ba4f3")
+	)
+	(fp_line
+		(start -13.9 16.4)
+		(end -13.9 -16.4)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "c388aabe-4104-4512-965d-6c16389640d0")
+	)
+	(fp_line
+		(start 13.9 -16.4)
+		(end 13.9 16.4)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "d3ae0a45-72c1-45b3-92f5-0881e2cf6446")
+	)
+	(fp_line
+		(start 13.9 16.4)
+		(end -13.9 16.4)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "71b2eedb-3a2e-4850-a7fa-5024aaa939e8")
+	)
+	(fp_text user "SEC 7.5V"
+		(at -10 0 90)
+		(layer "F.SilkS")
+		(uuid "723fb5ad-4517-4575-8a27-891d6a7aa41c")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(fp_text user "PRIM 230V"
+		(at 10 0 90)
+		(layer "F.SilkS")
+		(uuid "f609b585-cb9f-465a-ad56-bed2eb2650ee")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(fp_text user "SEC 7.5V"
+		(at -10 0 90)
+		(layer "F.Fab")
+		(uuid "ddcb0304-6cde-472e-a319-5b4eb97a185c")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(fp_text user "PRIM 230V"
+		(at 10 0 90)
+		(layer "F.Fab")
+		(uuid "d607a58c-3a14-4bc6-9730-bb2004e4c878")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" thru_hole rect
+		(at 10 10)
+		(size 2.4 2.4)
+		(drill 1.1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "8a6ab410-fcd1-4e8a-b315-b597479b9770")
+	)
+	(pad "5" thru_hole circle
+		(at 10 -10)
+		(size 2.4 2.4)
+		(drill 1.1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "5d9fc933-4b54-40b4-a373-c44c0e053670")
+	)
+	(pad "7" thru_hole circle
+		(at -10 -5)
+		(size 2.4 2.4)
+		(drill 1.1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "65ff09ca-7fc3-4572-88ca-775ae58a7965")
+	)
+	(pad "9" thru_hole circle
+		(at -10 5)
+		(size 2.4 2.4)
+		(drill 1.1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "cf668010-8ba1-4a5c-b288-05bd6236f3bd")
+	)
+	(embedded_fonts no)
+)

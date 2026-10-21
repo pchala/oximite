@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "oximite")(type "KiCad")(uri "${KIPRJMOD}/oximite.kicad_sym")(options "")(descr "Oximite custom transformer and Pimoroni Pico module symbols"))
+)

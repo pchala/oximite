@@ -1,0 +1,6960 @@
+(export
+	(version "E")
+	(design
+		(source "C:\\Doc_my\\_oxi\\sssccchhh\\oximite.kicad_sch")
+		(date "2026-09-08T16:35:32")
+		(tool "Eeschema 10.0.6")
+		(sheet
+			(number "1")
+			(name "/")
+			(tstamps "/")
+			(title_block
+				(title "oximite")
+				(company)
+				(rev)
+				(date)
+				(source "oximite.kicad_sch")
+				(comment
+					(number "1")
+					(value "")
+				)
+				(comment
+					(number "2")
+					(value "")
+				)
+				(comment
+					(number "3")
+					(value "")
+				)
+				(comment
+					(number "4")
+					(value "")
+				)
+				(comment
+					(number "5")
+					(value "")
+				)
+				(comment
+					(number "6")
+					(value "")
+				)
+				(comment
+					(number "7")
+					(value "")
+				)
+				(comment
+					(number "8")
+					(value "")
+				)
+				(comment
+					(number "9")
+					(value "")
+				)
+			)
+		)
+		(sheet
+			(number "2")
+			(name "/AC_Mains/")
+			(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			(title_block
+				(title "oximite")
+				(company)
+				(rev)
+				(date)
+				(source "AC_Mains.kicad_sch")
+				(comment
+					(number "1")
+					(value "")
+				)
+				(comment
+					(number "2")
+					(value "")
+				)
+				(comment
+					(number "3")
+					(value "")
+				)
+				(comment
+					(number "4")
+					(value "")
+				)
+				(comment
+					(number "5")
+					(value "")
+				)
+				(comment
+					(number "6")
+					(value "")
+				)
+				(comment
+					(number "7")
+					(value "")
+				)
+				(comment
+					(number "8")
+					(value "")
+				)
+				(comment
+					(number "9")
+					(value "")
+				)
+			)
+		)
+		(sheet
+			(number "3")
+			(name "/Control/")
+			(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			(title_block
+				(title "oximite")
+				(company)
+				(rev)
+				(date)
+				(source "Control.kicad_sch")
+				(comment
+					(number "1")
+					(value "")
+				)
+				(comment
+					(number "2")
+					(value "")
+				)
+				(comment
+					(number "3")
+					(value "")
+				)
+				(comment
+					(number "4")
+					(value "")
+				)
+				(comment
+					(number "5")
+					(value "")
+				)
+				(comment
+					(number "6")
+					(value "")
+				)
+				(comment
+					(number "7")
+					(value "")
+				)
+				(comment
+					(number "8")
+					(value "")
+				)
+				(comment
+					(number "9")
+					(value "")
+				)
+			)
+		)
+	)
+	(components
+		(comp
+			(ref "C1")
+			(value "3300uF/25V")
+			(footprint "Capacitor_THT:CP_Radial_D12.5mm_P5.00mm")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_THT:CP_Radial_D12.5mm_P5.00mm")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C_Polarized")
+				(description "Polarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "CP_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "2862620b-1464-4ab7-b0e6-4a465633fc37")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C4")
+			(value "22nF X2")
+			(footprint "Capacitor_THT:C_Rect_L13.0mm_W4.0mm_P10.00mm_FKS3_FKP3_MKS4")
+			(description "R463F222000N0M; 22nF +/-20%, 310VAC X2; P10mm; 13x4x9mm; 500V/us")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_THT:C_Rect_L13.0mm_W4.0mm_P10.00mm_FKS3_FKP3_MKS4")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "R463F222000N0M; 22nF +/-20%, 310VAC X2; P10mm; 13x4x9mm; 500V/us")
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "87748565-e550-41d8-abb6-7c820d329ba8")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "D1")
+			(value "DF06S-T")
+			(footprint "Diode_SMD:Diode_Bridge_OnSemi_SDIP-4L")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Diode_SMD:Diode_Bridge_OnSemi_SDIP-4L")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "oximite")
+				(part "DF06S_Rectifier")
+				(description "DF06S bridge rectifier, 600 V, 1.5 A; + output marked as a power source for ERC")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "bridge rectifier diode")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "Diode*Bridge*OnSemi*SDIP*4L*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "6edb6566-457e-49c2-bbf2-aa297570b685")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "D2")
+			(value "APT1608SURCK")
+			(footprint "LED_SMD:LED_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "LED_SMD:LED_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "LED")
+				(description "Light emitting diode")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "LED diode")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "LED* LED_SMD:* LED_THT:*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "947a10e0-4d7a-44bf-bcf2-c490d9537d65")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "F1")
+			(value "T4A 250V")
+			(footprint "Fuse:Fuseholder_Clip-5x20mm_Keystone_3517_Inline_P23.11x6.76mm_D1.70mm_Horizontal")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Fuse:Fuseholder_Clip-5x20mm_Keystone_3517_Inline_P23.11x6.76mm_D1.70mm_Horizontal")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "Fuse")
+				(description "Fuse")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "fuse")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "*Fuse*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "43e812c7-6660-4491-84a0-9849552d523f")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J1")
+			(value "L in")
+			(footprint "oximite:Spade_6.35mm_Keystone_1287")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "oximite:Spade_6.35mm_Keystone_1287")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Connector_Generic")
+				(part "Conn_01x01")
+				(description "Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "connector")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "Connector*:*_1x??_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "376cb74b-7580-4a08-bf91-526b01ae4190")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J2")
+			(value "N in")
+			(footprint "oximite:Spade_6.35mm_Keystone_1287")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "oximite:Spade_6.35mm_Keystone_1287")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Connector_Generic")
+				(part "Conn_01x01")
+				(description "Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "connector")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "Connector*:*_1x??_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "7fd9190e-c559-4056-b7e4-8d54849b5f35")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J5")
+			(value "HEAT switched")
+			(footprint "oximite:Spade_6.35mm_Keystone_1287")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "oximite:Spade_6.35mm_Keystone_1287")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Connector_Generic")
+				(part "Conn_01x01")
+				(description "Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "connector")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "Connector*:*_1x??_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "48e37e47-5292-4dad-8dd9-89c98ea16d7b")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J7")
+			(value "VALVE switched")
+			(footprint "oximite:Spade_6.35mm_Keystone_1287")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "oximite:Spade_6.35mm_Keystone_1287")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Connector_Generic")
+				(part "Conn_01x01")
+				(description "Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "connector")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "Connector*:*_1x??_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "7f5e7a3d-57bb-4dcb-b64b-a5b14cc90a3d")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J9")
+			(value "PUMP switched")
+			(footprint "oximite:Spade_6.35mm_Keystone_1287")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "oximite:Spade_6.35mm_Keystone_1287")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Connector_Generic")
+				(part "Conn_01x01")
+				(description "Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "connector")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "Connector*:*_1x??_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "0f7a77cb-0cd1-4e03-a9a3-cddeed6f1cd0")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "Q1")
+			(value "BTA16-600BWRG")
+			(footprint "Package_TO_SOT_THT:TO-220-3_Vertical")
+			(datasheet "https://www.st.com/resource/en/datasheet/bta16.pdf")
+			(description "BTA16-600BWRG; insulated-tab TO-220; upright shared-heatsink mounting")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Package_TO_SOT_THT:TO-220-3_Vertical")
+				(field
+					(name "Datasheet") "https://www.st.com/resource/en/datasheet/bta16.pdf")
+				(field
+					(name "Description") "BTA16-600BWRG; insulated-tab TO-220; upright shared-heatsink mounting")
+			)
+			(libsource
+				(lib "Triac_Thyristor")
+				(part "BTA16-600BW")
+				(description "16A RMS, 600V Off-State Voltage, 50mA Sensitivity, Snubberless, Insulated, Triac, TO-220")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "Triac")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "TO?220*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "89793ec2-2365-4506-a157-50cb9ca8b1b9")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "Q2")
+			(value "BTA16-600BWRG")
+			(footprint "Package_TO_SOT_THT:TO-220-3_Vertical")
+			(datasheet "https://www.st.com/resource/en/datasheet/bta16.pdf")
+			(description "BTA16-600BWRG; insulated-tab TO-220; upright shared-heatsink mounting")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Package_TO_SOT_THT:TO-220-3_Vertical")
+				(field
+					(name "Datasheet") "https://www.st.com/resource/en/datasheet/bta16.pdf")
+				(field
+					(name "Description") "BTA16-600BWRG; insulated-tab TO-220; upright shared-heatsink mounting")
+			)
+			(libsource
+				(lib "Triac_Thyristor")
+				(part "BTA16-600BW")
+				(description "16A RMS, 600V Off-State Voltage, 50mA Sensitivity, Snubberless, Insulated, Triac, TO-220")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "Triac")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "TO?220*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "74cb3416-a74f-425e-a25b-377f84748519")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "Q3")
+			(value "BTA16-600BWRG")
+			(footprint "Package_TO_SOT_THT:TO-220-3_Vertical")
+			(datasheet "https://www.st.com/resource/en/datasheet/bta16.pdf")
+			(description "BTA16-600BWRG; insulated-tab TO-220; upright shared-heatsink mounting")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Package_TO_SOT_THT:TO-220-3_Vertical")
+				(field
+					(name "Datasheet") "https://www.st.com/resource/en/datasheet/bta16.pdf")
+				(field
+					(name "Description") "BTA16-600BWRG; insulated-tab TO-220; upright shared-heatsink mounting")
+			)
+			(libsource
+				(lib "Triac_Thyristor")
+				(part "BTA16-600BW")
+				(description "16A RMS, 600V Off-State Voltage, 50mA Sensitivity, Snubberless, Insulated, Triac, TO-220")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "Triac")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "TO?220*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "b71eb2ef-9cba-4e67-b690-4120bcf3cf7b")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R1")
+			(value "1k")
+			(footprint "Resistor_SMD:R_1206_3216Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_1206_3216Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "f7a7048f-71f7-4be9-a559-14b24e4c331c")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R2")
+			(value "10k")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "814b7744-de56-4fa2-a61e-b13dd5770b68")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R3")
+			(value "120R")
+			(footprint "Resistor_SMD:R_0805_2012Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0805_2012Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "78562aa1-8f84-4dfb-a006-3ca150012ded")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R4")
+			(value "300R")
+			(footprint "Resistor_SMD:R_1206_3216Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_1206_3216Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "319ccf59-0501-4c07-947d-3e6301829d11")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R5")
+			(value "100R")
+			(footprint "Resistor_SMD:R_1206_3216Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_1206_3216Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "d955354d-db57-488a-938d-d62880f0f1c7")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R7")
+			(value "120R")
+			(footprint "Resistor_SMD:R_0805_2012Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0805_2012Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "ad49693a-46ab-41d3-87a3-6825c30366b9")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R8")
+			(value "300R")
+			(footprint "Resistor_SMD:R_1206_3216Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_1206_3216Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "8ea961f7-e4e0-42a4-8529-a90c6ba27681")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R9")
+			(value "100R")
+			(footprint "Resistor_SMD:R_1206_3216Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_1206_3216Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "59e7f3a9-e545-4a5e-b6d0-2ee159e81bc1")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R11")
+			(value "120R")
+			(footprint "Resistor_SMD:R_0805_2012Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0805_2012Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "6974f54e-fb32-400a-ba65-b944fe0f00be")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R12")
+			(value "300R")
+			(footprint "Resistor_SMD:R_1206_3216Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_1206_3216Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "169445c9-efa9-4e72-9485-9eac5610d76b")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R13")
+			(value "100R")
+			(footprint "Resistor_SMD:R_1206_3216Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_1206_3216Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "4aa730f6-232b-4f29-b3ed-7ad713adcd85")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R14")
+			(value "100R")
+			(footprint "Resistor_SMD:R_1206_3216Metric")
+			(description "Pump snubber, 100 ohm 1206; pulse-rated MPN and pulse qualification REQUIRED")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_1206_3216Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Pump snubber, 100 ohm 1206; pulse-rated MPN and pulse qualification REQUIRED")
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "0ff89a2c-73f9-409d-b124-7a5e8d65cc40")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R25")
+			(value "100R")
+			(footprint "Resistor_SMD:R_1206_3216Metric")
+			(description "Pump snubber, 100 ohm 1206; pulse-rated MPN and pulse qualification REQUIRED")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_1206_3216Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Pump snubber, 100 ohm 1206; pulse-rated MPN and pulse qualification REQUIRED")
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "d1f06d7f-c3a5-4895-91c9-39fde340153d")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "RV1")
+			(value "S14K275")
+			(footprint "Varistor:RV_Disc_D16.5mm_W6.7mm_P7.5mm")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Varistor:RV_Disc_D16.5mm_W6.7mm_P7.5mm")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "Varistor")
+				(description "Voltage dependent resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "VDR resistance")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "RV_* Varistor*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "bb97ea41-ed0f-45e2-9cbe-a64187a9287a")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "T1")
+			(value "BV EI 305 8022")
+			(footprint "oximite:Transformer_Hahn_BV_EI_305")
+			(datasheet "https://www.hahn-trafo.com/hubfs/pdf/serienprodukte/transformatoren-technik/erp-eco-design/EI_30_ErP.pdf")
+			(description "Hahn-E.pdf printed pp15-16: BV EI 305 8022, scheme 1; only pins 1/5 primary and 7/9 secondary are fitted")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "oximite:Transformer_Hahn_BV_EI_305")
+				(field
+					(name "Datasheet") "https://www.hahn-trafo.com/hubfs/pdf/serienprodukte/transformatoren-technik/erp-eco-design/EI_30_ErP.pdf")
+				(field
+					(name "Description") "Hahn-E.pdf printed pp15-16: BV EI 305 8022, scheme 1; only pins 1/5 primary and 7/9 secondary are fitted")
+			)
+			(libsource
+				(lib "oximite")
+				(part "Transformer_Hahn_BV_EI_305")
+				(description "Hahn BV EI 305 8022 PCB transformer, 2.3 VA, 230 V primary (pins 1-5), 12 V secondary (pins 7-9)")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "transformer mains 230V EI30 hahn")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "15c25cfc-33a2-4c05-90c0-8d3c50c885dc")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "9")
+						)
+						(pin
+							(num "7")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "U1")
+			(value "PC817")
+			(footprint "Package_SO:SOP-4_4.4x2.6mm_P1.27mm")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Package_SO:SOP-4_4.4x2.6mm_P1.27mm")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Isolator")
+				(part "PC817")
+				(description "DC Optocoupler, Vce 35V, CTR 50-300%, DIP-4")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "NPN DC Optocoupler")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "DIP*W7.62mm*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "dfce6c6c-745d-451f-95b7-ea2f40d66936")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "3")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "U2")
+			(value "MOC3062SR2M")
+			(footprint "Package_DIP:SMDIP-6_W9.53mm_Clearance8mm")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Package_DIP:SMDIP-6_W9.53mm_Clearance8mm")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Relay_SolidState")
+				(part "MOC3062M")
+				(description "Zero Cross Opto-Triac, Vdrm 600V, Ift 10mA, DIP6")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "Opto-Triac Opto Triac Zero Cross")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "DIP*W7.62mm* SMDIP*W9.53mm* DIP*W10.16mm*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "54f0d475-0aed-47ce-ba79-d424d211ad59")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+						(pin
+							(num "4")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "U3")
+			(value "MOC3062SR2M")
+			(footprint "Package_DIP:SMDIP-6_W9.53mm_Clearance8mm")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Package_DIP:SMDIP-6_W9.53mm_Clearance8mm")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Relay_SolidState")
+				(part "MOC3062M")
+				(description "Zero Cross Opto-Triac, Vdrm 600V, Ift 10mA, DIP6")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "Opto-Triac Opto Triac Zero Cross")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "DIP*W7.62mm* SMDIP*W9.53mm* DIP*W10.16mm*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "614613c4-bce7-49e3-b8fa-0701e543225a")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+						(pin
+							(num "4")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "U4")
+			(value "MOC3052SR2M")
+			(footprint "Package_DIP:SMDIP-6_W9.53mm_Clearance8mm")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Package_DIP:SMDIP-6_W9.53mm_Clearance8mm")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Relay_SolidState")
+				(part "MOC3052M")
+				(description "Random Phase Opto-Triac, Vdrm 600V, Ift 10mA, DIP6")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/d722d078-eb8d-478d-99c5-f0c69086ccb4")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "AC_Mains")
+			)
+			(property
+				(name "Sheetfile")
+				(value "AC_Mains.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "Opto-Triac Opto Triac Random Phase")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "DIP*W7.62mm* SMDIP*W9.53mm* DIP*W10.16mm*")
+			)
+			(sheetpath
+				(names "/AC_Mains/")
+				(tstamps "/d722d078-eb8d-478d-99c5-f0c69086ccb4/")
+			)
+			(tstamps "c0d1124e-ccbd-46d1-8f09-fe74fc52e403")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+						(pin
+							(num "4")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C5")
+			(value "100nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "83ccea1a-ff9d-4ea5-8175-cad3927d4910")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C6")
+			(value "100nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "4ad132ca-4c92-4771-a9e8-7a67ea88aa3d")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C7")
+			(value "100nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "678449ca-6708-414f-b3ea-5a21eb685594")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C8")
+			(value "1nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "3c94f759-854d-434f-9861-608fad706bfc")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C9")
+			(value "1nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "46e6f1fd-e707-4fd5-9663-225e90010962")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C10")
+			(value "1nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "9bc40b37-dfb0-42ee-b516-4c0a7d573fc9")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C11")
+			(value "1nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "a5a98738-1e8a-4f61-9a2e-e262734909f4")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C12")
+			(value "1nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "52756cf6-1368-48ff-a83e-19e74cdf4c82")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C13")
+			(value "1nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "c0ba2b1c-4e74-45eb-a161-3bc37792bdfe")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C14")
+			(value "10nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "31c55749-3f3d-4899-bbb1-cd396e7c8614")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C15")
+			(value "1nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "0ca064bb-7043-4afd-af69-eaf5fbdeb869")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C16")
+			(value "100nF")
+			(footprint "Capacitor_SMD:C_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Capacitor_SMD:C_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "C")
+				(description "Unpolarized capacitor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "cap capacitor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "C_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "b6b80553-9b90-44b9-9acb-6d2025e7910f")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J10")
+			(value "Front panel")
+			(footprint "Connector_JST:JST_XH_B8B-XH-A_1x08_P2.50mm_Vertical")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Connector_JST:JST_XH_B8B-XH-A_1x08_P2.50mm_Vertical")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Connector_Generic")
+				(part "Conn_01x08")
+				(description "Generic connector, single row, 01x08, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "connector")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "Connector*:*_1x??_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "abb9f5a5-4963-4b90-b764-e99447c9e1e2")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+						(pin
+							(num "7")
+						)
+						(pin
+							(num "8")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J11")
+			(value "Pressure")
+			(footprint "Connector_JST:JST_XH_B3B-XH-A_1x03_P2.50mm_Vertical")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Connector_JST:JST_XH_B3B-XH-A_1x03_P2.50mm_Vertical")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Connector_Generic")
+				(part "Conn_01x03")
+				(description "Generic connector, single row, 01x03, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "connector")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "Connector*:*_1x??_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "b78b4a76-90ff-4710-b7fb-c5fb31764357")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J12")
+			(value "NTC 100k")
+			(footprint "Connector_JST:JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Connector_JST:JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Connector_Generic")
+				(part "Conn_01x02")
+				(description "Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "connector")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "Connector*:*_1x??_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "b2fe9d05-9cd8-436f-8fcf-fabea68c2ca6")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J13")
+			(value "Flow")
+			(footprint "Connector_JST:JST_XH_B3B-XH-A_1x03_P2.50mm_Vertical")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Connector_JST:JST_XH_B3B-XH-A_1x03_P2.50mm_Vertical")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Connector_Generic")
+				(part "Conn_01x03")
+				(description "Generic connector, single row, 01x03, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "connector")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "Connector*:*_1x??_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "9cc2638e-2a3c-4a72-b81a-e2fcd8733912")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R15")
+			(value "1k")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "b25ac810-74dd-40d4-a90f-d2539c83f8cf")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R16")
+			(value "1k")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "2f519e0b-a4e0-4b04-86d3-653680dadd5d")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R17")
+			(value "1k")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "b781a09b-c424-4e45-8a2c-470cc56171af")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R18")
+			(value "1k")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "546789cc-d79b-4e0c-a1b0-74ab37dfcf50")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R19")
+			(value "330R")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "32937af0-76fe-43b4-a444-c7f4d2dc5044")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R20")
+			(value "1k")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "e474efb0-aaa4-4805-862f-8e0d9a34ef2a")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R21")
+			(value "100k")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "b0e59cf3-5694-4886-8170-60f59afe2e9b")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R22")
+			(value "1k")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "d3a9faea-ef55-462e-b32b-3e396e962f83")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R23")
+			(value "1k8")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "3a4356ec-4496-47b3-9dc7-b28cda01d798")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R24")
+			(value "1k")
+			(footprint "Resistor_SMD:R_0603_1608Metric")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Resistor_SMD:R_0603_1608Metric")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Device")
+				(part "R")
+				(description "Resistor")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "R res resistor")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "R_*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "826efa68-d9b0-4e64-8898-3733b2d6b408")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "U5")
+			(value "TSR 1-2450")
+			(footprint "Converter_DCDC:Converter_DCDC_TRACO_TSR-1_THT")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "Converter_DCDC:Converter_DCDC_TRACO_TSR-1_THT")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Regulator_Linear")
+				(part "LM7805_TO220")
+				(description "Positive 1A 35V Linear Regulator, Fixed Output 5V, TO-220")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "Voltage Regulator 1A Positive")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "TO?220*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "c56a96e3-fdc8-45f1-a933-6c9dcfbc406b")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "U6")
+			(value "Pico Plus 2 W")
+			(footprint "oximite:Pimoroni_Pico_Plus_2_W_Header_Mount")
+			(datasheet "https://shop.pimoroni.com/products/pimoroni-pico-plus-2-w")
+			(description "Pimoroni RP2350B Pico Plus 2 W; elevated THT headers; GP26/27/28 are GPIO40/41/42 ADCs through internal 1k resistors")
+			(fields
+				(field
+					(name "hierarchy_path") "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+				(field
+					(name "project_name") "oximite")
+				(field
+					(name "root_uuid") "f0c8ca25-892b-4bed-9755-86a012fb380f")
+				(field
+					(name "Footprint") "oximite:Pimoroni_Pico_Plus_2_W_Header_Mount")
+				(field
+					(name "Datasheet") "https://shop.pimoroni.com/products/pimoroni-pico-plus-2-w")
+				(field
+					(name "Description") "Pimoroni RP2350B Pico Plus 2 W; elevated THT headers; GP26/27/28 are GPIO40/41/42 ADCs through internal 1k resistors")
+			)
+			(libsource
+				(lib "oximite")
+				(part "RaspberryPi_Pico_Plus2W")
+				(description "Pimoroni Pico Plus 2 W (RP2350B) module; AGND demoted to passive so it may be tied to GND")
+			)
+			(property
+				(name "hierarchy_path")
+				(value "/f0c8ca25-892b-4bed-9755-86a012fb380f/014dc218-1b74-479b-9991-ddd87b2b0e97")
+			)
+			(property
+				(name "project_name")
+				(value "oximite")
+			)
+			(property
+				(name "root_uuid")
+				(value "f0c8ca25-892b-4bed-9755-86a012fb380f")
+			)
+			(property
+				(name "Sheetname")
+				(value "Control")
+			)
+			(property
+				(name "Sheetfile")
+				(value "Control.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "raspberry pi pico rp2350 module")
+			)
+			(property
+				(name "ki_fp_filters")
+				(value "RaspberryPi?Pico?Common* RaspberryPi?Pico?W?SMD*")
+			)
+			(sheetpath
+				(names "/Control/")
+				(tstamps "/014dc218-1b74-479b-9991-ddd87b2b0e97/")
+			)
+			(tstamps "bfab34c9-4ac0-4757-9952-32be38707ef0")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "30")
+						)
+						(pin
+							(num "37")
+						)
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+						(pin
+							(num "7")
+						)
+						(pin
+							(num "9")
+						)
+						(pin
+							(num "10")
+						)
+						(pin
+							(num "11")
+						)
+						(pin
+							(num "12")
+						)
+						(pin
+							(num "14")
+						)
+						(pin
+							(num "15")
+						)
+						(pin
+							(num "16")
+						)
+						(pin
+							(num "17")
+						)
+						(pin
+							(num "19")
+						)
+						(pin
+							(num "20")
+						)
+						(pin
+							(num "39")
+						)
+						(pin
+							(num "40")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "23")
+						)
+						(pin
+							(num "28")
+						)
+						(pin
+							(num "18")
+						)
+						(pin
+							(num "13")
+						)
+						(pin
+							(num "38")
+						)
+						(pin
+							(num "8")
+						)
+						(pin
+							(num "36")
+						)
+						(pin
+							(num "21")
+						)
+						(pin
+							(num "22")
+						)
+						(pin
+							(num "24")
+						)
+						(pin
+							(num "25")
+						)
+						(pin
+							(num "26")
+						)
+						(pin
+							(num "27")
+						)
+						(pin
+							(num "29")
+						)
+						(pin
+							(num "35")
+						)
+						(pin
+							(num "31")
+						)
+						(pin
+							(num "32")
+						)
+						(pin
+							(num "34")
+						)
+						(pin
+							(num "33")
+						)
+					)
+				)
+			)
+		)
+	)
+	(groups)
+	(variants)
+	(libparts
+		(libpart
+			(lib "Connector_Generic")
+			(part "Conn_01x01")
+			(description "Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			(footprints
+				(fp "Connector*:*_1x??_*")
+			)
+			(fields
+				(field
+					(name "Reference") "J")
+				(field
+					(name "Value") "Conn_01x01")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "Pin_1")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Connector_Generic")
+			(part "Conn_01x02")
+			(description "Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			(footprints
+				(fp "Connector*:*_1x??_*")
+			)
+			(fields
+				(field
+					(name "Reference") "J")
+				(field
+					(name "Value") "Conn_01x02")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "Pin_1")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "Pin_2")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Connector_Generic")
+			(part "Conn_01x03")
+			(description "Generic connector, single row, 01x03, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			(footprints
+				(fp "Connector*:*_1x??_*")
+			)
+			(fields
+				(field
+					(name "Reference") "J")
+				(field
+					(name "Value") "Conn_01x03")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Generic connector, single row, 01x03, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "Pin_1")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "Pin_2")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "Pin_3")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Connector_Generic")
+			(part "Conn_01x08")
+			(description "Generic connector, single row, 01x08, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			(footprints
+				(fp "Connector*:*_1x??_*")
+			)
+			(fields
+				(field
+					(name "Reference") "J")
+				(field
+					(name "Value") "Conn_01x08")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Generic connector, single row, 01x08, script generated (kicad-library-utils/schlib/autogen/connector/)")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "Pin_1")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "Pin_2")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "Pin_3")
+					(type "passive")
+				)
+				(pin
+					(num "4")
+					(name "Pin_4")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "Pin_5")
+					(type "passive")
+				)
+				(pin
+					(num "6")
+					(name "Pin_6")
+					(type "passive")
+				)
+				(pin
+					(num "7")
+					(name "Pin_7")
+					(type "passive")
+				)
+				(pin
+					(num "8")
+					(name "Pin_8")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Device")
+			(part "C")
+			(description "Unpolarized capacitor")
+			(footprints
+				(fp "C_*")
+			)
+			(fields
+				(field
+					(name "Reference") "C")
+				(field
+					(name "Value") "C")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Unpolarized capacitor")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Device")
+			(part "C_Polarized")
+			(description "Polarized capacitor")
+			(footprints
+				(fp "CP_*")
+			)
+			(fields
+				(field
+					(name "Reference") "C")
+				(field
+					(name "Value") "C_Polarized")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Polarized capacitor")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Device")
+			(part "Fuse")
+			(description "Fuse")
+			(footprints
+				(fp "*Fuse*")
+			)
+			(fields
+				(field
+					(name "Reference") "F")
+				(field
+					(name "Value") "Fuse")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Fuse")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Device")
+			(part "LED")
+			(description "Light emitting diode")
+			(footprints
+				(fp "LED*")
+				(fp "LED_SMD:*")
+				(fp "LED_THT:*")
+			)
+			(fields
+				(field
+					(name "Reference") "D")
+				(field
+					(name "Value") "LED")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Light emitting diode")
+				(field
+					(name "Sim.Pins") "1=K 2=A")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "K")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "A")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Device")
+			(part "R")
+			(description "Resistor")
+			(footprints
+				(fp "R_*")
+			)
+			(fields
+				(field
+					(name "Reference") "R")
+				(field
+					(name "Value") "R")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Resistor")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Device")
+			(part "Varistor")
+			(description "Voltage dependent resistor")
+			(footprints
+				(fp "RV_*")
+				(fp "Varistor*")
+			)
+			(fields
+				(field
+					(name "Reference") "RV")
+				(field
+					(name "Value") "Varistor")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Voltage dependent resistor")
+				(field
+					(name "Sim.Name") "kicad_builtin_varistor")
+				(field
+					(name "Sim.Device") "SUBCKT")
+				(field
+					(name "Sim.Pins") "1=A 2=B")
+				(field
+					(name "Sim.Params") "threshold=1k")
+				(field
+					(name "Sim.Library") "${KICAD9_SYMBOL_DIR}/Simulation_SPICE.sp")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Isolator")
+			(part "PC817")
+			(description "DC Optocoupler, Vce 35V, CTR 50-300%, DIP-4")
+			(docs "http://www.soselectronic.cz/a_info/resource/d/pc817.pdf")
+			(footprints
+				(fp "DIP*W7.62mm*")
+			)
+			(fields
+				(field
+					(name "Reference") "U")
+				(field
+					(name "Value") "PC817")
+				(field
+					(name "Footprint") "Package_DIP:DIP-4_W7.62mm")
+				(field
+					(name "Datasheet") "http://www.soselectronic.cz/a_info/resource/d/pc817.pdf")
+				(field
+					(name "Description") "DC Optocoupler, Vce 35V, CTR 50-300%, DIP-4")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "4")
+					(name "")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Regulator_Linear")
+			(part "LM7805_TO220")
+			(description "Positive 1A 35V Linear Regulator, Fixed Output 5V, TO-220")
+			(docs "https://www.onsemi.cn/PowerSolutions/document/MC7800-D.PDF")
+			(footprints
+				(fp "TO?220*")
+			)
+			(fields
+				(field
+					(name "Reference") "U")
+				(field
+					(name "Value") "LM7805_TO220")
+				(field
+					(name "Footprint") "Package_TO_SOT_THT:TO-220-3_Vertical")
+				(field
+					(name "Datasheet") "https://www.onsemi.cn/PowerSolutions/document/MC7800-D.PDF")
+				(field
+					(name "Description") "Positive 1A 35V Linear Regulator, Fixed Output 5V, TO-220")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "VI")
+					(type "power_in")
+				)
+				(pin
+					(num "2")
+					(name "GND")
+					(type "power_in")
+				)
+				(pin
+					(num "3")
+					(name "VO")
+					(type "power_out")
+				)
+			)
+		)
+		(libpart
+			(lib "Relay_SolidState")
+			(part "MOC3052M")
+			(description "Random Phase Opto-Triac, Vdrm 600V, Ift 10mA, DIP6")
+			(docs "https://www.onsemi.com/pub/Collateral/MOC3052M-D.PDF")
+			(footprints
+				(fp "DIP*W7.62mm*")
+				(fp "SMDIP*W9.53mm*")
+				(fp "DIP*W10.16mm*")
+			)
+			(fields
+				(field
+					(name "Reference") "U")
+				(field
+					(name "Value") "MOC3052M")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet") "https://www.onsemi.com/pub/Collateral/MOC3052M-D.PDF")
+				(field
+					(name "Description") "Random Phase Opto-Triac, Vdrm 600V, Ift 10mA, DIP6")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "NC")
+					(type "no_connect")
+				)
+				(pin
+					(num "4")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "NC")
+					(type "no_connect")
+				)
+				(pin
+					(num "6")
+					(name "")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Relay_SolidState")
+			(part "MOC3062M")
+			(description "Zero Cross Opto-Triac, Vdrm 600V, Ift 10mA, DIP6")
+			(docs "https://www.onsemi.com/pub/Collateral/MOC3163M-D.pdf")
+			(footprints
+				(fp "DIP*W7.62mm*")
+				(fp "SMDIP*W9.53mm*")
+				(fp "DIP*W10.16mm*")
+			)
+			(fields
+				(field
+					(name "Reference") "U")
+				(field
+					(name "Value") "MOC3062M")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet") "https://www.onsemi.com/pub/Collateral/MOC3163M-D.pdf")
+				(field
+					(name "Description") "Zero Cross Opto-Triac, Vdrm 600V, Ift 10mA, DIP6")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "NC")
+					(type "no_connect")
+				)
+				(pin
+					(num "4")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "NC")
+					(type "no_connect")
+				)
+				(pin
+					(num "6")
+					(name "")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "Triac_Thyristor")
+			(part "BTA16-600BW")
+			(description "16A RMS, 600V Off-State Voltage, 50mA Sensitivity, Snubberless, Insulated, Triac, TO-220")
+			(docs "https://www.st.com/resource/en/datasheet/bta16.pdf")
+			(footprints
+				(fp "TO?220*")
+			)
+			(fields
+				(field
+					(name "Reference") "Q")
+				(field
+					(name "Value") "BTA16-600BW")
+				(field
+					(name "Footprint") "Package_TO_SOT_THT:TO-220-3_Vertical")
+				(field
+					(name "Datasheet") "https://www.st.com/resource/en/datasheet/bta16.pdf")
+				(field
+					(name "Description") "16A RMS, 600V Off-State Voltage, 50mA Sensitivity, Snubberless, Insulated, Triac, TO-220")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "A1")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "A2")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "G")
+					(type "input")
+				)
+			)
+		)
+		(libpart
+			(lib "oximite")
+			(part "DF06S_Rectifier")
+			(description "DF06S bridge rectifier, 600 V, 1.5 A; + output marked as a power source for ERC")
+			(docs "https://www.onsemi.com/download/data-sheet/pdf/df10s-d.pdf")
+			(footprints
+				(fp "Diode*Bridge*OnSemi*SDIP*4L*")
+			)
+			(fields
+				(field
+					(name "Reference") "D")
+				(field
+					(name "Value") "DF06S_Rectifier")
+				(field
+					(name "Footprint") "Diode_SMD:Diode_Bridge_OnSemi_SDIP-4L")
+				(field
+					(name "Datasheet") "https://www.onsemi.com/download/data-sheet/pdf/df10s-d.pdf")
+				(field
+					(name "Description") "DF06S bridge rectifier, 600 V, 1.5 A; + output marked as a power source for ERC")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "+")
+					(type "power_out")
+				)
+				(pin
+					(num "2")
+					(name "-")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "")
+					(type "passive")
+				)
+				(pin
+					(num "4")
+					(name "")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "oximite")
+			(part "RaspberryPi_Pico_Plus2W")
+			(description "Pimoroni Pico Plus 2 W (RP2350B) module; AGND demoted to passive so it may be tied to GND")
+			(docs "https://datasheets.raspberrypi.com/picow/pico-w-datasheet.pdf")
+			(footprints
+				(fp "RaspberryPi?Pico?Common*")
+				(fp "RaspberryPi?Pico?W?SMD*")
+			)
+			(fields
+				(field
+					(name "Reference") "A")
+				(field
+					(name "Value") "RaspberryPi_Pico_Plus2W")
+				(field
+					(name "Footprint") "oximite:Pimoroni_Pico_Plus_2_W_Header_Mount")
+				(field
+					(name "Datasheet") "https://datasheets.raspberrypi.com/picow/pico-w-datasheet.pdf")
+				(field
+					(name "Description") "Pimoroni Pico Plus 2 W (RP2350B) module; AGND demoted to passive so it may be tied to GND")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "GPIO0")
+					(type "bidirectional")
+				)
+				(pin
+					(num "2")
+					(name "GPIO1")
+					(type "bidirectional")
+				)
+				(pin
+					(num "3")
+					(name "GND")
+					(type "power_out")
+				)
+				(pin
+					(num "4")
+					(name "GPIO2")
+					(type "bidirectional")
+				)
+				(pin
+					(num "5")
+					(name "GPIO3")
+					(type "bidirectional")
+				)
+				(pin
+					(num "6")
+					(name "GPIO4")
+					(type "bidirectional")
+				)
+				(pin
+					(num "7")
+					(name "GPIO5")
+					(type "bidirectional")
+				)
+				(pin
+					(num "8")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "9")
+					(name "GPIO6")
+					(type "bidirectional")
+				)
+				(pin
+					(num "10")
+					(name "GPIO7")
+					(type "bidirectional")
+				)
+				(pin
+					(num "11")
+					(name "GPIO8")
+					(type "bidirectional")
+				)
+				(pin
+					(num "12")
+					(name "GPIO9")
+					(type "bidirectional")
+				)
+				(pin
+					(num "13")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "14")
+					(name "GPIO10")
+					(type "bidirectional")
+				)
+				(pin
+					(num "15")
+					(name "GPIO11")
+					(type "bidirectional")
+				)
+				(pin
+					(num "16")
+					(name "GPIO12")
+					(type "bidirectional")
+				)
+				(pin
+					(num "17")
+					(name "GPIO13")
+					(type "bidirectional")
+				)
+				(pin
+					(num "18")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "19")
+					(name "GPIO14")
+					(type "bidirectional")
+				)
+				(pin
+					(num "20")
+					(name "GPIO15")
+					(type "bidirectional")
+				)
+				(pin
+					(num "21")
+					(name "GPIO16")
+					(type "bidirectional")
+				)
+				(pin
+					(num "22")
+					(name "GPIO17")
+					(type "bidirectional")
+				)
+				(pin
+					(num "23")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "24")
+					(name "GPIO18")
+					(type "bidirectional")
+				)
+				(pin
+					(num "25")
+					(name "GPIO19")
+					(type "bidirectional")
+				)
+				(pin
+					(num "26")
+					(name "GPIO20")
+					(type "bidirectional")
+				)
+				(pin
+					(num "27")
+					(name "GPIO21")
+					(type "bidirectional")
+				)
+				(pin
+					(num "28")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "29")
+					(name "GPIO22")
+					(type "bidirectional")
+				)
+				(pin
+					(num "30")
+					(name "RUN")
+					(type "passive")
+				)
+				(pin
+					(num "31")
+					(name "GP26_GPIO40_ADC0")
+					(type "bidirectional")
+				)
+				(pin
+					(num "32")
+					(name "GP27_GPIO41_ADC1")
+					(type "bidirectional")
+				)
+				(pin
+					(num "33")
+					(name "AGND")
+					(type "passive")
+				)
+				(pin
+					(num "34")
+					(name "GP28_GPIO42_ADC2")
+					(type "bidirectional")
+				)
+				(pin
+					(num "35")
+					(name "ADC_VREF")
+					(type "power_in")
+				)
+				(pin
+					(num "36")
+					(name "3V3")
+					(type "power_out")
+				)
+				(pin
+					(num "37")
+					(name "3V3_EN")
+					(type "passive")
+				)
+				(pin
+					(num "38")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "39")
+					(name "VSYS")
+					(type "power_in")
+				)
+				(pin
+					(num "40")
+					(name "VBUS")
+					(type "power_out")
+				)
+			)
+		)
+		(libpart
+			(lib "oximite")
+			(part "Transformer_Hahn_BV_EI_305")
+			(description "Hahn BV EI 305 8022 PCB transformer, 2.3 VA, 230 V primary (pins 1-5), 12 V secondary (pins 7-9)")
+			(fields
+				(field
+					(name "Reference") "T")
+				(field
+					(name "Value") "Transformer_Hahn_BV_EI_305")
+				(field
+					(name "Footprint") "oximite:Transformer_Hahn_BV_EI_305")
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "Hahn BV EI 305 8022 PCB transformer, 2.3 VA, 230 V primary (pins 1-5), 12 V secondary (pins 7-9)")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "P1")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "P2")
+					(type "passive")
+				)
+				(pin
+					(num "7")
+					(name "S1")
+					(type "passive")
+				)
+				(pin
+					(num "9")
+					(name "S2")
+					(type "passive")
+				)
+			)
+		)
+	)
+	(libraries
+		(library
+			(logical "Connector_Generic")
+			(uri "${KICAD10_SYMBOL_DIR}/Connector_Generic.kicad_sym")
+		)
+		(library
+			(logical "Device")
+			(uri "${KICAD10_SYMBOL_DIR}/Device.kicad_sym")
+		)
+		(library
+			(logical "Isolator")
+			(uri "${KICAD10_SYMBOL_DIR}/Isolator.kicad_sym")
+		)
+		(library
+			(logical "Regulator_Linear")
+			(uri "${KICAD10_SYMBOL_DIR}/Regulator_Linear.kicad_sym")
+		)
+		(library
+			(logical "Relay_SolidState")
+			(uri "${KICAD10_SYMBOL_DIR}/Relay_SolidState.kicad_sym")
+		)
+		(library
+			(logical "Triac_Thyristor")
+			(uri "${KICAD10_SYMBOL_DIR}/Triac_Thyristor.kicad_sym")
+		)
+		(library
+			(logical "oximite")
+			(uri "${KIPRJMOD}/oximite.kicad_sym")
+		)
+	)
+	(nets
+		(net
+			(code "1")
+			(name "/+3V3")
+			(class "Default")
+			(node
+				(ref "C16")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "C7")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "J11")
+				(pin "1")
+				(pinfunction "Pin_1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "J13")
+				(pin "1")
+				(pinfunction "Pin_1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R2")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "R21")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R23")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "36")
+				(pinfunction "3V3_36")
+				(pintype "power_out")
+			)
+		)
+		(net
+			(code "2")
+			(name "/AC_Mains/HEAT_GATE")
+			(class "Default")
+			(node
+				(ref "Q1")
+				(pin "3")
+				(pinfunction "G_3")
+				(pintype "input")
+			)
+			(node
+				(ref "R5")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U2")
+				(pin "4")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "3")
+			(name "/AC_Mains/HEAT_MT1")
+			(class "Default")
+			(node
+				(ref "J5")
+				(pin "1")
+				(pinfunction "Pin_1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "Q1")
+				(pin "1")
+				(pinfunction "A1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R5")
+				(pin "2")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "4")
+			(name "/AC_Mains/HEAT_OPTO_LED_A")
+			(class "Default")
+			(node
+				(ref "R3")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U2")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "5")
+			(name "/AC_Mains/HEAT_OPTO_MT")
+			(class "Default")
+			(node
+				(ref "R4")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U2")
+				(pin "6")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "6")
+			(name "/AC_Mains/L_FUSED")
+			(class "Default")
+			(node
+				(ref "F1")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "Q1")
+				(pin "2")
+				(pinfunction "A2_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "Q2")
+				(pin "2")
+				(pinfunction "A2_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "Q3")
+				(pin "2")
+				(pinfunction "A2_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "R12")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R14")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R4")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R8")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "RV1")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "T1")
+				(pin "1")
+				(pinfunction "P1_1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "7")
+			(name "/AC_Mains/L_IN")
+			(class "Default")
+			(node
+				(ref "F1")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "J1")
+				(pin "1")
+				(pinfunction "Pin_1_1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "8")
+			(name "/AC_Mains/N")
+			(class "Default")
+			(node
+				(ref "J2")
+				(pin "1")
+				(pinfunction "Pin_1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "RV1")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "T1")
+				(pin "5")
+				(pinfunction "P2_5")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "9")
+			(name "/AC_Mains/PUMP_GATE")
+			(class "Default")
+			(node
+				(ref "Q3")
+				(pin "3")
+				(pinfunction "G_3")
+				(pintype "input")
+			)
+			(node
+				(ref "R13")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U4")
+				(pin "4")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "10")
+			(name "/AC_Mains/PUMP_MT1")
+			(class "Default")
+			(node
+				(ref "C4")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "J9")
+				(pin "1")
+				(pinfunction "Pin_1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "Q3")
+				(pin "1")
+				(pinfunction "A1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R13")
+				(pin "2")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "11")
+			(name "/AC_Mains/PUMP_OPTO_LED_A")
+			(class "Default")
+			(node
+				(ref "R11")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U4")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "12")
+			(name "/AC_Mains/PUMP_OPTO_MT")
+			(class "Default")
+			(node
+				(ref "R12")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U4")
+				(pin "6")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "13")
+			(name "/AC_Mains/PUMP_SNUB")
+			(class "Default")
+			(node
+				(ref "C4")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R25")
+				(pin "2")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "14")
+			(name "/AC_Mains/PUMP_SNUB_R")
+			(class "Default")
+			(node
+				(ref "R14")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "R25")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "15")
+			(name "/AC_Mains/TR_SEC_A")
+			(class "Default")
+			(node
+				(ref "D1")
+				(pin "3")
+				(pintype "passive")
+			)
+			(node
+				(ref "R1")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "T1")
+				(pin "7")
+				(pinfunction "S1_7")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "16")
+			(name "/AC_Mains/TR_SEC_B")
+			(class "Default")
+			(node
+				(ref "D1")
+				(pin "4")
+				(pintype "passive")
+			)
+			(node
+				(ref "D2")
+				(pin "2")
+				(pinfunction "A_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "T1")
+				(pin "9")
+				(pinfunction "S2_9")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "2")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "17")
+			(name "/AC_Mains/VALVE_GATE")
+			(class "Default")
+			(node
+				(ref "Q2")
+				(pin "3")
+				(pinfunction "G_3")
+				(pintype "input")
+			)
+			(node
+				(ref "R9")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U3")
+				(pin "4")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "18")
+			(name "/AC_Mains/VALVE_MT1")
+			(class "Default")
+			(node
+				(ref "J7")
+				(pin "1")
+				(pinfunction "Pin_1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "Q2")
+				(pin "1")
+				(pinfunction "A1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R9")
+				(pin "2")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "19")
+			(name "/AC_Mains/VALVE_OPTO_LED_A")
+			(class "Default")
+			(node
+				(ref "R7")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U3")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "20")
+			(name "/AC_Mains/VALVE_OPTO_MT")
+			(class "Default")
+			(node
+				(ref "R8")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U3")
+				(pin "6")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "21")
+			(name "/AC_Mains/ZC_LED_A")
+			(class "Default")
+			(node
+				(ref "D2")
+				(pin "1")
+				(pinfunction "K_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R1")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "22")
+			(name "/Control/+5V")
+			(class "Default")
+			(node
+				(ref "C6")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "J10")
+				(pin "1")
+				(pinfunction "Pin_1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U5")
+				(pin "3")
+				(pinfunction "VO_3")
+				(pintype "power_out")
+			)
+			(node
+				(ref "U6")
+				(pin "39")
+				(pinfunction "VSYS_39")
+				(pintype "power_in")
+			)
+		)
+		(net
+			(code "23")
+			(name "/Control/BTN_BREW")
+			(class "Default")
+			(node
+				(ref "C9")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R16")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "9")
+				(pinfunction "GPIO6_9")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "24")
+			(name "/Control/BTN_BREW_CONN")
+			(class "Default")
+			(node
+				(ref "J10")
+				(pin "5")
+				(pinfunction "Pin_5_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "R16")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "25")
+			(name "/Control/BTN_FLUSH")
+			(class "Default")
+			(node
+				(ref "C11")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R18")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "11")
+				(pinfunction "GPIO8_11")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "26")
+			(name "/Control/BTN_FLUSH_CONN")
+			(class "Default")
+			(node
+				(ref "J10")
+				(pin "7")
+				(pinfunction "Pin_7_7")
+				(pintype "passive")
+			)
+			(node
+				(ref "R18")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "27")
+			(name "/Control/BTN_PWR")
+			(class "Default")
+			(node
+				(ref "C8")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R15")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "7")
+				(pinfunction "GPIO5_7")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "28")
+			(name "/Control/BTN_PWR_CONN")
+			(class "Default")
+			(node
+				(ref "J10")
+				(pin "4")
+				(pinfunction "Pin_4_4")
+				(pintype "passive")
+			)
+			(node
+				(ref "R15")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "29")
+			(name "/Control/BTN_STEAM")
+			(class "Default")
+			(node
+				(ref "C10")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R17")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "10")
+				(pinfunction "GPIO7_10")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "30")
+			(name "/Control/BTN_STEAM_CONN")
+			(class "Default")
+			(node
+				(ref "J10")
+				(pin "6")
+				(pinfunction "Pin_6_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "R17")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "31")
+			(name "/Control/FLOW")
+			(class "Default")
+			(node
+				(ref "C15")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R24")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "20")
+				(pinfunction "GPIO15_20")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "32")
+			(name "/Control/FLOW_CONN")
+			(class "Default")
+			(node
+				(ref "C14")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "J13")
+				(pin "2")
+				(pinfunction "Pin_2_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "R23")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "R24")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "33")
+			(name "/Control/NTC_CONN")
+			(class "Default")
+			(node
+				(ref "J12")
+				(pin "1")
+				(pinfunction "Pin_1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R21")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "R22")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "34")
+			(name "/Control/NTC_SENSE")
+			(class "Default")
+			(node
+				(ref "C13")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R22")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "32")
+				(pinfunction "GP27_GPIO41_ADC1_32")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "35")
+			(name "/Control/PRESSURE")
+			(class "Default")
+			(node
+				(ref "C12")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "R20")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "31")
+				(pinfunction "GP26_GPIO40_ADC0_31")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "36")
+			(name "/Control/PRESSURE_CONN")
+			(class "Default")
+			(node
+				(ref "J11")
+				(pin "2")
+				(pinfunction "Pin_2_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "R20")
+				(pin "1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "37")
+			(name "/Control/WS2812_DATA")
+			(class "Default")
+			(node
+				(ref "R19")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "12")
+				(pinfunction "GPIO9_12")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "38")
+			(name "/Control/WS2812_DATA_CONN")
+			(class "Default")
+			(node
+				(ref "J10")
+				(pin "2")
+				(pinfunction "Pin_2_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "R19")
+				(pin "2")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "39")
+			(name "/GND")
+			(class "Default")
+			(node
+				(ref "C1")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C10")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C11")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C12")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C13")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C14")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C15")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C16")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C5")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C6")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C7")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C8")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C9")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "D1")
+				(pin "2")
+				(pinfunction "-_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "J10")
+				(pin "3")
+				(pinfunction "Pin_3_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "J10")
+				(pin "8")
+				(pinfunction "Pin_8_8")
+				(pintype "passive")
+			)
+			(node
+				(ref "J11")
+				(pin "3")
+				(pinfunction "Pin_3_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "J12")
+				(pin "2")
+				(pinfunction "Pin_2_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "J13")
+				(pin "3")
+				(pinfunction "Pin_3_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "3")
+				(pintype "passive")
+			)
+			(node
+				(ref "U2")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U3")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U4")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U5")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "power_in")
+			)
+			(node
+				(ref "U6")
+				(pin "13")
+				(pinfunction "GND_13")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "18")
+				(pinfunction "GND_18")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "23")
+				(pinfunction "GND_23")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "28")
+				(pinfunction "GND_28")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "3")
+				(pinfunction "GND_3")
+				(pintype "power_out")
+			)
+			(node
+				(ref "U6")
+				(pin "33")
+				(pinfunction "AGND_33")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "38")
+				(pinfunction "GND_38")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "8")
+				(pinfunction "GND_8")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "40")
+			(name "/HEAT_CTL")
+			(class "Default")
+			(node
+				(ref "R3")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "4")
+				(pinfunction "GPIO2_4")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "41")
+			(name "/PUMP_CTL")
+			(class "Default")
+			(node
+				(ref "R11")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "1")
+				(pinfunction "GPIO0_1")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "42")
+			(name "/VALVE_CTL")
+			(class "Default")
+			(node
+				(ref "R7")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "5")
+				(pinfunction "GPIO3_5")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "43")
+			(name "/VUNREG")
+			(class "Default")
+			(node
+				(ref "C1")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "C5")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "D1")
+				(pin "1")
+				(pinfunction "+_1")
+				(pintype "power_out")
+			)
+			(node
+				(ref "U5")
+				(pin "1")
+				(pinfunction "VI_1")
+				(pintype "power_in")
+			)
+		)
+		(net
+			(code "44")
+			(name "/ZC")
+			(class "Default")
+			(node
+				(ref "R2")
+				(pin "1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "4")
+				(pintype "passive")
+			)
+			(node
+				(ref "U6")
+				(pin "14")
+				(pinfunction "GPIO10_14")
+				(pintype "bidirectional")
+			)
+		)
+		(net
+			(code "45")
+			(name "unconnected-(U2-NC-Pad3)")
+			(class "Default")
+			(node
+				(ref "U2")
+				(pin "3")
+				(pinfunction "NC_3")
+				(pintype "no_connect")
+			)
+		)
+		(net
+			(code "46")
+			(name "unconnected-(U2-NC-Pad5)")
+			(class "Default")
+			(node
+				(ref "U2")
+				(pin "5")
+				(pinfunction "NC_5")
+				(pintype "no_connect")
+			)
+		)
+		(net
+			(code "47")
+			(name "unconnected-(U3-NC-Pad3)")
+			(class "Default")
+			(node
+				(ref "U3")
+				(pin "3")
+				(pinfunction "NC_3")
+				(pintype "no_connect")
+			)
+		)
+		(net
+			(code "48")
+			(name "unconnected-(U3-NC-Pad5)")
+			(class "Default")
+			(node
+				(ref "U3")
+				(pin "5")
+				(pinfunction "NC_5")
+				(pintype "no_connect")
+			)
+		)
+		(net
+			(code "49")
+			(name "unconnected-(U4-NC-Pad3)")
+			(class "Default")
+			(node
+				(ref "U4")
+				(pin "3")
+				(pinfunction "NC_3")
+				(pintype "no_connect")
+			)
+		)
+		(net
+			(code "50")
+			(name "unconnected-(U4-NC-Pad5)")
+			(class "Default")
+			(node
+				(ref "U4")
+				(pin "5")
+				(pinfunction "NC_5")
+				(pintype "no_connect")
+			)
+		)
+		(net
+			(code "51")
+			(name "unconnected-(U6-3V3_EN-Pad37)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "37")
+				(pinfunction "3V3_EN_37")
+				(pintype "passive+no_connect")
+			)
+		)
+		(net
+			(code "52")
+			(name "unconnected-(U6-ADC_VREF-Pad35)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "35")
+				(pinfunction "ADC_VREF_35")
+				(pintype "power_in+no_connect")
+			)
+		)
+		(net
+			(code "53")
+			(name "unconnected-(U6-GP28_GPIO42_ADC2-Pad34)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "34")
+				(pinfunction "GP28_GPIO42_ADC2_34")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "54")
+			(name "unconnected-(U6-GPIO1-Pad2)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "2")
+				(pinfunction "GPIO1_2")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "55")
+			(name "unconnected-(U6-GPIO4-Pad6)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "6")
+				(pinfunction "GPIO4_6")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "56")
+			(name "unconnected-(U6-GPIO11-Pad15)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "15")
+				(pinfunction "GPIO11_15")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "57")
+			(name "unconnected-(U6-GPIO12-Pad16)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "16")
+				(pinfunction "GPIO12_16")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "58")
+			(name "unconnected-(U6-GPIO13-Pad17)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "17")
+				(pinfunction "GPIO13_17")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "59")
+			(name "unconnected-(U6-GPIO14-Pad19)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "19")
+				(pinfunction "GPIO14_19")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "60")
+			(name "unconnected-(U6-GPIO16-Pad21)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "21")
+				(pinfunction "GPIO16_21")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "61")
+			(name "unconnected-(U6-GPIO17-Pad22)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "22")
+				(pinfunction "GPIO17_22")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "62")
+			(name "unconnected-(U6-GPIO18-Pad24)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "24")
+				(pinfunction "GPIO18_24")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "63")
+			(name "unconnected-(U6-GPIO19-Pad25)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "25")
+				(pinfunction "GPIO19_25")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "64")
+			(name "unconnected-(U6-GPIO20-Pad26)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "26")
+				(pinfunction "GPIO20_26")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "65")
+			(name "unconnected-(U6-GPIO21-Pad27)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "27")
+				(pinfunction "GPIO21_27")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "66")
+			(name "unconnected-(U6-GPIO22-Pad29)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "29")
+				(pinfunction "GPIO22_29")
+				(pintype "bidirectional+no_connect")
+			)
+		)
+		(net
+			(code "67")
+			(name "unconnected-(U6-RUN-Pad30)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "30")
+				(pinfunction "RUN_30")
+				(pintype "passive+no_connect")
+			)
+		)
+		(net
+			(code "68")
+			(name "unconnected-(U6-VBUS-Pad40)")
+			(class "Default")
+			(node
+				(ref "U6")
+				(pin "40")
+				(pinfunction "VBUS_40")
+				(pintype "power_out+no_connect")
+			)
+		)
+	)
+)
