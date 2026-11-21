@@ -4,39 +4,54 @@ Instructions for AI coding agents and contributors. Global agent rules (workflow
 
 ## Project
 
-oximite is Rust `no_std` + Embassy firmware for the Pimoroni Pico Plus 2 W (RP2350B). It retrofits domestic espresso machines with digital temperature, pressure, and flow control.
+oximite is Rust `no_std` + Embassy firmware for the Pimoroni Pico Plus 2 W (RP2350B), paired with shared protocol types, host tests, and a native desktop companion application. It retrofits domestic espresso machines with digital temperature, pressure, and flow control.
 
 - `docs/`: All project documentation. Start at [Requirements](docs/requirements.md).
-- `firmware/`: Firmware crate (`src/`, `Cargo.toml`, `build.rs`).
-- `firmware/html/`: Embedded web dashboard served over HTTP.
+- `proto/`: Shared `no_std` crate (`oximite-proto`) defining domain models and Port 80/8080 wire codecs.
+- `firmware/`: RP2350B firmware crate (`src/`, `Cargo.toml`, `build.rs`).
+- `firmware/html/`: Lightweight offline web dashboard (without live graphing) served over HTTP on port 80.
 - `firmware/cyw43-firmware/`: Third-party Wi-Fi blobs. Do not edit.
+- `host-tests/`: Host unit, property/fuzz, and closed-loop simulation suite (`oximite-host-tests`).
+- `control/`: Native Rust desktop application (`oximite-control`, `eframe`/`egui`) for live graphing, control, PID tuning, profiles, and bench sweeps.
 - `pcb/`: KiCad schematic, board layout, symbols, and footprints.
 - `mech/`: OpenSCAD models for mounting brackets.
-- `tests/`: Hardware-in-the-loop and network test suite.
 
 ## Build and validate
 
-Install the Rust `thumbv8m.main-none-eabihf` target first.
+Install the Rust `thumbv8m.main-none-eabihf` target before building `firmware/`.
 
-Run all steps before you report a firmware change as done:
-
-```powershell
-cd firmware
-cargo fmt
-cargo check
-cargo clippy
-```
-
-`cargo clippy` MUST report zero warnings.
-
-When a target or test rig is connected, run the hardware-in-the-loop and network tests:
+Run all validation steps for every affected crate before you report a change as done:
 
 ```powershell
-cd tests
-uv run python -m unittest test_oximite.py
+# 1. Shared protocol crate
+Set-Location proto
+cargo fmt --check
+cargo test --offline
+cargo clippy --all-targets --offline -- -D warnings
+
+# 2. Host unit, fuzz, and simulation suite
+Set-Location ../host-tests
+cargo fmt --check
+cargo test --offline
+cargo clippy --all-targets --offline -- -D warnings
+
+# 3. RP2350B firmware
+Set-Location ../firmware
+cargo fmt --check
+cargo clippy --offline -- -D warnings
+cargo build --release --offline
+
+# 4. Native desktop control app
+Set-Location ../control
+cargo fmt --check
+cargo test --offline
+cargo clippy --all-targets --offline -- -D warnings
+cargo build --release --offline
 ```
 
-Say clearly in your report if you could not run the hardware tests.
+`cargo clippy` MUST report zero warnings in every crate.
+
+Say clearly in your report when you could not run hardware-in-the-loop verification on a connected Pico Plus 2 W target.
 
 ## Safety
 
@@ -50,8 +65,10 @@ The firmware switches AC mains loads and heats a pressurized boiler. Treat every
 Each rule links to the document that owns the details.
 
 - **Core split:** Core 0 runs hard real-time control only. Core 1 runs networking and telemetry only. See [Firmware design](docs/firmware.md) section 2.
-- **Inter-core data:** Data MUST cross cores only through the lock-free atomics and channels in `state.rs`. Never use blocking mutexes across cores.
-- **No heap:** Use static allocations, `heapless` collections, and `static_cell`.
+- **Inter-core data:** Data MUST cross cores only through the lock-free atomics, `Watch` primitives, and bounded channels in `firmware/src/bus.rs`. Never use blocking mutexes inside Core 0 real-time control loops.
+- **Pure logic isolation:** Pure `no_std` logic modules (`board.rs`, `sensors.rs`, `flow.rs`, `pid.rs`, `controller.rs`, `machine.rs`, `debounce.rs`, `leds.rs`, `backoff.rs`, `dhcp_codec.rs`, `http_codec.rs`) MUST NOT depend on `embassy-*`, `defmt`, hardware peripherals, or wall clocks.
+- **Deferred persistence:** Commands with `Ambient::RamAndFlash` MUST defer both RAM and flash updates until the machine is idle (`!state.is_busy()`). See [Firmware design](docs/firmware.md) section 5.
+- **No heap:** Use static allocations, `heapless` collections, and `static_cell` in `firmware/` and `proto/`.
 - **Mains synchronization:** The control loop MUST stay locked to the zero-cross falling edge.
 - **Actuator isolation:** The pump triac and the heater MUST NOT switch at the same time.
 - **Heater fail-safe:** The heater state machine MUST keep `pull noblock`. An empty FIFO MUST turn the heater off.

@@ -1,22 +1,22 @@
 # Web interface and HTTP API
 
-This document specifies the embedded HTTP web server and REST API running on port 80.
+This document specifies the embedded HTTP web server and JSON endpoints on TCP port 80.
 
 ## Overview
 
-Core 1 runs an asynchronous HTTP server using `embassy-net`. It serves the single-page application dashboard from flash (`firmware/html/index.html`) and provides REST endpoints for browser control and configuration.
+Core 1 runs an asynchronous HTTP/1.1 server (`http_task.rs` + pure `http_codec.rs`) on `embassy-net`. It serves a lightweight, offline, graph-free control and Wi-Fi setup page (`firmware/html/index.html`) and JSON endpoints for browser control. For live multi-panel graphing, PID tuning, and bench sweeps, use the native desktop app (`control/`).
 
 ## Endpoints
 
 ### 1. Static dashboard
 
 - **`GET /`** or **`GET /index.html`**  
-  Returns the compressed HTML, JavaScript, and CSS bundle containing the live graphing interface.
+  Returns the gzip-compressed HTML, JavaScript, and CSS bundle. The dashboard polls `GET /api/telemetry` every 500 ms and contains no external CDN assets or live charts.
 
 ### 2. State and telemetry
 
 - **`GET /api/telemetry`**  
-  Returns the current system telemetry snapshot as JSON:
+  Returns the current system snapshot (`UiTelemetry` in `proto/src/protocol.rs`):
   ```json
   {
     "t": 93.2,
@@ -28,34 +28,25 @@ Core 1 runs an asynchronous HTTP server using `embassy-net`. It serves the singl
     "ack": 42
   }
   ```
-  Fields: `t` (grouphead temp), `sbt` (session brew temp setpoint), `p` (pressure), `fl` (flow rate), `vol` (volume), `st` (machine state, see `MachineState` in [Firmware design](firmware.md)), `ack` (command ticket acknowledged).
+  Fields: `t` (displayed temp in °C), `sbt` (session brew target setpoint in °C), `p` (pressure in bar), `fl` (flow rate in ml/s), `vol` (volume in ml), `st` (`MachineState` numeric wire value), `ack` (last completed command ticket).
 
-### 3. Machine control
+### 3. Machine control and settings updates
 
 - **`POST /api/cmd`**  
-  Dispatches an operational command:
+  Accepts a JSON command matching `ApiCommand` (`proto/src/protocol.rs`) and returns `{"status":"ok","ack":<u32>}` on acceptance:
   ```json
   {"cmd": "run_slot", "slot": 0}
   ```
-  Supported commands: `"brew"`, `"stop"`, `"flush"`, `"steam"`, `"power"`, `"direct_pump"`, `"run_slot"`, `"profile"`, `"set_session_temp"`, `"save_settings"`, `"save_profile"`, `"delete_profile"`.
+  Supported HTTP `cmd` actions:
+  - Operational: `"power"`, `"brew"`, `"stop"`, `"steam"`, `"flush"`, `"direct_pump"` (`power`), `"profile"` (`profile`), `"run_slot"` (`slot`).
+  - Session adjustment (RAM only): `"set_session_temp"` (`temp`).
+  - Persistent configuration (`Ambient::RamAndFlash`, deferred until idle): `"save_machine"` (`machine`), `"save_pids"` (`temp_pid`, `pump_pid`), `"save_wifi"` (`wifi`), `"save_profile"` (`slot`, `profile`), `"delete_profile"` (`slot`).
 
-### 4. Settings management
+### 4. Read-only configuration queries
 
 - **`GET /api/settings`**  
-  Retrieves current operational parameters.
-- **`POST /api/settings`**  
-  Updates settings in RAM and commits to flash via `sequential-storage`:
-  ```json
-  {
-    "brew_temp": 93.5,
-    "steam_temp": 135.0,
-    "pid": {"kp": 10.5, "ki": 0.35, "kd": 22.0}
-  }
-  ```
-
-### 5. Extraction profiles
-
+  Returns `PublicSettings` (`machine`, `temp_pid`, `pump_pid`, and `wifi: {"ssid": "...", "has_password": bool}`). Stored Wi-Fi passwords are never returned over the network.
 - **`GET /api/profiles`**  
-  Returns all persisted multi-step profiles. REQ-16 sets the limit.
-- **`POST /api/profiles`**  
-  Saves or overwrites a profile definition.
+  Returns saved profile slot headers as a JSON array (`[{"slot": 0, "name": "Standard"}, ...]`). REQ-16 sets the slot limit.
+- **`GET /api/profile/<slot>`**  
+  Returns the full `BrewProfile` JSON object for slot `0..=9`, or `404 Not Found` if the slot is empty or out of range.

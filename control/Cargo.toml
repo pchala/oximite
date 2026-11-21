@@ -1,0 +1,25 @@
+[package]
+name = "oximite-control"
+version = "0.1.0"
+edition = "2021"
+description = "Oximite Espresso Control, Graphing & PID Tuning Application"
+publish = false
+
+[lib]
+name = "oximite_control"
+path = "src/lib.rs"
+
+[[bin]]
+name = "oximite-control"
+path = "src/main.rs"
+
+[dependencies]
+oximite-proto = { path = "../proto", features = ["std"] }
+eframe = "0.37"
+egui = "0.37"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+rfd = "0.15"
+
+[workspace]

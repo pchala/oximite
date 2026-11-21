@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>oximite espresso</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root { --bg: #121212; --panel: #1e1e1e; --text: #e0e0e0; --accent: #bb86fc; --danger: #cf6679; --success: #03dac6; --border: #333; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; max-width: 800px; margin: 0 auto; }
@@ -37,7 +36,6 @@
         .step-note { font-size: 0.75em; color: #999; padding-top: 0 !important; border-bottom: 1px solid var(--border); }
         table { width: 100%; border-collapse: collapse; margin-bottom: 15px; } th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
         #step-body tr.step-row td { border-bottom: none; }
-        canvas { width: 100% !important; height: 300px !important; }
         label { font-size: 0.8em; color: #aaa; }
         
         /* Tabs Styling */
@@ -91,11 +89,10 @@
                 <button class="js-action" data-cmd="flush" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">FLUSH</button>
                 <button class="js-action success" data-cmd="brew" style="aspect-ratio: 2 / 1; font-size: 1.1em; display: flex; align-items: center; justify-content: center; text-align: center;">BREW</button>
             </div>
-            <button class="js-stop danger" data-act="stop" style="width: 100%; padding: 15px; font-size: 1.2em;">STOP</button>
-        </div>
-        
-        <div class="panel">
-            <canvas id="telemetryChart"></canvas>
+            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 10px;">
+                <button class="js-action" data-cmd="power" style="padding: 15px; font-size: 1.1em; background: #444; color: var(--text);">POWER</button>
+                <button class="js-stop danger" data-act="stop" style="width: 100%; padding: 15px; font-size: 1.2em;">STOP</button>
+            </div>
         </div>
         
         <div class="panel">
@@ -127,8 +124,9 @@
             <p class="hint">
                 Blank or 0 means <em>no limit</em>. A step ends at whichever of its time or volume
                 comes first, and volume is counted from the start of the shot, not per step.
-                Setting a flow rate hands the pump to the flow controller and the step's pressure
-                is ignored. Every step is cut off after 120 s regardless.
+                Pressure and flow can be set together — whichever target hits first governs the
+                pump (pressure 10 bar or higher switches to raw pump power %). Every step is cut
+                off after 120 s regardless.
             </p>
             <div class="grid-2">
                 <button data-act="add-step">+ Add Step</button>
@@ -198,47 +196,6 @@
         target.style.display = "block";
         target.classList.add("active");
         if (btn) btn.classList.add("active");
-    }
-
-    // --- CHART ---
-    // 4 Hz polling with no cap grew both arrays without bound for as long as the
-    // machine stayed out of Idle. 240 samples is a 60 s window, which outlasts
-    // any shot, and the buffer is trimmed rather than left to the GC.
-    const CHART_POINTS = 240;
-    let chart = null;
-    try {
-        const chartEl = document.getElementById('telemetryChart');
-        if (chartEl && typeof Chart !== 'undefined') {
-            const ctx = chartEl.getContext('2d');
-            chart = new Chart(ctx, {
-                type: 'line',
-                data: { labels: [], datasets: [ { label: 'Pressure (Bar)', borderColor: '#03dac6', data: [], yAxisID: 'y' }, { label: 'Flow (ml/s)', borderColor: '#bb86fc', data: [], yAxisID: 'y1' } ] },
-                options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { x: { display: false }, y: { type: 'linear', position: 'left', min: 0, max: 10 }, y1: { type: 'linear', position: 'right', min: 0, max: 5 } }, elements: { point: { radius: 0 } } }
-            });
-        }
-    } catch (e) {
-        console.warn("Chart.js not available:", e);
-    }
-
-    function chartReset() {
-        if (!chart) return;
-        chart.data.labels.length = 0;
-        chart.data.datasets.forEach(d => { d.data.length = 0; });
-        chart.update('none');
-    }
-
-    function chartPush(p, fl) {
-        if (!chart) return;
-        const d = chart.data;
-        d.labels.push(d.labels.length ? d.labels[d.labels.length - 1] + 1 : 0);
-        d.datasets[0].data.push(p);
-        d.datasets[1].data.push(fl);
-        while (d.labels.length > CHART_POINTS) {
-            d.labels.shift();
-            d.datasets[0].data.shift();
-            d.datasets[1].data.shift();
-        }
-        chart.update('none');
     }
 
     // --- FIRMWARE CONTRACT ---
@@ -467,11 +424,6 @@
             lastBrewTime = (Date.now() - brewStartTime) / 1000.0;
         }
         $('val-time').textContent = lastBrewTime.toFixed(1);
-
-        if (chart) {
-            if (lastState === 0 && d.st !== 0) chartReset();
-            if (d.st !== 0) chartPush(d.p, d.fl);
-        }
         lastState = d.st;
     }
 
@@ -539,10 +491,10 @@
                     const data = await res.json();
                     let complete = true;
                     for (const s of NUMERIC_SECTIONS) complete = fillSection(s, data[s]) && complete;
-                    // The SSID is safe to show. The password deliberately is not
-                    // copied into the DOM, so it can neither be read off the page
-                    // nor echoed back on the next save.
+                    // The SSID is safe to show. The password is never sent by the
+                    // firmware (only `has_password` is reported).
                     if (data.wifi && typeof data.wifi.ssid === 'string') $('set-ssid').value = data.wifi.ssid;
+                    if (data.wifi && data.wifi.has_password) $('set-pass').placeholder = 'Configured (re-enter to change)';
                     if (complete) {
                         settingsLoaded = true;
                         document.querySelectorAll('[data-s], #set-ssid, #set-pass').forEach(el => { el.disabled = false; });
@@ -670,8 +622,10 @@
         let drive;
         if (s.pressure >= DIRECT_PUMP_BAR) {
             drive = `raw pump power ${Math.min(s.pressure, 100)}% (values from ${DIRECT_PUMP_BAR} up are duty, not bar)`;
+        } else if (s.flow > 0 && s.pressure > 0) {
+            drive = `${s.pressure} bar / ${s.flow} ml/s (binding limit governs)`;
         } else if (s.flow > 0) {
-            drive = `flow held at ${s.flow} ml/s — the ${s.pressure > 0 ? s.pressure + ' bar setting is ignored' : 'pressure is whatever the OPV allows'}`;
+            drive = `flow held at ${s.flow} ml/s`;
         } else if (s.pressure > 0) {
             drive = `${s.pressure} bar`;
         } else {
@@ -682,7 +636,7 @@
         if (s.volume > 0) ends.push(`${s.volume} ml total`);
         const capped = s.time_s > STEP_SAFETY_S;
         return {
-            warn: s.pressure >= DIRECT_PUMP_BAR || capped || (s.flow > 0 && s.pressure > 0),
+            warn: s.pressure >= DIRECT_PUMP_BAR || capped,
             text: `${drive}, until ${ends.join(' or ')}` + (capped ? ` — but cut off at ${STEP_SAFETY_S} s.` : '.'),
         };
     }
@@ -886,7 +840,7 @@
         // Telemetry starts first and never blocks on the other two: it is what
         // drives the connection indicator and the flash-write gating.
         pollTelemetry();
-        setInterval(pollTelemetry, 250);
+        setInterval(pollTelemetry, 500);
         const [okSettings] = await Promise.all([loadSettings(), loadProfilesList()]);
         if (!okSettings) {
             toast('Could not read settings from the machine. Saving stays disabled — reload the page to retry.', 'err');

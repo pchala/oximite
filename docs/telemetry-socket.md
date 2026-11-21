@@ -1,64 +1,77 @@
 # Telemetry and command socket
 
-This document specifies the bidirectional TCP protocol on port 8080.
+This document specifies the bidirectional TCP protocol on port 8080 (`diag_task.rs` + `proto/src/protocol.rs`).
 
 ## Overview
 
-Port 8080 opens a single streaming connection for telemetry recording, automated testing, and companion applications.
-- **Downlink (Controller -> Client):** One fixed-size binary header on connection, followed by one [postcard](https://github.com/jamesmunns/postcard) binary record per control tick (50 Hz).
-- **Uplink (Client -> Controller):** Newline-delimited JSON commands parsed asynchronously.
+Port 8080 accepts a single streaming client connection (used by `oximite-control` via direct IP or hostname) for 50 Hz telemetry, typed events, configuration inspection, and control commands.
 
-## Connection handshake
+- **Downlink (Controller -> Client):** Length-prefixed binary [postcard](https://github.com/jamesmunns/postcard) v3 frames (`[len: u16 LE][postcard DeviceMsg]`). Maximum payload length (`MAX_FRAME_LEN`) is 1024 bytes.
+- **Uplink (Client -> Controller):** Newline-delimited JSON commands (`ApiCommand`, compatible with Port 80 `POST /api/cmd`).
 
-Upon client connection, the controller sends an initial diagnostic header before streaming frames:
+## Downlink protocol (`DeviceMsg`)
 
-| Field | Type | Description |
-|---|---|---|
-| `magic` | `u32` | Protocol magic constant (`0x4449584F` / `"OXID"`) |
-| `ver` | `u8` | Telemetry wire-format version (currently `2`) |
-| `frame_len` | `u8` | Serialized length of each frame in bytes |
-| `temp_offset` | `f32` | Boiler-to-grouphead temperature offset (°C) |
-| `brew_temp` | `f32` | Base brew temperature setpoint (°C) |
-| `steam_temp`| `f32` | Base steam temperature setpoint (°C) |
-| `temp_kp` | `f32` | Temperature PID proportional gain |
-| `temp_ki` | `f32` | Temperature PID integral gain |
-| `temp_kd` | `f32` | Temperature PID derivative gain |
-| `pump_kp` | `f32` | Pump pressure PID proportional gain |
-| `pump_ki` | `f32` | Pump pressure PID integral gain |
-| `pump_kd` | `f32` | Pump pressure PID derivative gain |
+Upon client connection, the controller sends `DeviceMsg::Hello(DeviceHello)` before streaming telemetry ticks.
 
-## Telemetry frame layout
-
-Each 50 Hz tick emits one postcard-serialized frame. The table lists the fields in serialization order. The firmware frame struct (`DiagFrame` in `web_api.rs`) defines the encoded size. Read the size from the `frame_len` field of the handshake header.
+### Handshake (`DeviceHello`)
 
 | Field | Type | Description |
-|---|---|---|
-| `ver` | `u8` | Frame protocol version |
+| --- | --- | --- |
+| `magic` | `u32` | Protocol magic constant (`0x4D49_584F` / `"OXIM"`) |
+| `proto_ver` | `u8` | Wire protocol version (`3`) |
+| `fw_version` | `String<16>` | Firmware package version string |
+| `settings` | `PublicSettings` | Machine, PID, and redacted Wi-Fi snapshot |
+| `profiles` | `Vec<ProfileHeaderOwned, 10>` | List of occupied profile slots and names |
+| `state` | `u8` | Current `MachineState` numeric wire value |
+| `sbt` | `f32` | Session brew temperature setpoint (°C) |
+
+### Message envelopes (`DeviceMsg`)
+
+- `Hello(DeviceHello)`: Initial session snapshot pushed immediately on TCP accept.
+- `Tick(TelemetryFrame)`: Periodic control telemetry sample (50 Hz default, configurable via `set_stream`).
+- `CommandReply { req_id, ticket, err }`: Acknowledgement or `CmdError` for uplink commands that supply `req_id`.
+- `SettingsSnapshot(PublicSettings)`: Response to `get_settings` or push on settings revision change.
+- `ProfilesList(Vec<ProfileHeaderOwned, 10>)`: Response to `get_profiles` or push on profile revision change.
+- `ProfileData { slot, profile }`: Response to `get_profile` (`Option<BrewProfile>`).
+- `Event(DeviceEvent)`: Real-time state machine or storage notification (`StateChanged`, `StepChanged`, `SettingsUpdated`, `ProfilesUpdated`, `FlashSaved`).
+- `Pong { req_id, uptime_ms }`: Latency probe response for `ping`.
+
+### Telemetry sample (`TelemetryFrame`)
+
+See `TelemetryFrame` in `proto/src/protocol.rs` for exact serialization order:
+
+| Field | Type | Description |
+| --- | --- | --- |
 | `seq` | `u32` | Cumulative control-loop tick counter |
 | `ms` | `u32` | Device uptime in milliseconds |
-| `t` | `f32` | Raw boiler temperature (°C) |
-| `tt` | `f32` | Target temperature (°C) |
+| `t` | `f32` | Measured boiler temperature (°C) |
+| `tt` | `f32` | Target boiler temperature (°C) |
 | `ett` | `f32` | Effective temperature setpoint with flow feed-forward (°C) |
 | `p` | `f32` | Measured grouphead pressure (bar) |
 | `tp` | `f32` | Target pressure (bar) |
 | `fl` | `f32` | Measured flow rate (ml/s) |
 | `tfl` | `f32` | Target flow rate (ml/s) |
 | `vol` | `f32` | Cumulative shot volume (ml) |
-| `hp` | `f32` | Boiler heating power ratio (0.0 to 1.0) |
-| `pump` | `f32` | Pump triac duty cycle (0.0 to 100.0) |
-| `fc` | `u8` | Flow limit active constraint flag (0 or 1) |
+| `hp` | `f32` | Boiler heating power duty (0.0 to 100.0 %) |
+| `pump` | `f32` | Pump triac duty cycle (0.0 to 100.0 %) |
+| `ac_us` | `f32` | Filtered AC half-wave duration (µs) |
+| `sbt` | `f32` | Session brew temperature setpoint (°C) |
+| `fc` | `u8` | Flow-limiting active constraint flag (0 or 1) |
 | `st` | `u8` | Machine state (see `MachineState` in [Firmware design](firmware.md)) |
+| `step` | `u8` | Active profile step index (`255` when none) |
+| `ack` | `u32` | Last completed command ticket |
 
-## Uplink JSON commands
+## Uplink JSON commands (`ApiCommand`)
 
-Commands must end with `\n`. Example commands:
+Commands MUST terminate with `\n`. Every command MAY include an optional `"req_id": <u32>` to request a correlated `CommandReply` or `Pong`. Uplink accepts all Port 80 `POST /api/cmd` actions plus socket-only read/stream queries:
 
 ```json
-{"cmd": "run_slot", "slot": 0}
-{"cmd": "stop"}
-{"cmd": "flush"}
-{"cmd": "steam"}
-{"cmd": "power"}
-{"cmd": "direct_pump", "power": 80.0}
+{"cmd": "ping", "req_id": 1}
+{"cmd": "set_stream", "req_id": 2, "enabled": true, "divider": 1}
+{"cmd": "get_settings"}
+{"cmd": "get_profiles"}
+{"cmd": "get_profile", "slot": 0}
+{"cmd": "run_slot", "req_id": 3, "slot": 0}
+{"cmd": "stop", "req_id": 4}
 {"cmd": "set_session_temp", "temp": 93.5}
 ```
