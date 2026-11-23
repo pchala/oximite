@@ -9,7 +9,7 @@ This document describes machine setup, operational modes, status LEDs, and PID t
    - On first boot with unconfigured Wi-Fi, the machine starts a WPA2 Access Point named `Oximite-Setup` (password `password`) with DHCP active.
    - Connect a smartphone or laptop, browse to `http://192.168.4.1`, and save the local Wi-Fi SSID and password.
 3. **Safe-boot override:**
-   - If Wi-Fi credentials change or the network is unreachable, hold the **Right Toggle Switch UP** (`GP8`) while you power on the machine (REQ-12).
+   - If Wi-Fi credentials change or the network is unreachable, hold the **Flush button** while you power on the machine (REQ-12).
    - The firmware ignores stored credentials and starts in AP mode.
 
 ## Operational modes
@@ -18,13 +18,13 @@ The state coordinator (`machine.rs` + `coordinator_task.rs`) manages machine sta
 
 | Mode | Trigger | Actuators active | Description |
 | --- | --- | --- | --- |
-| **Idle** | Left Toggle UP (power) / boot / finish | Heater PID active (brew target), pump off, valve closed | Maintains ready brew temperature. |
-| **Brewing** | Right Toggle DOWN (brew) / Web UI / Desktop app | Heater PID active, pump modulated, valve open | Runs the selected multi-step extraction profile. |
-| **Pumping / Flush** | Right Toggle UP (flush) / Web UI / Desktop app | Pump active (fixed 80% duty), valve open | Grouphead flush or direct pump. Safety ceiling 60 s. |
-| **Steaming** | Left Toggle DOWN (steam) / Web UI / Desktop app | Heater PID active (steam setpoint), pump off, valve closed | Boosts boiler temperature for steam wand delivery. |
+| **Idle** | Power button / boot / finish | Heater PID active (brew target), pump off, valve closed | Maintains ready brew temperature. |
+| **Brewing** | Brew button / Web UI / Desktop app | Heater PID active, pump modulated, valve open | Runs the selected multi-step extraction profile. |
+| **Pumping / Flush** | Flush button / Web UI / Desktop app | Pump active (fixed 80% duty), valve open | Grouphead flush or direct pump. Safety ceiling 60 s. |
+| **Steaming** | Steam button / Web UI / Desktop app | Heater PID active (steam setpoint), pump off, valve closed | Boosts boiler temperature for steam wand delivery. |
 | **Cooling** | Coordinator after steam exit | Pump active, valve closed (flow to steam wand) | Cooldown flush to lower boiler temperature back to brew level. |
 | **Hot Water** | Reserved operational state | Pump active, valve closed | Controlled water delivery state with 120 s ceiling. |
-| **Sleeping** | Left Toggle UP (power) or auto-sleep timer | Heater off, pump off, valve closed | Low-power idle state. Wakes on switch input or operational UI command. |
+| **Sleeping** | Power button or auto-sleep timer | Heater off, pump off, valve closed | Low-power idle state. Wakes on switch input or operational UI command. |
 
 Note: Persistent configuration updates (`save_machine`, `save_pids`, `save_wifi`, `save_profile`, `delete_profile`) sent while the machine is busy defer both RAM activation and flash commit until the machine returns to an idle state. Session brew temperature (`set_session_temp`) applies immediately in RAM.
 

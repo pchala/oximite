@@ -4,10 +4,10 @@
 pub mod backoff;
 #[path = "../../firmware/src/board.rs"]
 pub mod board;
+#[path = "../../firmware/src/buttons.rs"]
+pub mod buttons;
 #[path = "../../firmware/src/controller.rs"]
 pub mod controller;
-#[path = "../../firmware/src/debounce.rs"]
-pub mod debounce;
 #[path = "../../firmware/src/dhcp_codec.rs"]
 pub mod dhcp_codec;
 #[path = "../../firmware/src/flow.rs"]

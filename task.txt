@@ -1,0 +1,4 @@
+I need continuous graphs only during PID tunning.
+On first tab they should only update during the brew cycle.
+Also some automation should be done so at the end of the brew session data saved to jsonl with timestamp name like year_month_day_hh_mm.jsonl
+Export should be only as image of complete session to the clipboard.

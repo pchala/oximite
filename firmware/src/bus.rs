@@ -168,6 +168,17 @@ pub fn get_sensors() -> SensorReading {
     SENSOR_WATCH.try_get().unwrap_or_default()
 }
 
+static BUTTON_RAW: AtomicU16 = AtomicU16::new(u16::MAX);
+
+/// Raw 12-bit ADC counts of the front-panel button ladder. `u16::MAX` means no sample yet.
+pub fn publish_button_raw(raw: u16) {
+    BUTTON_RAW.store(raw, Ordering::Relaxed);
+}
+
+pub fn get_button_raw() -> u16 {
+    BUTTON_RAW.load(Ordering::Relaxed)
+}
+
 static FLOW_RATE_ML_S: AtomicU32 = AtomicU32::new(0);
 static FLOW_VOLUME_ML: AtomicU32 = AtomicU32::new(0);
 static SIG_RESET_VOLUME: Signal<CriticalSectionRawMutex, ()> = Signal::new();

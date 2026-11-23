@@ -8,11 +8,11 @@ mod backoff;
 mod board;
 mod bus;
 mod button_task;
+mod buttons;
 mod control_task;
 mod controller;
 mod coordinator_task;
 mod cyw43_nvram;
-mod debounce;
 mod dhcp_codec;
 mod dhcp_task;
 mod diag_task;
@@ -51,6 +51,20 @@ bind_interrupts!(pub struct Irqs {
     DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>, embassy_rp::dma::InterruptHandler<DMA_CH1>;
 });
 
+/// Reads the button ladder at boot. Returns true when Flush is held, which forces AP mode.
+async fn flush_held_at_boot(
+    adc: &mut Adc<'static, embassy_rp::adc::Async>,
+    ch: &mut embassy_rp::adc::Channel<'static>,
+) -> bool {
+    let mut debouncer = buttons::LadderDebouncer::new();
+    for _ in 0..buttons::DEBOUNCE_SAMPLES * 2 {
+        let raw = adc.read(ch).await.unwrap_or(u16::MAX);
+        debouncer.poll(raw);
+        embassy_time::Timer::after_millis(2).await;
+    }
+    debouncer.stable() == buttons::Reading::Pressed(buttons::Button::Flush)
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
@@ -65,15 +79,17 @@ async fn main(spawner: Spawner) {
     };
 
     // Initialize unused pins to Output Low to improve EMI immunity and power efficiency.
-    // Safe-boot fallback: if the 'flush' button (PIN 8) is held during boot, force AP mode.
-    let force_ap = unsafe {
+    // Safe-boot fallback: if the 'flush' button is held during boot, force AP mode.
+    let mut adc = Adc::new(p.ADC, Irqs, AdcConfig::default());
+    let mut ch_btn = embassy_rp::adc::Channel::new_pin(p.PIN_42, Pull::None);
+    unsafe {
         let p_steal = embassy_rp::Peripherals::steal();
         macro_rules! init_pins_low {
             ($p:expr; $($pin:ident),*) => {
                 $(let _ = Output::new($p.$pin, Level::Low);)*
             };
         }
-        init_pins_low!(p_steal; PIN_1, PIN_4, PIN_11, PIN_12, PIN_13, PIN_14, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_22, PIN_28);
+        init_pins_low!(p_steal; PIN_1, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PIN_11, PIN_12, PIN_13, PIN_14, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_22, PIN_28);
         // GP26-27 share the A0-A1 analog nets — keep as HiZ so they don't load the ADC inputs
         macro_rules! init_pins_hiz {
             ($p:expr; $($pin:ident),*) => {
@@ -81,9 +97,8 @@ async fn main(spawner: Spawner) {
             };
         }
         init_pins_hiz!(p_steal; PIN_26, PIN_27);
-
-        Input::new(p_steal.PIN_8, Pull::Up).is_low()
-    };
+    }
+    let force_ap = flush_held_at_boot(&mut adc, &mut ch_btn).await;
     if force_ap {
         defmt::warn!("Hardware override: Forcing AP mode!");
     }
@@ -164,8 +179,6 @@ async fn main(spawner: Spawner) {
         ..
     } = embassy_rp::pio::Pio::new(p.PIO2, Irqs);
 
-    let adc = Adc::new(p.ADC, Irqs, AdcConfig::default());
-
     let mut flow_pin = common2.make_pio_pin(p.PIN_15);
     flow_pin.set_pull(Pull::Up);
     flow_task::setup_flow_sm(&mut common2, &mut sm2_0, flow_pin);
@@ -191,14 +204,10 @@ async fn main(spawner: Spawner) {
     let ch_temp = embassy_rp::adc::Channel::new_pin(p.PIN_41, Pull::None);
     let valve_output = Output::new(p.PIN_3, Level::Low);
 
-    spawner.spawn(adc_task::adc_task(adc, ch_press, ch_temp).unwrap());
+    spawner.spawn(adc_task::adc_task(adc, ch_press, ch_temp, ch_btn).unwrap());
     spawner.spawn(control_task::ac_sync_control_task(sm1, sm2, sm0).unwrap());
 
-    let btn_power = Input::new(p.PIN_5, Pull::Up);
-    let btn_brew = Input::new(p.PIN_6, Pull::Up);
-    let btn_steam = Input::new(p.PIN_7, Pull::Up);
-    let btn_flush = Input::new(p.PIN_8, Pull::Up);
-    spawner.spawn(button_task::run_button_task(btn_power, btn_brew, btn_steam, btn_flush).unwrap());
+    spawner.spawn(button_task::run_button_task().unwrap());
 
     spawner.spawn(storage_task::storage_task(flash).unwrap());
     spawner.spawn(

@@ -1,43 +1,32 @@
-//! Thin GPIO button polling task driving `debounce::Debouncer`.
+//! Polls the ADC button ladder published by `adc_task` and drives `buttons::LadderDebouncer`.
 
-use embassy_rp::gpio::Input;
 use embassy_time::{Duration, Timer};
-use oximite_proto::model::MachineCommand;
 
 use crate::bus;
-use crate::debounce::Debouncer;
+use crate::buttons::LadderDebouncer;
 
 #[embassy_executor::task]
-pub async fn run_button_task(
-    btn_power: Input<'static>,
-    btn_brew: Input<'static>,
-    btn_steam: Input<'static>,
-    btn_flush: Input<'static>,
-) {
-    let mut debouncers = [
-        (
-            Debouncer::new(btn_power.is_low(), MachineCommand::TogglePower),
-            btn_power,
-        ),
-        (
-            Debouncer::new(btn_brew.is_low(), MachineCommand::Brew),
-            btn_brew,
-        ),
-        (
-            Debouncer::new(btn_steam.is_low(), MachineCommand::Steam),
-            btn_steam,
-        ),
-        (
-            Debouncer::new(btn_flush.is_low(), MachineCommand::Flush),
-            btn_flush,
-        ),
-    ];
+pub async fn run_button_task() {
+    let mut debouncer = LadderDebouncer::new();
+    let mut fault = false;
 
     loop {
-        for (db, pin) in &mut debouncers {
-            if let Some(cmd) = db.poll(pin.is_low()) {
+        let raw = bus::get_button_raw();
+        // No ADC sample yet.
+        if raw != u16::MAX {
+            if let Some(button) = debouncer.poll(raw) {
+                let cmd = button.command();
                 defmt::info!("Button pressed: {}", cmd.name());
                 let _ = bus::send_command(cmd);
+            }
+            let now_fault = debouncer.stable().is_fault();
+            if now_fault != fault {
+                fault = now_fault;
+                if fault {
+                    defmt::warn!("Button panel fault: open or short, buttons ignored");
+                } else {
+                    defmt::info!("Button panel fault cleared");
+                }
             }
         }
         Timer::after(Duration::from_millis(10)).await;

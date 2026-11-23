@@ -35,3 +35,7 @@ Boiler thermal power uses a dedicated Solid State Relay (SSR):
 
 - **Pressure transducer (GP40 / A0):** 3.3V-powered piezoresistive transducer (0–1.2 MPa, G1/8") outputting 0.4 V at 0 bar to 2.4 V at 12 bar (6 bar/V slope). Connects directly to the RP2350 GP40 ADC input without a voltage divider.
 - **Thermistor (GP41 / A1):** Semitec 104NT-4-R025H42G NTC thermistor (100 kΩ @ 25 °C, B25/85 = 4267 K) connected between GP41 and GND, with a precision **10 kΩ 0.1% pull-up resistor** to 3.3 V. Linearized via the 1025-entry lookup table in `adc.rs`.
+ 
+## Button ladder 
+ 
+The main PCB has a 10k pull-up to 3V3 on the button line (GP42, A2). The panel has an always-on Rref of 100k to GND. Each button adds one resistor to GND: Power 42.2k, Steam 13.7k, Flush 5.76k, Brew 1.78k. The line has an RC filter and a TVS diode. Use 1 %% resistors. Firmware decodes the voltage bands in `buttons.rs`. Press one button at a time. Two buttons together are not supported.

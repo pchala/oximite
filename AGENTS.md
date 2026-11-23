@@ -66,7 +66,7 @@ Each rule links to the document that owns the details.
 
 - **Core split:** Core 0 runs hard real-time control only. Core 1 runs networking and telemetry only. See [Firmware design](docs/firmware.md) section 2.
 - **Inter-core data:** Data MUST cross cores only through the lock-free atomics, `Watch` primitives, and bounded channels in `firmware/src/bus.rs`. Never use blocking mutexes inside Core 0 real-time control loops.
-- **Pure logic isolation:** Pure `no_std` logic modules (`board.rs`, `sensors.rs`, `flow.rs`, `pid.rs`, `controller.rs`, `machine.rs`, `debounce.rs`, `leds.rs`, `backoff.rs`, `dhcp_codec.rs`, `http_codec.rs`) MUST NOT depend on `embassy-*`, `defmt`, hardware peripherals, or wall clocks.
+- **Pure logic isolation:** Pure `no_std` logic modules (`board.rs`, `sensors.rs`, `flow.rs`, `pid.rs`, `controller.rs`, `machine.rs`, `buttons.rs`, `leds.rs`, `backoff.rs`, `dhcp_codec.rs`, `http_codec.rs`) MUST NOT depend on `embassy-*`, `defmt`, hardware peripherals, or wall clocks.
 - **Deferred persistence:** Commands with `Ambient::RamAndFlash` MUST defer both RAM and flash updates until the machine is idle (`!state.is_busy()`). See [Firmware design](docs/firmware.md) section 5.
 - **No heap:** Use static allocations, `heapless` collections, and `static_cell` in `firmware/` and `proto/`.
 - **Mains synchronization:** The control loop MUST stay locked to the zero-cross falling edge.

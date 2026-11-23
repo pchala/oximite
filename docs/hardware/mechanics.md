@@ -39,4 +39,4 @@ flowchart TD
 
 ## 3. Front panel switch layout
 
-The machine front panel mounts two 3-position momentary mini toggle switches (spring return to center). The center position is off. Mount the power/steam switch on the left and the flush/brew switch on the right. [Hardware pinout](pinout.md) defines the GPIO and function of each switch position.
+The machine front panel mounts four momentary push buttons: Power, Steam, Flush and Brew. The panel connects with four wires: 5V, GND, LED data and the button line. The panel can reach 60 °C. Use silicone wire, a locking connector with gold contacts, 85 °C switches, 80 °C LEDs and a conformal coat. [Hardware pinout](pinout.md) defines the GPIO and function of each switch position.
