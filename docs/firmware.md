@@ -67,7 +67,7 @@ The following pure `no_std` modules contain no `embassy-*`, `defmt`, hardware, o
 - **ADC sampler task (`adc_task.rs` + `sensors.rs`):** Samples boiler temperature and grouphead pressure using oversampling and thermistor LUT interpolation.
 - **Flow meter task (`flow_task.rs` + `flow.rs`):** Captures flow turbine half-periods on PIO2 SM0 and computes instantaneous flow rate and cumulative shot volume. The turbine constant is configured in `DEFAULT_SETTINGS`.
 - **State coordinator (`coordinator_task.rs` + `machine.rs`):** Manages `MachineState` transitions, steps through extraction profiles, controls the solenoid valve, and manages deferred settings writes. Wire values: `0=Idle`, `1=Brewing`, `2=Steaming`, `3=Sleeping`, `4=Pumping`, `5=Cooling`, `6=HotWater`.
-- **Button debouncer (`button_task.rs` + `buttons.rs`):** Decodes the ADC button ladder and debounces it (5 consecutive 10 ms samples). It fires one command on the change from idle to a button. Open and short readings are faults and never issue a command.
+- **Button debouncer (`button_task.rs` + `buttons.rs`):** Decodes the ADC switch ladder and debounces it (5 consecutive 10 ms samples). It fires one command on the change from idle to a toggle position. Open and short readings are faults and never issue a command.
 - **LED status task (`led_task.rs` + `leds.rs`):** Computes status RGB values and shifts WS2812 words at 10 Hz via PIO2 SM1.
 - **Flash persistence (`storage_task.rs`):** Sole owner of internal flash reads and writes via `DMA_CH1`.
 

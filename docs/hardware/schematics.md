@@ -38,4 +38,4 @@ Boiler thermal power uses a dedicated Solid State Relay (SSR):
  
 ## Button ladder 
  
-The main PCB has a 10k pull-up to 3V3 on the button line (GP42, A2). The panel has an always-on Rref of 100k to GND. Each button adds one resistor to GND: Power 42.2k, Steam 13.7k, Flush 5.76k, Brew 1.78k. The line has an RC filter and a TVS diode. Use 1 %% resistors. Firmware decodes the voltage bands in `buttons.rs`. Press one button at a time. Two buttons together are not supported.
+The main PCB has a 10k pull-up to 3V3 on the button line (GP42, A2). The panel has an always-on Rref of 100k to GND. Each toggle position adds one resistor to GND: Power 42.2k, Steam 13.7k, Flush 5.76k, Brew 1.78k. The line has an RC filter and a TVS diode. Use 1 %% resistors. Firmware decodes the voltage bands in `buttons.rs`. Press one position at a time. A toggle cannot sit in two positions, so this holds by design across one switch. Two switches together are not supported.

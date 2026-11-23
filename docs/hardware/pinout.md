@@ -21,7 +21,7 @@ This document is the single home for GPIO assignments, peripheral functions, and
 | **GP29** | WL_CLK / PIO1 | Output | *Internal:* CYW43 Wi-Fi SPI clock. |
 | **GP40** | ADC (A0) | Analog In | **Pressure Sensor:** Pressure transducer input. See [Schematics](schematics.md). |
 | **GP41** | ADC (A1) | Analog In | **Temperature Sensor:** NTC thermistor input. See [Schematics](schematics.md). |
-| **GP42** | ADC (A2) | Analog In | **Button ladder:** One line for four buttons. See [Schematics](schematics.md). Shared net with GP28 (header A2). |
+| **GP42** | ADC (A2) | Analog In | **Switch ladder:** One line for the four toggle positions. See [Schematics](schematics.md). Shared net with GP28 (header A2). |
 
 ## Unused and shared pins
 
