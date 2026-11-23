@@ -14,6 +14,7 @@ use crate::http_codec::{
     check_request_complete, encode_json_response, parse_http_request, HttpError, HttpRoute,
     ProfileHeader, JSON_RESP_MAX,
 };
+use crate::tcp::graceful_close;
 
 static INDEX_HTML_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 
@@ -28,21 +29,6 @@ async fn read_request(socket: &mut TcpSocket<'_>, buf: &mut [u8]) -> Result<usiz
             Ok(r) => n += r,
         }
     }
-}
-
-async fn graceful_close(socket: &mut TcpSocket<'_>) {
-    let _ = socket.flush().await;
-    socket.close();
-    let _ = with_timeout(Duration::from_millis(50), async {
-        let mut trash = [0u8; 16];
-        loop {
-            if let Ok(0) | Err(_) = socket.read(&mut trash).await {
-                break;
-            }
-        }
-    })
-    .await;
-    socket.abort();
 }
 
 async fn write_json<T: Serialize>(

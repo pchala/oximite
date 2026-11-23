@@ -26,6 +26,7 @@ mod machine;
 mod pid;
 mod sensors;
 mod storage_task;
+mod tcp;
 mod wifi_task;
 
 use embassy_executor::Spawner;

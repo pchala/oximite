@@ -10,6 +10,7 @@ use embedded_io_async::Write;
 use oximite_proto::protocol::{encode_device_msg, DeviceMsg, WireTick, MAX_FRAME_LEN};
 
 use crate::bus;
+use crate::tcp::graceful_close;
 
 async fn write_msg(socket: &mut TcpSocket<'_>, msg: &DeviceMsg) -> bool {
     let mut buf = [0u8; MAX_FRAME_LEN + 2];
@@ -30,21 +31,6 @@ async fn flush_events(socket: &mut TcpSocket<'_>) -> bool {
         }
     }
     true
-}
-
-async fn graceful_close(socket: &mut TcpSocket<'_>) {
-    let _ = socket.flush().await;
-    socket.close();
-    let _ = with_timeout(Duration::from_millis(50), async {
-        let mut trash = [0u8; 16];
-        loop {
-            if let Ok(0) | Err(_) = socket.read(&mut trash).await {
-                break;
-            }
-        }
-    })
-    .await;
-    socket.abort();
 }
 
 #[embassy_executor::task]

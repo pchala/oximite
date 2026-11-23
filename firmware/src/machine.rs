@@ -411,6 +411,18 @@ impl Machine {
         }
     }
 
+    fn start_profile(&mut self, profile: BrewProfile, now_ms: u64, out: &mut MachineStepEffects) {
+        self.start_operation(
+            ActiveOperation::Profile {
+                profile,
+                step_idx: 0,
+                step_started_ms: now_ms,
+            },
+            now_ms,
+            out,
+        );
+    }
+
     fn start_operation(
         &mut self,
         mut op: ActiveOperation,
@@ -550,26 +562,10 @@ impl Machine {
             }
             (MachineState::Idle, MachineCommand::Brew) => {
                 let p = self.profiles[0].clone().unwrap_or_else(default_profile);
-                self.start_operation(
-                    ActiveOperation::Profile {
-                        profile: p,
-                        step_idx: 0,
-                        step_started_ms: now_ms,
-                    },
-                    now_ms,
-                    &mut out,
-                );
+                self.start_profile(p, now_ms, &mut out);
             }
             (MachineState::Idle, MachineCommand::RunProfile(p)) => {
-                self.start_operation(
-                    ActiveOperation::Profile {
-                        profile: p,
-                        step_idx: 0,
-                        step_started_ms: now_ms,
-                    },
-                    now_ms,
-                    &mut out,
-                );
+                self.start_profile(p, now_ms, &mut out);
             }
             (MachineState::Idle, MachineCommand::Steam) => {
                 let limit_ms = (self.settings.machine.steam_time_limit_s.max(0.0) * 1000.0) as u64;
