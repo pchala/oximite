@@ -31,6 +31,10 @@ fn enforces_routes_slot_limits_and_sizes() {
         Ok(HttpRoute::GetTelemetry)
     );
     assert_eq!(
+        parse_http_request("GET /api/version HTTP/1.1\r\n\r\n"),
+        Ok(HttpRoute::GetVersion)
+    );
+    assert_eq!(
         parse_http_request("GET /api/settings HTTP/1.1\r\n\r\n"),
         Ok(HttpRoute::GetSettings)
     );

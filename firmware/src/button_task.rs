@@ -37,7 +37,7 @@ pub async fn run_button_task(
         for (db, pin) in &mut debouncers {
             if let Some(cmd) = db.poll(pin.is_low()) {
                 defmt::info!("Button pressed: {}", cmd.name());
-                let _ = bus::send_command(cmd, None, false);
+                let _ = bus::send_command(cmd);
             }
         }
         Timer::after(Duration::from_millis(10)).await;

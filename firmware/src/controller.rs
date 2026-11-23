@@ -124,12 +124,9 @@ impl ControlEngine {
         if settings_changed {
             self.last_settings_rev = input.settings_rev;
             self.pump_pid.set_coeffs(&input.settings.pump_pid);
-            self.temp_pid.set_coeffs(&input.settings.temp_pid);
-            self.feed_forward = compute_feed_forward(&input.settings, input.intent.target_temp);
         }
 
         if input.intent.pump_mode != self.mode {
-            self.pump_pid.set_coeffs(&input.settings.pump_pid);
             if !self.mode.has_target() && input.intent.pump_mode.has_target() {
                 self.pump_pid.reset();
             }
@@ -137,7 +134,8 @@ impl ControlEngine {
         }
         self.brew_active = input.intent.brew_active;
 
-        if (input.intent.target_temp - self.target_t).abs() > f32::EPSILON || settings_changed {
+        let target_changed = (input.intent.target_temp - self.target_t).abs() > f32::EPSILON;
+        if target_changed || settings_changed {
             self.temp_pid.set_coeffs(&input.settings.temp_pid);
             self.temp_pid
                 .reset_if_reactivated(self.target_t, input.intent.target_temp);

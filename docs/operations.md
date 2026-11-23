@@ -51,6 +51,6 @@ Colors interpolate smoothly between measurement and target within a +/-`window` 
 
 ## Thermal calibration and PID tuning
 
-Use the native desktop companion application `oximite-control` (`control/`) for PID tuning and diagnostics. Connect directly by device IP address or hostname over TCP port 8080 to access synchronized 3-panel live graphs, live PID and machine gain editing, multi-step profile management, automated heater/pump bench sweeps, shot recording/comparison overlays, and the timestamped event log.
+Use the native desktop companion application `oximite-control` (`control/`) for PID tuning and diagnostics. Connect by device IP address or hostname. The app sends commands over HTTP port 80 and reads live telemetry from TCP port 8080 to access synchronized 3-panel live graphs, live PID and machine gain editing, multi-step profile management, automated heater/pump bench sweeps, shot recording/comparison overlays, and the timestamped event log.
 
 The embedded web UI on port 80 remains available for lightweight shot triggering, session brew temperature tweaks, and initial Wi-Fi credential provisioning without external internet access.

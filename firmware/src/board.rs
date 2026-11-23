@@ -26,8 +26,6 @@ pub const CYW43_FW_LEN: usize = 231_077;
 pub const CYW43_CLM_ADDR: usize = 0x10FE_F000;
 pub const CYW43_CLM_LEN: usize = 984;
 
-pub const FW_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 /// `sequential-storage` `u8` map keys inside [`FS_RANGE`].
 pub const FLASH_KEY_MACHINE: u8 = 1;
 pub const FLASH_KEY_TEMP_PID: u8 = 2;

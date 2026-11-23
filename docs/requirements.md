@@ -31,8 +31,8 @@ This document lists active system requirements. Requirement IDs MUST NOT change 
 ### User interaction and telemetry
 
 - **REQ-08** The system MUST provide an embedded web dashboard served over Wi-Fi on port 80.
-- **REQ-09** The system MUST provide a streaming binary telemetry socket on port 8080 with postcard-encoded frames.
-- **REQ-10** The system MUST accept JSON commands over TCP port 8080.
+- **REQ-09** The system MUST provide a one-way binary telemetry socket on port 8080 with postcard-encoded frames.
+- **REQ-10** The system MUST accept JSON commands over HTTP port 80.
 - **REQ-12** If the flush input (Right Toggle UP, GP8) is held during power-on, the system MUST start in Wi-Fi Access Point mode.  
   *Rationale:* Recover machine access when network credentials change or fail.
 

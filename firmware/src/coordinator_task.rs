@@ -106,11 +106,6 @@ pub async fn coordinator_task(
                 let effects = machine.handle_command(q.cmd, now_ms);
                 apply_effects(&machine, effects, &mut solenoid);
                 bus::mark_served();
-                if q.reply_diag {
-                    if let Some(req_id) = q.req_id {
-                        bus::push_diag_reply(req_id, q.ticket);
-                    }
-                }
             }
             Either::Second(()) => {
                 let now_ms = Instant::now().as_millis();

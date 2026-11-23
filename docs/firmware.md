@@ -30,7 +30,7 @@ flowchart TB
         CYW[CYW43 runner: wifi_task.rs]
         DHCP[AP DHCP server: dhcp_task.rs]
         HTTP[HTTP web server: http_task.rs<br/>Port 80]
-        SOCKET[Telemetry & cmd socket: diag_task.rs<br/>Port 8080]
+        SOCKET[Telemetry socket: diag_task.rs<br/>Port 8080]
     end
 
     subgraph Shared[Inter-core bus: bus.rs]
@@ -76,7 +76,7 @@ The following pure `no_std` modules contain no `embassy-*`, `defmt`, hardware, o
 - **CYW43 runner (`wifi_task.rs` + `backoff.rs`):** Runs the Wi-Fi chip over PIO1 SM0 SPI, seeds `embassy-net` from OTP chip ID XOR `RoscRng`, monitors both link and DHCP config loss, runs a self-arming ICMP gateway probe to detect silent AP restarts, enforces `leave()` before retries, and tears down active Port 80/8080 sockets on network drop.
 - **AP DHCP server (`dhcp_task.rs` + `dhcp_codec.rs`):** Allocates IPv4 leases to clients in Access Point mode.
 - **HTTP server (`http_task.rs` + `http_codec.rs`):** Serves the offline web dashboard and REST endpoints on port 80.
-- **Telemetry socket (`diag_task.rs`):** Streams length-prefixed Postcard v3 `DeviceMsg` frames at 50 Hz and executes newline-delimited JSON commands on port 8080.
+- **Telemetry socket (`diag_task.rs`):** Streams length-prefixed Postcard `DeviceMsg` frames (`Tick` and `Event`) one way on port 8080.
 
 ## 3. Dual-PID control loop architecture
 
@@ -154,5 +154,5 @@ All cross-core communication is centralized in `bus.rs`:
 
 - **Lock-free atomics:** Latest sensor readings, flow volume, `MachineState` mirror, session brew temp, command `ack`, and coalesced `FLASH_DIRTY` mask use `portable_atomic` registers so Core 1 reads without stalling Core 0.
 - **Watch channels:** `MACHINE_STATE`, `TELEMETRY_WATCH`, `SETTINGS_WATCH`, and `CONTROL_INTENT` distribute coherent state snapshots.
-- **Bounded channels & event queue:** Inbound commands from HTTP and Port 8080 enter `CMD_QUEUE`; Port 8080 replies and `DeviceEvent` notifications use bounded queues drained by `diag_task.rs`.
+- **Bounded channels & event queue:** Inbound commands from HTTP enter `CMD_QUEUE`. `DeviceEvent` notices use a bounded queue drained by `diag_task.rs`.
 - **DMA IRQ sharing:** `DMA_CH0` (CYW43 SPI on Core 1) and `DMA_CH1` (Flash on Core 0) share `DMA_IRQ_0`, masked on Core 0 and serviced on Core 1 (`main.rs`).

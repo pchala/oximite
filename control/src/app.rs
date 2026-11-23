@@ -12,8 +12,8 @@ use oximite_proto::model::{
 use crate::client::ClientHandle;
 use crate::plot::{render_comparison_panels, render_live_3panel, PlotViewport};
 use crate::store::{
-    export_samples_csv, export_samples_jsonl, import_samples_jsonl, ControlStore, EventLogEntry,
-    LoadedTrace, LogTag, ShotRecord, TelemetrySample,
+    import_samples_jsonl, ControlStore, EventLogEntry, LoadedTrace, LogTag, ShotRecord,
+    TelemetrySample,
 };
 use crate::sweeps::{SweepConfig, SweepResult, SweepRunner};
 
@@ -45,34 +45,6 @@ pub enum AppTab {
     EventLog,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StreamRate {
-    Hz50,
-    Hz25,
-    Hz10,
-    Paused,
-}
-
-impl StreamRate {
-    fn label(self) -> &'static str {
-        match self {
-            StreamRate::Hz50 => "50 Hz",
-            StreamRate::Hz25 => "25 Hz",
-            StreamRate::Hz10 => "10 Hz",
-            StreamRate::Paused => "Paused",
-        }
-    }
-
-    fn as_cmd_args(self) -> (bool, u8) {
-        match self {
-            StreamRate::Hz50 => (true, 1),
-            StreamRate::Hz25 => (true, 2),
-            StreamRate::Hz10 => (true, 5),
-            StreamRate::Paused => (false, 1),
-        }
-    }
-}
-
 #[derive(Clone, PartialEq)]
 struct LogViewKey {
     log_seq: u64,
@@ -91,7 +63,6 @@ struct Snapshot {
     connected: bool,
     connecting: bool,
     last_error: Option<String>,
-    fw_version: String,
     state: MachineState,
     sbt: f32,
     latest: Option<TelemetrySample>,
@@ -99,6 +70,7 @@ struct Snapshot {
     profiles: Vec<oximite_proto::model::ProfileHeaderOwned>,
     loaded_profile: Option<(u8, BrewProfile)>,
     samples: Vec<TelemetrySample>,
+    brew_samples: Vec<TelemetrySample>,
     shots: Vec<ShotRecord>,
     rx_hz: f32,
     dropped_frames: u64,
@@ -111,12 +83,16 @@ pub struct OximiteControlApp {
     start_time: Instant,
     active_tab: AppTab,
     endpoint_input: String,
-    stream_rate: StreamRate,
 
     // Live graph state
     viewport: PlotViewport,
+    brew_viewport: PlotViewport,
     cmp_viewport: PlotViewport,
     show_stats: bool,
+    live_rect: egui::Rect,
+    live_ctx_ppp: f32,
+    image_rx: std::sync::mpsc::Receiver<Arc<egui::ColorImage>>,
+    image_tx: std::sync::mpsc::Sender<Arc<egui::ColorImage>>,
     direct_pump_pct: f32,
 
     // Tuning drafts
@@ -176,14 +152,25 @@ impl OximiteControlApp {
             .map(|s| s.endpoint.clone())
             .unwrap_or_else(|_| "192.168.1.117:8080".to_string());
         let def_prof = default_profile();
+        if let Ok(mut st) = store.lock() {
+            st.autosave_dir = Some(std::path::PathBuf::from("shots"));
+        }
+        let (image_tx, image_rx) = std::sync::mpsc::channel();
         Self {
             store,
             client,
             start_time: Instant::now(),
             active_tab: AppTab::LiveGraphs,
             endpoint_input: endpoint,
-            stream_rate: StreamRate::Hz50,
             viewport: PlotViewport::default(),
+            brew_viewport: PlotViewport {
+                window_secs: 0.0,
+                ..Default::default()
+            },
+            live_rect: egui::Rect::NOTHING,
+            live_ctx_ppp: 1.0,
+            image_rx,
+            image_tx,
             cmp_viewport: PlotViewport {
                 auto_follow: false,
                 window_secs: 0.0,
@@ -229,7 +216,6 @@ impl OximiteControlApp {
                 connected: false,
                 connecting: false,
                 last_error: Some("Store lock error".into()),
-                fw_version: "?".into(),
                 state: MachineState::Idle,
                 sbt: 92.0,
                 latest: None,
@@ -237,6 +223,7 @@ impl OximiteControlApp {
                 profiles: Vec::new(),
                 loaded_profile: None,
                 samples: Vec::new(),
+                brew_samples: Vec::new(),
                 shots: Vec::new(),
                 rx_hz: 0.0,
                 dropped_frames: 0,
@@ -274,11 +261,6 @@ impl OximiteControlApp {
             connected: st.connected,
             connecting: st.connecting,
             last_error: st.last_error.clone(),
-            fw_version: st
-                .hello
-                .as_ref()
-                .map(|h| h.fw_version.to_string())
-                .unwrap_or_else(|| "?".into()),
             state: st.current_state,
             sbt: st.session_brew_temp,
             latest: st.latest.clone(),
@@ -286,6 +268,7 @@ impl OximiteControlApp {
             profiles: st.profiles.clone(),
             loaded_profile: st.loaded_profile.clone(),
             samples: st.samples.iter().cloned().collect(),
+            brew_samples: st.brew_samples(),
             shots: st.shots.clone(),
             rx_hz: st.rx_hz,
             dropped_frames: st.dropped_frames,
@@ -328,6 +311,7 @@ impl eframe::App for OximiteControlApp {
             runner.tick(&self.client, &snap.samples);
         }
 
+        self.copy_received_image();
         self.render_top_bar(ui, &snap);
         self.render_status_bar(ui, &snap);
 
@@ -394,26 +378,6 @@ impl OximiteControlApp {
                             self.viewport.auto_follow = true;
                         }
 
-                        egui::ComboBox::from_id_salt("stream_rate")
-                            .selected_text(self.stream_rate.label())
-                            .width(82.0)
-                            .show_ui(ui, |ui| {
-                                for r in [
-                                    StreamRate::Hz50,
-                                    StreamRate::Hz25,
-                                    StreamRate::Hz10,
-                                    StreamRate::Paused,
-                                ] {
-                                    if ui
-                                        .selectable_value(&mut self.stream_rate, r, r.label())
-                                        .changed()
-                                    {
-                                        let (en, div) = r.as_cmd_args();
-                                        self.client.set_stream(en, div);
-                                    }
-                                }
-                            });
-
                         if snap.connected || snap.connecting {
                             if ui
                                 .button(RichText::new("Disconnect").color(COLOR_WARN))
@@ -463,7 +427,6 @@ impl OximiteControlApp {
                         ui.label(st_txt(format!("Ping: {rtt:.1} ms")));
                     }
                     ui.separator();
-                    ui.label(st_txt(format!("FW: {}", snap.fw_version)));
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let (status, dot) = if snap.connected {
@@ -537,8 +500,8 @@ impl OximiteControlApp {
                                                 .strong(),
                                         );
                                         ui.end_row();
-                                        ui.label("Target / Eff");
-                                        ui.label(format!("{:.1} / {:.1} C", f.tt, f.ett));
+                                        ui.label("Target");
+                                        ui.label(format!("{:.1} C", f.tt));
                                         ui.end_row();
                                         ui.label("Pressure");
                                         ui.label(
@@ -571,14 +534,6 @@ impl OximiteControlApp {
                                                 RichText::new("PRESSURE").color(COLOR_DIM_TEXT),
                                             );
                                         }
-                                        ui.end_row();
-                                        ui.label("Mains");
-                                        let hz = if f.ac_us > 100.0 {
-                                            500_000.0 / f.ac_us
-                                        } else {
-                                            0.0
-                                        };
-                                        ui.label(format!("{hz:.2} Hz | ack {}", f.ack));
                                         ui.end_row();
                                     });
                             } else {
@@ -710,38 +665,28 @@ impl OximiteControlApp {
                                     .color(COLOR_HEALTH),
                             );
                             ui.add_space(4.0);
-                            ui.horizontal(|ui| {
-                                for (lbl, secs) in
-                                    [("15s", 15.0), ("60s", 60.0), ("5m", 300.0), ("All", 0.0)]
-                                {
-                                    let active = (self.viewport.window_secs - secs).abs() < 0.1
-                                        && self.viewport.auto_follow;
-                                    if ui.selectable_label(active, lbl).clicked() {
-                                        self.viewport.window_secs = secs;
-                                        self.viewport.auto_follow = true;
+                            if self.active_tab == AppTab::Tuning {
+                                ui.horizontal(|ui| {
+                                    for (lbl, secs) in
+                                        [("15s", 15.0), ("60s", 60.0), ("5m", 300.0), ("All", 0.0)]
+                                    {
+                                        let active = (self.viewport.window_secs - secs).abs() < 0.1
+                                            && self.viewport.auto_follow;
+                                        if ui.selectable_label(active, lbl).clicked() {
+                                            self.viewport.window_secs = secs;
+                                            self.viewport.auto_follow = true;
+                                        }
                                     }
-                                }
-                            });
-                            ui.checkbox(&mut self.viewport.auto_follow, "Auto-follow latest");
+                                });
+                                ui.checkbox(&mut self.viewport.auto_follow, "Auto-follow latest");
+                            }
                             ui.checkbox(&mut self.show_stats, "Show Temp Stats overlay");
                             ui.horizontal(|ui| {
-                                if ui.button("Export JSONL").clicked() {
-                                    if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("JSON Lines", &["jsonl"])
-                                        .set_file_name("oximite_trace.jsonl")
-                                        .save_file()
-                                    {
-                                        let _ = export_samples_jsonl(&snap.samples, &path);
-                                    }
-                                }
-                                if ui.button("Export CSV").clicked() {
-                                    if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("CSV", &["csv"])
-                                        .set_file_name("oximite_trace.csv")
-                                        .save_file()
-                                    {
-                                        let _ = export_samples_csv(&snap.samples, &path);
-                                    }
+                                if self.active_tab == AppTab::LiveGraphs
+                                    && ui.button("Copy session image").clicked()
+                                {
+                                    self.live_ctx_ppp = ui.ctx().pixels_per_point();
+                                    self.request_session_image(ui.ctx());
                                 }
                             });
                         });
@@ -757,8 +702,41 @@ impl OximiteControlApp {
                     .inner_margin(MAIN_PANEL_MARGIN),
             )
             .show(ui, |ui| {
-                render_live_3panel(ui, &snap.samples, &mut self.viewport, self.show_stats);
+                self.live_rect = ui.max_rect();
+                render_live_3panel(
+                    ui,
+                    &snap.brew_samples,
+                    &mut self.brew_viewport,
+                    self.show_stats,
+                );
             });
+    }
+
+    fn request_session_image(&self, ctx: &egui::Context) {
+        let tx = self.image_tx.clone();
+        ctx.request_screenshot(move |img| {
+            let _ = tx.send(img);
+        });
+    }
+
+    fn copy_received_image(&mut self) {
+        let Ok(full) = self.image_rx.try_recv() else {
+            return;
+        };
+        let img = full.region(&self.live_rect, Some(self.live_ctx_ppp));
+        let data = arboard::ImageData {
+            width: img.width(),
+            height: img.height(),
+            bytes: std::borrow::Cow::Borrowed(img.as_raw()),
+        };
+        let result = arboard::Clipboard::new().and_then(|mut c| c.set_image(data));
+        if let Ok(mut st) = self.store.lock() {
+            let msg = match result {
+                Ok(()) => "Session image copied to clipboard".to_string(),
+                Err(e) => format!("Clipboard copy failed: {e}"),
+            };
+            st.add_log(LogTag::Settings, msg, String::new());
+        }
     }
 
     fn render_tuning_tab(&mut self, ui: &mut egui::Ui, snap: &Snapshot) {

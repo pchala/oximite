@@ -463,7 +463,7 @@ pub fn render_live_3panel(
             .fold(f32::INFINITY, f32::min);
         let hi = slice
             .iter()
-            .map(|s| s.frame.t.max(s.frame.ett).max(s.frame.tt))
+            .map(|s| s.frame.t.max(s.frame.tt))
             .fold(f32::NEG_INFINITY, f32::max);
         t_min = (lo - 5.0).floor().max(0.0);
         t_max = (hi + 5.0).ceil().max(t_min + 10.0);
@@ -476,13 +476,6 @@ pub fn render_live_3panel(
             width: 1.2,
             right_axis: false,
             extract: |s: &TelemetrySample| s.frame.tt,
-        },
-        TraceLine {
-            label: "EffTarget",
-            color: Color32::from_rgb(106, 153, 85),
-            width: 1.5,
-            right_axis: false,
-            extract: |s: &TelemetrySample| s.frame.ett,
         },
         TraceLine {
             label: "Heater%",

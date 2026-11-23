@@ -44,6 +44,8 @@ Core 1 runs an asynchronous HTTP/1.1 server (`http_task.rs` + pure `http_codec.r
 
 ### 4. Read-only configuration queries
 
+- **`GET /api/version`**  
+  Returns `{"proto": N}`, the port 8080 wire format version. The control app compares it with its own `PROTO_VER` and warns on a mismatch.
 - **`GET /api/settings`**  
   Returns `PublicSettings` (`machine`, `temp_pid`, `pump_pid`, and `wifi: {"ssid": "...", "has_password": bool}`). Stored Wi-Fi passwords are never returned over the network.
 - **`GET /api/profiles`**  

@@ -112,7 +112,7 @@ pub async fn ac_sync_control_task(
     mut sm_pump: StateMachine<'static, PIO0, 2>,
     mut sm_heater: StateMachine<'static, PIO0, 0>,
 ) {
-    let snap = bus::get_settings_snapshot();
+    let mut snap = bus::get_settings_snapshot();
     let mut engine = ControlEngine::new(snap.control, snap.settings_rev);
     let mut last_tick = Instant::now();
 
@@ -135,7 +135,9 @@ pub async fn ac_sync_control_task(
         last_tick = now;
 
         let sensors = bus::get_sensors();
-        let snap = bus::get_settings_snapshot();
+        if bus::get_settings_rev() != snap.settings_rev {
+            snap = bus::get_settings_snapshot();
+        }
         let intent = bus::get_control_intent();
 
         let out = engine.tick(&ControlInput {

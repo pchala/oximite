@@ -1,21 +1,27 @@
 //! Wire protocol codecs shared by HTTP (Port 80) and the TCP stream (Port 8080).
 //!
-//! - Uplink (both Port 80 `POST /api/cmd` and Port 8080 newline-delimited JSON)
-//!   shares [`ApiCommand`] and [`parse_api_command`].
-//! - Downlink on Port 8080 uses length-prefixed Postcard v3 frames
-//!   `[len: u16 LE][postcard DeviceMsg]`, encoded with [`encode_device_msg`] and
-//!   decoded incrementally with [`RxFramer`].
+//! - Commands and queries use Port 80 only. `POST /api/cmd` takes an
+//!   [`ApiCommand`] parsed by [`parse_api_command`].
+//! - Port 8080 is one-way telemetry. It sends length-prefixed Postcard
+//!   frames `[len: u16 LE][postcard DeviceMsg]`, encoded with
+//!   [`encode_device_msg`] and decoded incrementally with [`RxFramer`].
 
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    BrewProfile, MachineCommand, MachineSettings, PidSettings, ProfileHeaderOwned, PublicSettings,
-    Telemetry, WifiSettings, MAX_PROFILES,
+    BrewProfile, MachineCommand, MachineSettings, PidSettings, Telemetry, WifiSettings,
+    MAX_PROFILES,
 };
 
-pub const DIAG_MAGIC: u32 = 0x4D49_584F; // "OXIM" little-endian
-pub const DIAG_PROTO_VER: u8 = 3;
-pub const MAX_FRAME_LEN: usize = 1024;
+pub const MAX_FRAME_LEN: usize = 128;
+
+/// Port 8080 wire format version, reported by `GET /api/version`.
+pub const PROTO_VER: u8 = 4;
+
+#[derive(Serialize)]
+pub struct VersionInfo {
+    pub proto: u8,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CmdError {
@@ -40,12 +46,10 @@ impl CmdError {
     }
 }
 
-/// JSON command schema shared by Port 80 `POST /api/cmd` and Port 8080 JSON uplink.
+/// JSON command schema of Port 80 `POST /api/cmd`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ApiCommand<'a> {
     pub cmd: &'a str,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub req_id: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<BrewProfile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -62,10 +66,6 @@ pub struct ApiCommand<'a> {
     pub power: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temp: Option<f32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub divider: Option<u8>,
 }
 
 impl<'a> ApiCommand<'a> {
@@ -75,11 +75,6 @@ impl<'a> ApiCommand<'a> {
             ..Default::default()
         }
     }
-
-    pub fn with_req_id(mut self, req_id: u32) -> Self {
-        self.req_id = Some(req_id);
-        self
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,21 +82,21 @@ impl<'a> ApiCommand<'a> {
 pub enum ParsedCommand {
     Machine(MachineCommand),
     RunSlot(u8),
-    Ping,
-    GetSettings,
-    GetProfiles,
-    GetProfile(u8),
-    SetStream { enabled: bool, divider: u8 },
 }
 
 fn req<T>(v: Option<T>) -> Result<T, CmdError> {
     v.ok_or(CmdError::MissingField)
 }
 
-pub fn parse_api_command_struct(
-    payload: ApiCommand<'_>,
-) -> Result<(Option<u32>, ParsedCommand), CmdError> {
-    let req_id = payload.req_id;
+fn req_slot(slot: Option<u8>) -> Result<u8, CmdError> {
+    let slot = req(slot)?;
+    if slot >= MAX_PROFILES {
+        return Err(CmdError::InvalidSlot);
+    }
+    Ok(slot)
+}
+
+pub fn parse_api_command_struct(payload: ApiCommand<'_>) -> Result<ParsedCommand, CmdError> {
     let parsed = match payload.cmd {
         "power" => ParsedCommand::Machine(MachineCommand::TogglePower),
         "brew" => ParsedCommand::Machine(MachineCommand::Brew),
@@ -121,47 +116,20 @@ pub fn parse_api_command_struct(
         )),
         "save_wifi" => ParsedCommand::Machine(MachineCommand::SaveWifi(req(payload.wifi)?)),
         "profile" => ParsedCommand::Machine(MachineCommand::RunProfile(req(payload.profile)?)),
-        "run_slot" => {
-            let slot = req(payload.slot)?;
-            if slot >= MAX_PROFILES {
-                return Err(CmdError::InvalidSlot);
-            }
-            ParsedCommand::RunSlot(slot)
-        }
+        "run_slot" => ParsedCommand::RunSlot(req_slot(payload.slot)?),
         "save_profile" => {
-            let slot = req(payload.slot)?;
-            if slot >= MAX_PROFILES {
-                return Err(CmdError::InvalidSlot);
-            }
+            let slot = req_slot(payload.slot)?;
             ParsedCommand::Machine(MachineCommand::SaveProfile(slot, req(payload.profile)?))
         }
         "delete_profile" => {
-            let slot = req(payload.slot)?;
-            if slot >= MAX_PROFILES {
-                return Err(CmdError::InvalidSlot);
-            }
-            ParsedCommand::Machine(MachineCommand::DeleteProfile(slot))
+            ParsedCommand::Machine(MachineCommand::DeleteProfile(req_slot(payload.slot)?))
         }
-        "ping" => ParsedCommand::Ping,
-        "get_settings" => ParsedCommand::GetSettings,
-        "get_profiles" => ParsedCommand::GetProfiles,
-        "get_profile" => {
-            let slot = req(payload.slot)?;
-            if slot >= MAX_PROFILES {
-                return Err(CmdError::InvalidSlot);
-            }
-            ParsedCommand::GetProfile(slot)
-        }
-        "set_stream" => ParsedCommand::SetStream {
-            enabled: payload.enabled.unwrap_or(true),
-            divider: payload.divider.unwrap_or(1).max(1),
-        },
         _ => return Err(CmdError::UnknownCommand),
     };
-    Ok((req_id, parsed))
+    Ok(parsed)
 }
 
-pub fn parse_api_command(json: &str) -> Result<(Option<u32>, ParsedCommand), CmdError> {
+pub fn parse_api_command(json: &str) -> Result<ParsedCommand, CmdError> {
     let (payload, _) =
         serde_json_core::from_str::<ApiCommand>(json).map_err(|_| CmdError::BadJson)?;
     parse_api_command_struct(payload)
@@ -213,14 +181,13 @@ pub struct CommandAck {
     pub ack: u32,
 }
 
-/// 50 Hz telemetry sample sent inside `DeviceMsg::Tick`.
+/// Decoded telemetry sample. The app builds it from [`WireTick`].
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TelemetryFrame {
     pub seq: u32,
     pub ms: u32,
     pub t: f32,
     pub tt: f32,
-    pub ett: f32,
     pub p: f32,
     pub tp: f32,
     pub fl: f32,
@@ -228,23 +195,97 @@ pub struct TelemetryFrame {
     pub vol: f32,
     pub hp: f32,
     pub pump: f32,
-    pub ac_us: f32,
     pub sbt: f32,
     pub fc: u8,
     pub st: u8,
     pub step: u8,
-    pub ack: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DeviceHello {
-    pub magic: u32,
-    pub proto_ver: u8,
-    pub fw_version: heapless::String<16>,
-    pub settings: PublicSettings,
-    pub profiles: heapless::Vec<ProfileHeaderOwned, { MAX_PROFILES as usize }>,
-    pub state: u8,
-    pub sbt: f32,
+const FLAG_FLOW_CONTROLLED: u8 = 0x80;
+
+/// Compact fixed-point tick sent once per mains cycle inside `DeviceMsg::Tick`.
+///
+/// Units: temperatures, pressures and flows use 0.01, volume uses 0.1 ml,
+/// duties use 1 percent. `seq` wraps at 256. `dt_us` is the mains period,
+/// which is the time since the previous tick. `flags` holds the machine
+/// state in bits 0 to 6 and the flow-controlled bit in bit 7.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WireTick {
+    pub seq: u8,
+    pub dt_us: u16,
+    pub t: u16,
+    pub tt: u16,
+    pub p: u16,
+    pub tp: u16,
+    pub fl: u16,
+    pub tfl: u16,
+    pub vol: u16,
+    pub hp: u8,
+    pub pump: u8,
+    pub sbt: u16,
+    pub flags: u8,
+    pub step: u8,
+}
+
+/// Float to fixed point. Casts saturate, so negative and NaN values become 0.
+fn fixed(v: f32, scale: f32) -> u16 {
+    (v * scale + 0.5) as u16
+}
+
+impl WireTick {
+    pub fn from_telemetry(t: &Telemetry, sbt: f32, state: u8, step: u8) -> Self {
+        let flow_flag = if t.flow_controlled {
+            FLAG_FLOW_CONTROLLED
+        } else {
+            0
+        };
+        Self {
+            seq: t.tick as u8,
+            dt_us: t.ac_period_us as u16,
+            t: fixed(t.temp_c, 100.0),
+            tt: fixed(t.target_temp, 100.0),
+            p: fixed(t.pressure_bar, 100.0),
+            tp: fixed(t.target_bar, 100.0),
+            fl: fixed(t.flow_rate_ml_s, 100.0),
+            tfl: fixed(t.target_ml_s, 100.0),
+            vol: fixed(t.volume_ml, 10.0),
+            hp: (t.heater_duty + 0.5) as u8,
+            pump: (t.pump_duty + 0.5) as u8,
+            sbt: fixed(sbt, 100.0),
+            flags: (state & !FLAG_FLOW_CONTROLLED) | flow_flag,
+            step,
+        }
+    }
+
+    pub fn state(&self) -> u8 {
+        self.flags & !FLAG_FLOW_CONTROLLED
+    }
+
+    pub fn flow_controlled(&self) -> bool {
+        self.flags & FLAG_FLOW_CONTROLLED != 0
+    }
+
+    /// Expands to floats. `seq` and `ms` come from the receiver, which
+    /// unwraps `seq` and sums `dt_us`.
+    pub fn to_frame(&self, seq: u32, ms: u32) -> TelemetryFrame {
+        TelemetryFrame {
+            seq,
+            ms,
+            t: f32::from(self.t) / 100.0,
+            tt: f32::from(self.tt) / 100.0,
+            p: f32::from(self.p) / 100.0,
+            tp: f32::from(self.tp) / 100.0,
+            fl: f32::from(self.fl) / 100.0,
+            tfl: f32::from(self.tfl) / 100.0,
+            vol: f32::from(self.vol) / 10.0,
+            hp: f32::from(self.hp),
+            pump: f32::from(self.pump),
+            sbt: f32::from(self.sbt) / 100.0,
+            fc: u8::from(self.flow_controlled()),
+            st: self.state(),
+            step: self.step,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,26 +308,9 @@ pub enum DeviceEvent {
 
 /// Typed Port 8080 downlink message envelope.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[allow(clippy::large_enum_variant)]
 pub enum DeviceMsg {
-    Hello(DeviceHello),
-    Tick(TelemetryFrame),
-    CommandReply {
-        req_id: u32,
-        ticket: Option<u32>,
-        err: Option<CmdError>,
-    },
-    SettingsSnapshot(PublicSettings),
-    ProfilesList(heapless::Vec<ProfileHeaderOwned, { MAX_PROFILES as usize }>),
-    ProfileData {
-        slot: u8,
-        profile: Option<BrewProfile>,
-    },
+    Tick(WireTick),
     Event(DeviceEvent),
-    Pong {
-        req_id: u32,
-        uptime_ms: u32,
-    },
 }
 
 /// Encodes `msg` as `[len: u16 LE][postcard bytes]` into `out`, returning total byte count.
@@ -366,81 +390,20 @@ impl<const N: usize> RxFramer<N> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LineEvent<'a> {
-    Line(&'a [u8]),
-    Overflow,
-}
-
-/// Incremental `\n` line splitter for Port 8080 JSON uplink.
-///
-/// Discards `\r` and NUL bytes; marks oversized lines as `Overflow` and drops
-/// bytes until the next `\n` so a huge line never splits into a bogus command.
-pub struct LineSplitter<const N: usize> {
-    buf: [u8; N],
-    len: usize,
-    overflowed: bool,
-}
-
-impl<const N: usize> Default for LineSplitter<N> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<const N: usize> LineSplitter<N> {
-    pub const fn new() -> Self {
-        Self {
-            buf: [0u8; N],
-            len: 0,
-            overflowed: false,
-        }
-    }
-
-    pub fn push_byte(&mut self, b: u8) -> Option<LineEvent<'_>> {
-        if b == b'\n' {
-            let was_overflow = self.overflowed;
-            let n = self.len;
-            self.len = 0;
-            self.overflowed = false;
-            if was_overflow {
-                return Some(LineEvent::Overflow);
-            }
-            if n > 0 {
-                return Some(LineEvent::Line(&self.buf[..n]));
-            }
-            return None;
-        }
-        if b == 0 || b == b'\r' || self.overflowed {
-            return None;
-        }
-        if self.len < N {
-            self.buf[self.len] = b;
-            self.len += 1;
-        } else {
-            self.overflowed = true;
-            self.len = 0;
-        }
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{default_profile, DEFAULT_SETTINGS};
+    use crate::model::DEFAULT_SETTINGS;
 
     #[test]
     fn api_command_roundtrip_and_errors() {
-        let (req_id, parsed) =
-            parse_api_command(r#"{"cmd":"direct_pump","power":75.5,"req_id":9}"#).unwrap();
-        assert_eq!(req_id, Some(9));
+        let parsed = parse_api_command(r#"{"cmd":"direct_pump","power":75.5}"#).unwrap();
         assert_eq!(
             parsed,
             ParsedCommand::Machine(MachineCommand::DirectPump(75.5))
         );
 
-        let (_, parsed) = parse_api_command(r#"{"cmd":"run_slot","slot":2}"#).unwrap();
+        let parsed = parse_api_command(r#"{"cmd":"run_slot","slot":2}"#).unwrap();
         assert_eq!(parsed, ParsedCommand::RunSlot(2));
 
         assert_eq!(
@@ -458,10 +421,6 @@ mod tests {
             Err(CmdError::InvalidSlot)
         );
         assert_eq!(
-            parse_api_command(r#"{"cmd":"get_profile","slot":10}"#),
-            Err(CmdError::InvalidSlot)
-        );
-        assert_eq!(
             parse_api_command(r#"{"cmd":"direct_pump"}"#),
             Err(CmdError::MissingField)
         );
@@ -474,45 +433,12 @@ mod tests {
 
     #[test]
     fn device_msg_frame_roundtrip_fragmented() {
-        let mut fw = heapless::String::new();
-        let _ = fw.push_str("0.2.0");
-        let hello = DeviceMsg::Hello(DeviceHello {
-            magic: DIAG_MAGIC,
-            proto_ver: DIAG_PROTO_VER,
-            fw_version: fw,
-            settings: DEFAULT_SETTINGS.to_public(),
-            profiles: heapless::Vec::new(),
-            state: 0,
-            sbt: 92.0,
-        });
-        let tick = DeviceMsg::Tick(TelemetryFrame {
-            seq: 42,
-            ms: 1234,
-            t: 92.5,
-            tt: 92.0,
-            ett: 93.0,
-            p: 8.9,
-            tp: 9.0,
-            fl: 2.1,
-            tfl: 2.5,
-            vol: 18.4,
-            hp: 45.0,
-            pump: 62.0,
-            ac_us: 10000.0,
-            sbt: 92.0,
-            fc: 0,
-            st: 1,
-            step: 0,
-            ack: 7,
-        });
-        let prof = DeviceMsg::ProfileData {
-            slot: 0,
-            profile: Some(default_profile()),
-        };
+        let tick = DeviceMsg::Tick(sample_tick());
+        let event = DeviceMsg::Event(DeviceEvent::SettingsUpdated);
 
         let mut wire = [0u8; 2048];
         let mut used = 0;
-        for msg in [&hello, &tick, &prof] {
+        for msg in [&tick, &event] {
             let n = encode_device_msg(msg, &mut wire[used..]).unwrap();
             used += n;
         }
@@ -526,25 +452,38 @@ mod tests {
                 decoded.push(m);
             }
         }
-        assert_eq!(decoded, vec![hello, tick, prof]);
+        assert_eq!(decoded, vec![tick, event]);
+    }
+
+    fn sample_tick() -> WireTick {
+        WireTick {
+            seq: 42,
+            dt_us: 10_000,
+            t: 9250,
+            tt: 9200,
+            p: 890,
+            tp: 900,
+            fl: 210,
+            tfl: 250,
+            vol: 184,
+            hp: 45,
+            pump: 62,
+            sbt: 9200,
+            flags: 0x81,
+            step: 3,
+        }
     }
 
     #[test]
-    fn line_splitter_handles_cr_lf_and_overflow() {
-        let mut sp = LineSplitter::<16>::new();
-        let mut out = Vec::new();
-        for &b in b"{\"cmd\":\"ping\"}\r\n{\"cmd\":\"0123456789abcdef\"}\n{\"cmd\":\"stop\"}\n" {
-            if let Some(ev) = sp.push_byte(b) {
-                match ev {
-                    LineEvent::Line(l) => out.push(Ok(l.to_vec())),
-                    LineEvent::Overflow => out.push(Err(())),
-                }
-            }
-        }
-        assert_eq!(out.len(), 3);
-        assert_eq!(out[0].as_ref().unwrap(), br#"{"cmd":"ping"}"#);
-        assert!(out[1].is_err());
-        assert_eq!(out[2].as_ref().unwrap(), br#"{"cmd":"stop"}"#);
+    fn wire_tick_is_small_and_expands() {
+        let mut buf = [0u8; 64];
+        let n = encode_device_msg(&DeviceMsg::Tick(sample_tick()), &mut buf).unwrap();
+        assert!(n <= 30, "tick frame is {n} bytes");
+
+        let f = sample_tick().to_frame(7, 500);
+        assert_eq!((f.seq, f.ms, f.st, f.fc, f.step), (7, 500, 1, 1, 3));
+        assert!((f.t - 92.5).abs() < 1e-3);
+        assert!((f.vol - 18.4).abs() < 1e-3);
     }
 
     #[test]

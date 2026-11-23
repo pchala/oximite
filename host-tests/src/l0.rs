@@ -4,8 +4,7 @@ use oximite_proto::model::{
     BrewProfile, BrewProfileStep, MachineCommand, MachineState, DEFAULT_SETTINGS, MAX_PROFILES,
 };
 use oximite_proto::protocol::{
-    encode_device_msg, parse_api_command, CmdError, DeviceHello, DeviceMsg, LineEvent,
-    LineSplitter, RxFramer, TelemetryFrame, DIAG_MAGIC, DIAG_PROTO_VER,
+    encode_device_msg, parse_api_command, CmdError, DeviceEvent, DeviceMsg, RxFramer, WireTick,
 };
 
 use crate::dhcp_codec::build_reply;
@@ -106,38 +105,26 @@ fn rx_framer_survives_random_bytes_and_chunked_streams() {
     }
 
     // Valid frames split at arbitrary byte offsets must always decode intact
-    let hello = DeviceMsg::Hello(DeviceHello {
-        magic: DIAG_MAGIC,
-        proto_ver: DIAG_PROTO_VER,
-        fw_version: heapless::String::try_from("0.1.0").unwrap(),
-        settings: DEFAULT_SETTINGS.to_public(),
-        profiles: heapless::Vec::new(),
-        state: 0,
-        sbt: 92.0,
-    });
-    let tick = DeviceMsg::Tick(TelemetryFrame {
+    let tick = DeviceMsg::Tick(WireTick {
         seq: 100,
-        ms: 2000,
-        t: 93.1,
-        tt: 92.0,
-        ett: 92.5,
-        p: 9.0,
-        tp: 9.0,
-        fl: 2.2,
-        tfl: 2.5,
-        vol: 12.0,
-        hp: 30.0,
-        pump: 55.0,
-        ac_us: 10000.0,
-        sbt: 92.0,
-        fc: 0,
-        st: 1,
+        dt_us: 10_000,
+        t: 9310,
+        tt: 9200,
+        p: 900,
+        tp: 900,
+        fl: 220,
+        tfl: 250,
+        vol: 120,
+        hp: 30,
+        pump: 55,
+        sbt: 9200,
+        flags: 1,
         step: 0,
-        ack: 5,
     });
+    let event = DeviceMsg::Event(DeviceEvent::ProfilesUpdated);
     let mut wire = [0u8; 2048];
-    let n1 = encode_device_msg(&hello, &mut wire).unwrap();
-    let n2 = encode_device_msg(&tick, &mut wire[n1..]).unwrap();
+    let n1 = encode_device_msg(&tick, &mut wire).unwrap();
+    let n2 = encode_device_msg(&event, &mut wire[n1..]).unwrap();
     let stream = &wire[..n1 + n2];
 
     for seed in 0..200 {
@@ -152,31 +139,23 @@ fn rx_framer_survives_random_bytes_and_chunked_streams() {
                 out.push(msg);
             }
         }
-        assert_eq!(out, vec![hello.clone(), tick.clone()]);
+        assert_eq!(out, vec![tick.clone(), event.clone()]);
     }
 }
 
 #[test]
-fn line_splitter_and_api_command_parser_survive_fuzzing() {
-    let samples: [&[u8]; 4] = [
-        br#"{"cmd":"stop","req_id":1}"#,
+fn api_command_parser_survives_fuzzing() {
+    let samples: [&[u8]; 3] = [
+        br#"{"cmd":"stop"}"#,
         br#"{"cmd":"set_session_temp","temp":93.5}"#,
         br#"{"cmd":"run_slot","slot":0}"#,
-        br#"{"cmd":"set_stream","enabled":false,"divider":5}"#,
     ];
     for seed in 0..3000 {
         let mut rng = Rng::new(seed);
         let sample = samples[rng.below(samples.len())];
-        let mut mutated = damage(&mut rng, sample);
-        mutated.push(b'\n');
-
-        let mut sp = LineSplitter::<1024>::new();
-        for &b in &mutated {
-            if let Some(LineEvent::Line(line)) = sp.push_byte(b) {
-                if let Ok(s) = std::str::from_utf8(line) {
-                    let _ = parse_api_command(s);
-                }
-            }
+        let mutated = damage(&mut rng, sample);
+        if let Ok(s) = std::str::from_utf8(&mutated) {
+            let _ = parse_api_command(s);
         }
     }
     assert_eq!(parse_api_command("{bad").unwrap_err(), CmdError::BadJson);
@@ -262,9 +241,7 @@ fn machine_state_invariants_hold_under_random_commands() {
 #[test]
 fn proto_models_and_protocol_helpers_roundtrip_all_variants() {
     use oximite_proto::model::{default_profile, Settings, Telemetry, WifiSettings};
-    use oximite_proto::protocol::{
-        round2, ApiCommand, FrameError, ParsedCommand, UiTelemetry, MAX_FRAME_LEN,
-    };
+    use oximite_proto::protocol::{round2, ApiCommand, FrameError, UiTelemetry, MAX_FRAME_LEN};
 
     // MachineState conversions and labels
     for raw in 0..=6u8 {
@@ -328,9 +305,8 @@ fn proto_models_and_protocol_helpers_roundtrip_all_variants() {
     ] {
         assert!(!err.as_str().is_empty());
     }
-    let built = ApiCommand::simple("ping").with_req_id(77);
-    assert_eq!(built.cmd, "ping");
-    assert_eq!(built.req_id, Some(77));
+    let built = ApiCommand::simple("stop");
+    assert_eq!(built.cmd, "stop");
 
     // Exercise all parse_api_command branches and slot bounds
     let cases = [
@@ -348,11 +324,6 @@ fn proto_models_and_protocol_helpers_roundtrip_all_variants() {
         r#"{"cmd":"run_slot","slot":0}"#,
         r#"{"cmd":"save_profile","slot":1,"profile":{"name":"P","steps":[]}}"#,
         r#"{"cmd":"delete_profile","slot":1}"#,
-        r#"{"cmd":"ping","req_id":5}"#,
-        r#"{"cmd":"get_settings"}"#,
-        r#"{"cmd":"get_profiles"}"#,
-        r#"{"cmd":"get_profile","slot":0}"#,
-        r#"{"cmd":"set_stream","enabled":true,"divider":2}"#,
     ];
     for json in cases {
         assert!(parse_api_command(json).is_ok(), "failed to parse {json}");
@@ -361,24 +332,12 @@ fn proto_models_and_protocol_helpers_roundtrip_all_variants() {
         r#"{"cmd":"run_slot","slot":10}"#,
         r#"{"cmd":"save_profile","slot":10,"profile":{"name":"P","steps":[]}}"#,
         r#"{"cmd":"delete_profile","slot":10}"#,
-        r#"{"cmd":"get_profile","slot":10}"#,
     ] {
         assert_eq!(parse_api_command(bad_slot), Err(CmdError::InvalidSlot));
     }
-    let (_, stream_def) = parse_api_command(r#"{"cmd":"set_stream"}"#).unwrap();
-    assert_eq!(
-        stream_def,
-        ParsedCommand::SetStream {
-            enabled: true,
-            divider: 1
-        }
-    );
 
-    // Frame encoder edge cases, RxFramer errors, and LineSplitter overflow
-    let pong = DeviceMsg::Pong {
-        req_id: 1,
-        uptime_ms: 500,
-    };
+    // Frame encoder edge cases and RxFramer errors
+    let pong = DeviceMsg::Event(DeviceEvent::FlashSaved);
     let mut tiny = [0u8; 1];
     assert_eq!(encode_device_msg(&pong, &mut tiny), None);
     let mut small = [0u8; 3];
@@ -400,9 +359,4 @@ fn proto_models_and_protocol_helpers_roundtrip_all_variants() {
     assert_eq!(framer.buffered(), 3);
     framer.clear();
     assert_eq!(framer.buffered(), 0);
-
-    let mut sp = LineSplitter::<8>::default();
-    for &b in b"0123456789\nok\r\n" {
-        let _ = sp.push_byte(b);
-    }
 }

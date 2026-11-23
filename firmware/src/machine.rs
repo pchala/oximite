@@ -113,7 +113,6 @@ pub enum ActiveOperation {
     DirectPump {
         power: f32,
         started_ms: u64,
-        max_run_ms: u64,
     },
     HotWater {
         started_ms: u64,
@@ -260,11 +259,9 @@ impl ActiveOperation {
                 started_ms,
                 stop_at,
             } => temp_c <= *stop_at || now_ms.saturating_sub(*started_ms) >= MAX_PUMP_RUN_MS,
-            ActiveOperation::DirectPump {
-                started_ms,
-                max_run_ms,
-                ..
-            } => now_ms.saturating_sub(*started_ms) >= *max_run_ms,
+            ActiveOperation::DirectPump { started_ms, .. } => {
+                now_ms.saturating_sub(*started_ms) >= MAX_PUMP_RUN_MS
+            }
             ActiveOperation::HotWater { started_ms } => {
                 now_ms.saturating_sub(*started_ms) >= MAX_HOT_WATER_MS
             }
@@ -289,7 +286,7 @@ impl MachineStepEffects {
 }
 
 pub struct Machine {
-    state: MachineState,
+    asleep: bool,
     settings: Settings,
     profiles: [Option<BrewProfile>; MAX_PROFILES as usize],
     session_brew_temp: f32,
@@ -309,7 +306,7 @@ impl Machine {
     ) -> Self {
         let session_brew_temp = settings.machine.brew_temp;
         Self {
-            state: MachineState::Idle,
+            asleep: false,
             settings,
             profiles,
             session_brew_temp,
@@ -322,8 +319,17 @@ impl Machine {
         }
     }
 
+    /// Derived from the active operation so state and operation cannot diverge.
     pub fn state(&self) -> MachineState {
-        self.state
+        match &self.op {
+            Some(ActiveOperation::Profile { .. }) => MachineState::Brewing,
+            Some(ActiveOperation::Steam { .. }) => MachineState::Steaming,
+            Some(ActiveOperation::CooldownFlush { .. }) => MachineState::Cooling,
+            Some(ActiveOperation::DirectPump { .. }) => MachineState::Pumping,
+            Some(ActiveOperation::HotWater { .. }) => MachineState::HotWater,
+            None if self.asleep => MachineState::Sleeping,
+            None => MachineState::Idle,
+        }
     }
 
     pub fn settings(&self) -> &Settings {
@@ -373,7 +379,7 @@ impl Machine {
     }
 
     pub fn target_temp_c(&self) -> f32 {
-        match target_for(self.state) {
+        match target_for(self.state()) {
             TargetTempMode::Brew => self.session_brew_temp + self.settings.machine.temp_offset,
             TargetTempMode::Steam => self.settings.machine.steam_temp,
             TargetTempMode::Off => 0.0,
@@ -395,24 +401,23 @@ impl Machine {
         }
     }
 
-    fn set_state(&mut self, next: MachineState, out: &mut MachineStepEffects) {
-        if self.state != next {
-            let from = self.state as u8;
-            self.state = next;
+    fn emit_state_change(&self, from: MachineState, out: &mut MachineStepEffects) {
+        let to = self.state();
+        if from != to {
             out.push_event(DeviceEvent::StateChanged {
-                from,
-                to: next as u8,
+                from: from as u8,
+                to: to as u8,
             });
         }
     }
 
     fn start_operation(
         &mut self,
-        new_state: MachineState,
         mut op: ActiveOperation,
         now_ms: u64,
         out: &mut MachineStepEffects,
     ) {
+        let from = self.state();
         let first_step = if let ActiveOperation::Profile { .. } = op {
             let Some(first_idx) = op.advance_profile_to_runnable(now_ms) else {
                 return;
@@ -423,25 +428,28 @@ impl Machine {
         };
         out.reset_volume = true;
         self.last_activity_ms = now_ms;
-        self.set_state(new_state, out);
+        self.asleep = false;
+        self.op = Some(op);
+        self.emit_state_change(from, out);
         if let Some(first_idx) = first_step {
             out.push_event(DeviceEvent::StepChanged {
                 index: first_idx,
                 reason: StepReason::Started,
             });
         }
-        self.op = Some(op);
     }
 
     fn stop_to_idle(&mut self, now_ms: u64, out: &mut MachineStepEffects) {
+        let from = self.state();
         self.op = None;
+        self.asleep = false;
         self.last_activity_ms = now_ms;
-        self.set_state(MachineState::Idle, out);
+        self.emit_state_change(from, out);
         self.flush_deferred(out);
     }
 
     fn flush_deferred(&mut self, out: &mut MachineStepEffects) {
-        if self.state.is_busy() {
+        if self.state().is_busy() {
             return;
         }
         if let Some(m) = self.deferred.machine.take() {
@@ -506,7 +514,7 @@ impl Machine {
             _ => return,
         }
         // Decision 6: defer BOTH RAM and flash updates until Idle (not busy).
-        if !self.state.is_busy() {
+        if !self.state().is_busy() {
             self.flush_deferred(out);
         }
     }
@@ -529,19 +537,20 @@ impl Machine {
             }
         }
 
-        if self.state == MachineState::Sleeping {
-            self.set_state(MachineState::Idle, &mut out);
+        if self.asleep {
+            self.asleep = false;
+            self.emit_state_change(MachineState::Sleeping, &mut out);
             return out;
         }
 
-        match (self.state, cmd) {
+        match (self.state(), cmd) {
             (MachineState::Idle, MachineCommand::TogglePower) => {
-                self.set_state(MachineState::Sleeping, &mut out);
+                self.asleep = true;
+                self.emit_state_change(MachineState::Idle, &mut out);
             }
             (MachineState::Idle, MachineCommand::Brew) => {
                 let p = self.profiles[0].clone().unwrap_or_else(default_profile);
                 self.start_operation(
-                    MachineState::Brewing,
                     ActiveOperation::Profile {
                         profile: p,
                         step_idx: 0,
@@ -553,7 +562,6 @@ impl Machine {
             }
             (MachineState::Idle, MachineCommand::RunProfile(p)) => {
                 self.start_operation(
-                    MachineState::Brewing,
                     ActiveOperation::Profile {
                         profile: p,
                         step_idx: 0,
@@ -566,7 +574,6 @@ impl Machine {
             (MachineState::Idle, MachineCommand::Steam) => {
                 let limit_ms = (self.settings.machine.steam_time_limit_s.max(0.0) * 1000.0) as u64;
                 self.start_operation(
-                    MachineState::Steaming,
                     ActiveOperation::Steam {
                         started_ms: now_ms,
                         limit_ms,
@@ -577,11 +584,9 @@ impl Machine {
             }
             (MachineState::Idle, MachineCommand::Flush) => {
                 self.start_operation(
-                    MachineState::Pumping,
                     ActiveOperation::DirectPump {
                         power: PUMP_POWER,
                         started_ms: now_ms,
-                        max_run_ms: MAX_PUMP_RUN_MS,
                     },
                     now_ms,
                     &mut out,
@@ -589,22 +594,16 @@ impl Machine {
             }
             (MachineState::Idle, MachineCommand::DirectPump(power)) => {
                 self.start_operation(
-                    MachineState::Pumping,
                     ActiveOperation::DirectPump {
                         power,
                         started_ms: now_ms,
-                        max_run_ms: MAX_PUMP_RUN_MS,
                     },
                     now_ms,
                     &mut out,
                 );
             }
-            (MachineState::Idle, MachineCommand::Stop) => {
-                self.stop_to_idle(now_ms, &mut out);
-            }
             (MachineState::Steaming, MachineCommand::Brew) => {
                 self.start_operation(
-                    MachineState::HotWater,
                     ActiveOperation::HotWater { started_ms: now_ms },
                     now_ms,
                     &mut out,
@@ -614,7 +613,6 @@ impl Machine {
                 let stop_at =
                     self.settings.machine.brew_temp + self.settings.machine.temp_offset * 2.0;
                 self.start_operation(
-                    MachineState::Cooling,
                     ActiveOperation::CooldownFlush {
                         started_ms: now_ms,
                         stop_at,
@@ -642,10 +640,11 @@ impl Machine {
             }
         }
 
-        if self.state == MachineState::Idle {
+        if self.state() == MachineState::Idle {
             let timeout_ms = (self.settings.machine.sleep_timeout_min.max(0.0) * 60_000.0) as u64;
             if now_ms.saturating_sub(self.last_activity_ms) >= timeout_ms {
-                self.set_state(MachineState::Sleeping, &mut out);
+                self.asleep = true;
+                self.emit_state_change(MachineState::Idle, &mut out);
             }
         }
 

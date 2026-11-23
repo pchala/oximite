@@ -57,6 +57,7 @@ pub struct ProfileHeader<'a> {
 pub enum HttpRoute {
     Index,
     GetTelemetry,
+    GetVersion,
     GetSettings,
     GetProfiles,
     GetProfile(u8),
@@ -111,6 +112,8 @@ pub fn parse_http_request(request: &str) -> Result<HttpRoute, HttpError> {
         Ok(HttpRoute::Index)
     } else if request.starts_with("GET /api/telemetry ") {
         Ok(HttpRoute::GetTelemetry)
+    } else if request.starts_with("GET /api/version ") {
+        Ok(HttpRoute::GetVersion)
     } else if request.starts_with("GET /api/settings ") {
         Ok(HttpRoute::GetSettings)
     } else if request.starts_with("GET /api/profiles ") {
@@ -121,7 +124,7 @@ pub fn parse_http_request(request: &str) -> Result<HttpRoute, HttpError> {
         let (_, body) = request
             .split_once("\r\n\r\n")
             .ok_or(HttpError::BadRequest)?;
-        let (_, cmd) = parse_api_command(body).map_err(HttpError::from_cmd_err)?;
+        let cmd = parse_api_command(body).map_err(HttpError::from_cmd_err)?;
         Ok(HttpRoute::PostCmd(cmd))
     } else {
         Err(HttpError::NotFound)

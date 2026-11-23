@@ -88,6 +88,12 @@ async fn handle_connection(
             );
             write_json(socket, &mut resp_buf, &payload).await;
         }
+        HttpRoute::GetVersion => {
+            let info = oximite_proto::protocol::VersionInfo {
+                proto: oximite_proto::protocol::PROTO_VER,
+            };
+            write_json(socket, &mut resp_buf, &info).await;
+        }
         HttpRoute::GetSettings => {
             let snap = bus::get_settings_snapshot();
             write_json(socket, &mut resp_buf, &snap.public).await;
@@ -115,10 +121,9 @@ async fn handle_connection(
                     let p = bus::get_profile(slot).ok_or(HttpError::NotFound)?;
                     MachineCommand::RunProfile(p)
                 }
-                _ => return Err(HttpError::BadRequest),
             };
             defmt::info!("API Command Received: {}", cmd.name());
-            let ticket = bus::send_command(cmd, None, false).ok_or(HttpError::Busy)?;
+            let ticket = bus::send_command(cmd).ok_or(HttpError::Busy)?;
             write_json(
                 socket,
                 &mut resp_buf,

@@ -1,14 +1,14 @@
 //! Thread-safe telemetry buffer, shot capture, JSONL/CSV I/O, and event log.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use chrono::{DateTime, Local};
 use oximite_proto::model::{BrewProfile, MachineState, ProfileHeaderOwned, PublicSettings};
-use oximite_proto::protocol::{DeviceEvent, DeviceHello, TelemetryFrame};
+use oximite_proto::protocol::{DeviceEvent, TelemetryFrame, WireTick};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_SAMPLES: usize = 90_000; // 30 min at 50 Hz
@@ -112,7 +112,6 @@ pub struct ControlStore {
     pub connecting: bool,
     pub endpoint: String,
     pub last_error: Option<String>,
-    pub hello: Option<DeviceHello>,
     pub settings: Option<PublicSettings>,
     pub profiles: Vec<ProfileHeaderOwned>,
     pub loaded_profile: Option<(u8, BrewProfile)>,
@@ -127,7 +126,8 @@ pub struct ControlStore {
     pub rx_hz: f32,
     pub last_ping_rtt_ms: Option<f32>,
     pub latest: Option<TelemetrySample>,
-
+    /// Directory for per-shot JSONL files. `None` disables autosave.
+    pub autosave_dir: Option<PathBuf>,
     session_start: Instant,
     base_device_ms: Option<u32>,
     last_seq: Option<u32>,
@@ -135,8 +135,9 @@ pub struct ControlStore {
     rate_window_frames: u32,
     active_shot: Option<Vec<TelemetrySample>>,
     last_st: u8,
-    pending_pings: BTreeMap<u32, Instant>,
-    pub pending_cmds: BTreeMap<u32, String>,
+    wire_seq: Option<u8>,
+    wire_ext: u32,
+    wire_ms: u32,
 }
 
 impl Default for ControlStore {
@@ -153,7 +154,6 @@ impl ControlStore {
             connecting: false,
             endpoint: endpoint.to_string(),
             last_error: None,
-            hello: None,
             settings: None,
             profiles: Vec::new(),
             loaded_profile: None,
@@ -168,6 +168,7 @@ impl ControlStore {
             rx_hz: 0.0,
             last_ping_rtt_ms: None,
             latest: None,
+            autosave_dir: None,
             session_start: now,
             base_device_ms: None,
             last_seq: None,
@@ -175,8 +176,9 @@ impl ControlStore {
             rate_window_frames: 0,
             active_shot: None,
             last_st: MachineState::Idle as u8,
-            pending_pings: BTreeMap::new(),
-            pending_cmds: BTreeMap::new(),
+            wire_seq: None,
+            wire_ext: 0,
+            wire_ms: 0,
         }
     }
 
@@ -193,6 +195,33 @@ impl ControlStore {
         self.log_seq = self.log_seq.wrapping_add(1);
     }
 
+    /// Samples of the brew in progress, or of the last finished brew.
+    pub fn brew_samples(&self) -> Vec<TelemetrySample> {
+        match (&self.active_shot, self.shots.last()) {
+            (Some(active), _) => active.clone(),
+            (None, Some(last)) => last.samples.clone(),
+            (None, None) => Vec::new(),
+        }
+    }
+
+    fn autosave_shot(&mut self, samples: &[TelemetrySample]) {
+        let Some(dir) = self.autosave_dir.clone() else {
+            return;
+        };
+        let path = dir.join(shot_file_name(Local::now()));
+        let result = std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("create {}: {e}", dir.display()))
+            .and_then(|()| export_samples_jsonl(samples, &path));
+        match result {
+            Ok(n) => self.add_log(
+                LogTag::Settings,
+                format!("Saved {n} samples to {}", path.display()),
+                String::new(),
+            ),
+            Err(e) => self.add_log(LogTag::Settings, format!("Autosave failed: {e}"), e),
+        }
+    }
+
     pub fn clear_samples(&mut self) {
         self.samples.clear();
         self.base_device_ms = None;
@@ -204,25 +233,26 @@ impl ControlStore {
         self.log_seq = self.log_seq.wrapping_add(1);
     }
 
-    pub fn note_ping_sent(&mut self, req_id: u32) {
-        self.pending_pings.insert(req_id, Instant::now());
-    }
-
-    pub fn on_hello(&mut self, hello: DeviceHello) {
-        self.settings = Some(hello.settings.clone());
-        self.profiles = hello.profiles.iter().cloned().collect();
-        self.current_state = MachineState::try_from(hello.state).unwrap_or(MachineState::Idle);
-        self.session_brew_temp = hello.sbt;
-        self.last_st = hello.state;
+    /// Resets stream state when the Port 8080 socket opens.
+    pub fn on_connected(&mut self) {
         self.base_device_ms = None;
         self.last_seq = None;
-        let fw = hello.fw_version.clone();
-        self.hello = Some(hello);
-        self.add_log(
-            LogTag::Net,
-            format!("Connected (fw={}, proto=v3)", fw),
-            String::new(),
-        );
+        self.wire_seq = None;
+        self.add_log(LogTag::Net, "Telemetry stream connected", String::new());
+    }
+
+    /// Unwraps the 8-bit sequence and sums tick periods into device time.
+    pub fn on_wire_tick(&mut self, tick: WireTick) {
+        let dt_ms = u32::from(tick.dt_us) / 1000;
+        let missed = match self.wire_seq {
+            Some(prev) => u32::from(tick.seq.wrapping_sub(prev).wrapping_sub(1)),
+            None => 0,
+        };
+        self.wire_seq = Some(tick.seq);
+        self.wire_ext = self.wire_ext.wrapping_add(missed + 1);
+        self.wire_ms = self.wire_ms.wrapping_add(dt_ms * (missed + 1));
+        let frame = tick.to_frame(self.wire_ext, self.wire_ms);
+        self.on_tick(frame);
     }
 
     pub fn on_tick(&mut self, frame: TelemetryFrame) {
@@ -276,6 +306,7 @@ impl ControlStore {
                     let dur = captured.last().unwrap().t_s - captured.first().unwrap().t_s;
                     let vol = captured.last().unwrap().frame.vol;
                     let label = format!("Shot #{id} ({dur:.1}s, {vol:.1}ml)");
+                    self.autosave_shot(&captured);
                     self.shots.push(ShotRecord {
                         id,
                         label,
@@ -285,18 +316,6 @@ impl ControlStore {
             }
         }
         self.last_st = frame.st;
-    }
-
-    pub fn on_pong(&mut self, req_id: u32, uptime_ms: u32) {
-        if let Some(t0) = self.pending_pings.remove(&req_id) {
-            let rtt = t0.elapsed().as_secs_f32() * 1000.0;
-            self.last_ping_rtt_ms = Some(rtt);
-            self.add_log(
-                LogTag::Net,
-                format!("Pong req={req_id} rtt={rtt:.1}ms uptime={uptime_ms}ms"),
-                String::new(),
-            );
-        }
     }
 
     pub fn on_event(&mut self, ev: DeviceEvent) {
@@ -348,22 +367,18 @@ pub fn export_samples_jsonl(samples: &[TelemetrySample], path: &Path) -> Result<
 pub fn export_samples_csv(samples: &[TelemetrySample], path: &Path) -> Result<usize, String> {
     let file = File::create(path).map_err(|e| format!("create {}: {e}", path.display()))?;
     let mut w = BufWriter::new(file);
-    writeln!(
-        w,
-        "t_s,seq,ms,t,tt,ett,p,tp,fl,tfl,vol,hp,pump,ac_us,sbt,fc,st,step,ack"
-    )
-    .map_err(|e| e.to_string())?;
+    writeln!(w, "t_s,seq,ms,t,tt,p,tp,fl,tfl,vol,hp,pump,sbt,fc,st,step")
+        .map_err(|e| e.to_string())?;
     for s in samples {
         let f = &s.frame;
         writeln!(
             w,
-            "{:.4},{},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.2},{:.2},{:.1},{:.2},{},{},{},{}",
+            "{:.4},{},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.2},{:.2},{:.2},{},{},{}",
             s.t_s,
             f.seq,
             f.ms,
             f.t,
             f.tt,
-            f.ett,
             f.p,
             f.tp,
             f.fl,
@@ -371,17 +386,20 @@ pub fn export_samples_csv(samples: &[TelemetrySample], path: &Path) -> Result<us
             f.vol,
             f.hp,
             f.pump,
-            f.ac_us,
             f.sbt,
             f.fc,
             f.st,
-            f.step,
-            f.ack
+            f.step
         )
         .map_err(|e| e.to_string())?;
     }
     w.flush().map_err(|e| e.to_string())?;
     Ok(samples.len())
+}
+
+/// Names a shot file `year_month_day_hh_mm.jsonl`.
+pub fn shot_file_name(now: DateTime<Local>) -> String {
+    now.format("%Y_%m_%d_%H_%M.jsonl").to_string()
 }
 
 pub fn import_samples_jsonl(path: &Path) -> Result<LoadedTrace, String> {
@@ -425,7 +443,6 @@ mod tests {
             ms,
             t,
             tt: 92.0,
-            ett: 92.0,
             p: 9.0,
             tp: 9.0,
             fl: 2.0,
@@ -433,12 +450,10 @@ mod tests {
             vol,
             hp: 20.0,
             pump: 50.0,
-            ac_us: 10000.0,
             sbt: 92.0,
             fc: 0,
             st,
             step: 0,
-            ack: 1,
         }
     }
 
@@ -454,6 +469,43 @@ mod tests {
         assert_eq!(store.dropped_frames, 1);
         assert_eq!(store.shots.len(), 1);
         assert_eq!(store.shots[0].samples.len(), 2);
+    }
+
+    #[test]
+    fn shot_file_name_format() {
+        use chrono::TimeZone;
+        let t = Local.with_ymd_and_hms(2026, 3, 7, 9, 5, 0).unwrap();
+        assert_eq!(shot_file_name(t), "2026_03_07_09_05.jsonl");
+    }
+
+    #[test]
+    fn brew_samples_follow_active_then_last_shot() {
+        let mut store = ControlStore::new("127.0.0.1:8080");
+        assert!(store.brew_samples().is_empty());
+        store.on_tick(mk_frame(1, 1000, 92.0, 0, 0.0));
+        assert!(store.brew_samples().is_empty());
+        store.on_tick(mk_frame(2, 1020, 92.0, 1, 1.0));
+        store.on_tick(mk_frame(3, 1040, 92.0, 1, 2.0));
+        assert_eq!(store.brew_samples().len(), 2);
+        store.on_tick(mk_frame(4, 1060, 92.0, 0, 2.0));
+        assert_eq!(store.brew_samples().len(), 2);
+        store.on_tick(mk_frame(5, 1080, 92.0, 0, 0.0));
+        assert_eq!(store.brew_samples().len(), 2);
+    }
+
+    #[test]
+    fn brew_end_autosaves_jsonl() {
+        let dir = std::env::temp_dir().join("oximite_autosave_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut store = ControlStore::new("127.0.0.1:8080");
+        store.autosave_dir = Some(dir.clone());
+        store.on_tick(mk_frame(1, 1000, 92.0, 1, 1.0));
+        store.on_tick(mk_frame(2, 1020, 92.0, 0, 1.0));
+        let files: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
+        assert_eq!(files.len(), 1);
+        let name = files[0].file_name().to_string_lossy().into_owned();
+        assert!(name.ends_with(".jsonl") && name.len() == "2026_03_07_09_05.jsonl".len());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -50,6 +50,7 @@ static WIFI_STORE: BlockingMutex<CriticalSectionRawMutex, RefCell<WifiSettings>>
         password: heapless::String::new(),
     }));
 static WIFI_REV: AtomicU32 = AtomicU32::new(0);
+static SETTINGS_REV: AtomicU32 = AtomicU32::new(0);
 
 pub fn publish_settings(
     control: ControlSettings,
@@ -67,6 +68,12 @@ pub fn publish_settings(
         public,
         settings_rev,
     });
+    SETTINGS_REV.store(settings_rev, Ordering::Release);
+}
+
+/// Cheap revision check so hot loops copy the snapshot only after a change.
+pub fn get_settings_rev() -> u32 {
+    SETTINGS_REV.load(Ordering::Acquire)
 }
 
 pub fn get_settings_snapshot() -> SettingsSnapshot {
@@ -121,10 +128,6 @@ pub fn get_profile_headers() -> Vec<ProfileHeaderOwned, { MAX_PROFILES as usize 
         }
     });
     list
-}
-
-pub fn get_profiles_rev() -> u32 {
-    PROFILE_REV.load(Ordering::Relaxed)
 }
 
 // ==========================================
@@ -246,13 +249,10 @@ pub fn set_session_brew_temp(temp: f32) {
 }
 
 // ==========================================
-// COMMAND QUEUE & PORT 8080 DIAGNOSTIC REPLIES / EVENTS
+// COMMAND QUEUE & PORT 8080 EVENTS
 // ==========================================
 
 pub struct QueuedCommand {
-    pub ticket: u32,
-    pub req_id: Option<u32>,
-    pub reply_diag: bool,
     pub cmd: MachineCommand,
 }
 
@@ -262,15 +262,10 @@ static NEXT_TICKET: BlockingMutex<CriticalSectionRawMutex, Cell<u32>> =
 static SERVED: AtomicU32 = AtomicU32::new(0);
 
 #[must_use = "a dropped ticket cannot be confirmed; use `let _ =` if the caller does not need one"]
-pub fn send_command(cmd: MachineCommand, req_id: Option<u32>, reply_diag: bool) -> Option<u32> {
+pub fn send_command(cmd: MachineCommand) -> Option<u32> {
     NEXT_TICKET.lock(|t| {
         let ticket = t.get().wrapping_add(1);
-        let q = QueuedCommand {
-            ticket,
-            req_id,
-            reply_diag,
-            cmd,
-        };
+        let q = QueuedCommand { cmd };
         if COMMAND_QUEUE.try_send(q).is_err() {
             defmt::warn!("Command queue full — command dropped");
             return None;
@@ -292,18 +287,7 @@ pub async fn next_command() -> QueuedCommand {
     COMMAND_QUEUE.receive().await
 }
 
-static DIAG_REPLY_QUEUE: Channel<CriticalSectionRawMutex, (u32, u32), 8> = Channel::new();
-
-pub fn push_diag_reply(req_id: u32, ticket: u32) {
-    let _ = DIAG_REPLY_QUEUE.try_send((req_id, ticket));
-}
-
-pub fn try_pop_diag_reply() -> Option<(u32, u32)> {
-    DIAG_REPLY_QUEUE.try_receive().ok()
-}
-
-pub fn clear_diag_queues() {
-    while DIAG_REPLY_QUEUE.try_receive().is_ok() {}
+pub fn clear_events() {
     while EVENT_QUEUE.try_receive().is_ok() {}
 }
 
