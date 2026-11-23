@@ -17,12 +17,13 @@ This document is the single home for GPIO assignments, peripheral functions, and
 | **GP25** | WL_CS | Output | *Internal:* CYW43 Wi-Fi chip select. |
 | **GP26** | GPIO (HiZ) | — | *Unused:* Shared PCB net with A0 (GP40). See below. |
 | **GP27** | GPIO (HiZ) | — | *Unused:* Shared PCB net with A1 (GP41). See below. |
+| **GP28** | GPIO (HiZ) | — | *Unused:* Shared PCB net with A2 (GP42). See below. |
 | **GP29** | WL_CLK / PIO1 | Output | *Internal:* CYW43 Wi-Fi SPI clock. |
 | **GP40** | ADC (A0) | Analog In | **Pressure Sensor:** Pressure transducer input. See [Schematics](schematics.md). |
 | **GP41** | ADC (A1) | Analog In | **Temperature Sensor:** NTC thermistor input. See [Schematics](schematics.md). |
-| **GP42** | ADC (A2) | Analog In | **Button ladder:** One line for four buttons. See [Schematics](schematics.md). The pin is not yet confirmed against the Pico Plus 2 W schematic. |
+| **GP42** | ADC (A2) | Analog In | **Button ladder:** One line for four buttons. See [Schematics](schematics.md). Shared net with GP28 (header A2). |
 
 ## Unused and shared pins
 
-- **EMI mitigation:** Unused GPIOs (GP1, GP4, GP11..GP14, GP16..GP22, GP28) are driven Output Low on startup to suppress noise coupling inside the metal machine chassis.
-- **Shared analog nets:** GP26 and GP27 share physical PCB traces with analog inputs GP40 and GP41. GP26 and GP27 MUST remain high-impedance inputs (`Pull::None`) at all times, so they do not load the ADC signals.
+- **EMI mitigation:** Unused GPIOs (GP1, GP4, GP11..GP14, GP16..GP22) are driven Output Low on startup to suppress noise coupling inside the metal machine chassis.
+- **Shared analog nets:** GP26, GP27 and GP28 share physical PCB traces with analog inputs GP40, GP41 and GP42. GP26, GP27 and GP28 MUST remain high-impedance inputs (`Pull::None`) at all times, so they do not load the ADC signals.

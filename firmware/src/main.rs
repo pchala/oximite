@@ -89,14 +89,14 @@ async fn main(spawner: Spawner) {
                 $(let _ = Output::new($p.$pin, Level::Low);)*
             };
         }
-        init_pins_low!(p_steal; PIN_1, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PIN_11, PIN_12, PIN_13, PIN_14, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_22, PIN_28);
+        init_pins_low!(p_steal; PIN_1, PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PIN_11, PIN_12, PIN_13, PIN_14, PIN_16, PIN_17, PIN_18, PIN_19, PIN_20, PIN_21, PIN_22);
         // GP26-27 share the A0-A1 analog nets — keep as HiZ so they don't load the ADC inputs
         macro_rules! init_pins_hiz {
             ($p:expr; $($pin:ident),*) => {
                 $(let _ = Input::new($p.$pin, Pull::None);)*
             };
         }
-        init_pins_hiz!(p_steal; PIN_26, PIN_27);
+        init_pins_hiz!(p_steal; PIN_26, PIN_27, PIN_28);
     }
     let force_ap = flush_held_at_boot(&mut adc, &mut ch_btn).await;
     if force_ap {
