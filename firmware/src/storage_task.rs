@@ -17,7 +17,7 @@ use crate::board::{
     FLASH_SIZE, FS_RANGE, FS_SCRATCH,
 };
 use crate::bus;
-use crate::machine::{is_machine_dirty, is_pids_dirty, is_profile_dirty, is_wifi_dirty};
+use crate::machine::{plan_saves, SaveItem};
 
 pub type AppFlash = Flash<'static, FLASH, Async, FLASH_SIZE>;
 
@@ -140,6 +140,38 @@ pub async fn load_all(
     (settings, profiles)
 }
 
+async fn save_item(flash: &mut AppFlash, item: SaveItem) -> bool {
+    match item {
+        SaveItem::Machine => {
+            let snap = bus::get_settings_snapshot();
+            save_json_section(flash, FLASH_KEY_MACHINE, &snap.control.machine).await
+        }
+        SaveItem::Pids => {
+            let snap = bus::get_settings_snapshot();
+            let temp_ok =
+                save_json_section(flash, FLASH_KEY_TEMP_PID, &snap.control.temp_pid).await;
+            let pump_ok =
+                save_json_section(flash, FLASH_KEY_PUMP_PID, &snap.control.pump_pid).await;
+            temp_ok && pump_ok
+        }
+        SaveItem::Wifi => {
+            let (wifi, _) = bus::get_wifi_settings();
+            save_json_section(flash, FLASH_KEY_WIFI, &wifi).await
+        }
+        SaveItem::Profile(slot) => save_profile_slot(flash, slot).await,
+    }
+}
+
+async fn save_profile_slot(flash: &mut AppFlash, slot: u8) -> bool {
+    let Some(key) = profile_flash_key(slot) else {
+        return true;
+    };
+    match bus::get_profile(slot) {
+        Some(profile) => save_json_section(flash, key, &profile).await,
+        None => remove_flash_key(flash, key).await,
+    }
+}
+
 #[embassy_executor::task]
 pub async fn storage_task(mut flash: AppFlash) {
     let mut state_rx = bus::MACHINE_STATE.receiver().unwrap();
@@ -155,29 +187,9 @@ pub async fn storage_task(mut flash: AppFlash) {
             continue;
         }
 
-        let snap = bus::get_settings_snapshot();
-        let (wifi, _) = bus::get_wifi_settings();
         let mut ok = true;
-
-        if is_machine_dirty(mask) {
-            ok &= save_json_section(&mut flash, FLASH_KEY_MACHINE, &snap.control.machine).await;
-        }
-        if is_pids_dirty(mask) {
-            ok &= save_json_section(&mut flash, FLASH_KEY_TEMP_PID, &snap.control.temp_pid).await;
-            ok &= save_json_section(&mut flash, FLASH_KEY_PUMP_PID, &snap.control.pump_pid).await;
-        }
-        if is_wifi_dirty(mask) {
-            ok &= save_json_section(&mut flash, FLASH_KEY_WIFI, &wifi).await;
-        }
-        for slot in 0..MAX_PROFILES {
-            if is_profile_dirty(mask, slot) {
-                if let Some(key) = profile_flash_key(slot) {
-                    match bus::get_profile(slot) {
-                        Some(p) => ok &= save_json_section(&mut flash, key, &p).await,
-                        None => ok &= remove_flash_key(&mut flash, key).await,
-                    }
-                }
-            }
+        for item in plan_saves(mask) {
+            ok &= save_item(&mut flash, item).await;
         }
 
         if ok {

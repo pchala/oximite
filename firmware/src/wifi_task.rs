@@ -18,6 +18,7 @@ use crate::bus;
 use crate::dhcp_task::dhcp_server_task;
 use crate::diag_task::tcp_telemetry_task;
 use crate::http_task::wifi_server_task;
+use oximite_proto::model::WifiSettings;
 
 const JOIN_TIMEOUT: Duration = Duration::from_secs(30);
 const CONFIG_UP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -216,18 +217,35 @@ async fn wait_disconnect_or_rejoin(
     .await;
 }
 
-#[embassy_executor::task]
-pub async fn wifi_init_task(
+/// Outcome of one join attempt in client mode.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum JoinOutcome {
+    Connected,
+    JoinFailed,
+    NoIp,
+}
+
+/// Returns the radio firmware and CLM blobs stored in flash.
+///
+/// # Safety
+/// `CYW43_FW_ADDR` and `CYW43_CLM_ADDR` must point to readable flash that holds
+/// blobs of `CYW43_FW_LEN` and `CYW43_CLM_LEN` bytes. The firmware blob must be
+/// 4-byte aligned.
+unsafe fn radio_blobs() -> (&'static cyw43::Aligned<cyw43::A4, [u8]>, &'static [u8]) {
+    let fw = core::slice::from_raw_parts(CYW43_FW_ADDR as *const u8, CYW43_FW_LEN);
+    let clm = core::slice::from_raw_parts(CYW43_CLM_ADDR as *const u8, CYW43_CLM_LEN);
+    let fw = &*(fw as *const [u8] as *const cyw43::Aligned<cyw43::A4, [u8]>);
+    (fw, clm)
+}
+
+async fn bring_up_radio(
     spawner: Spawner,
     pwr: Output<'static>,
     spi: cyw43_pio::PioSpi<'static, PIO1, 0>,
-    force_ap: bool,
-    net_seed: u64,
-) {
-    defmt::info!("Wifi: init task started");
-    let fw = unsafe { core::slice::from_raw_parts(CYW43_FW_ADDR as *const u8, CYW43_FW_LEN) };
-    let clm = unsafe { core::slice::from_raw_parts(CYW43_CLM_ADDR as *const u8, CYW43_CLM_LEN) };
-    let fw = unsafe { &*(fw as *const [u8] as *const cyw43::Aligned<cyw43::A4, [u8]>) };
+) -> (cyw43::NetDriver<'static>, cyw43::Control<'static>) {
+    // SAFETY: the addresses and lengths come from `board.rs` and describe the
+    // blobs that the flash layout places there.
+    let (fw, clm) = unsafe { radio_blobs() };
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
@@ -239,7 +257,14 @@ pub async fn wifi_init_task(
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
+    (net_device, control)
+}
 
+fn start_network_stack(
+    spawner: Spawner,
+    net_device: cyw43::NetDriver<'static>,
+    net_seed: u64,
+) -> &'static embassy_net::Stack<'static> {
     static STACK: StaticCell<embassy_net::Stack<'static>> = StaticCell::new();
     static RESOURCES: StaticCell<embassy_net::StackResources<8>> = StaticCell::new();
     let mut dhcp_config = embassy_net::DhcpConfig::default();
@@ -253,85 +278,135 @@ pub async fn wifi_init_task(
     );
     let stack = STACK.init(stack_alloc);
     spawner.spawn(net_task(runner_alloc).unwrap());
+    stack
+}
+
+fn spawn_network_services(spawner: Spawner, stack: &'static embassy_net::Stack<'static>) {
+    spawner.spawn(wifi_server_task(stack).unwrap());
+    spawner.spawn(wifi_server_task(stack).unwrap());
+    spawner.spawn(tcp_telemetry_task(stack).unwrap());
+}
+
+async fn run_ap_mode(
+    spawner: Spawner,
+    stack: &'static embassy_net::Stack<'static>,
+    mut control: cyw43::Control<'static>,
+) -> ! {
+    defmt::info!("Wi-Fi: Booting strictly in AP Mode");
+    stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
+        address: embassy_net::Ipv4Cidr::new(embassy_net::Ipv4Address::new(192, 168, 4, 1), 24),
+        gateway: None,
+        dns_servers: Default::default(),
+    }));
+    if let Ok(token) = dhcp_server_task(stack) {
+        spawner.spawn(token);
+    }
+    control.start_ap_wpa2("Oximite-Setup", "password", 6).await;
+    bus::set_wifi_up(true);
+    loop {
+        core::future::pending::<()>().await;
+    }
+}
+
+async fn try_join(
+    control: &mut cyw43::Control<'static>,
+    stack: &embassy_net::Stack<'static>,
+    wifi: &WifiSettings,
+) -> JoinOutcome {
+    defmt::info!("Wi-Fi: Joining SSID: {}", wifi.ssid.as_str());
+    let joined = matches!(
+        with_timeout(
+            JOIN_TIMEOUT,
+            control.join(
+                wifi.ssid.as_str(),
+                cyw43::JoinOptions::new(wifi.password.as_bytes()),
+            )
+        )
+        .await,
+        Ok(Ok(()))
+    );
+    if !joined {
+        return JoinOutcome::JoinFailed;
+    }
+
+    let config_up = async {
+        stack.wait_link_up().await;
+        matches!(
+            select(stack.wait_config_up(), stack.wait_link_down()).await,
+            Either::First(())
+        )
+    };
+    let has_ip = with_timeout(CONFIG_UP_TIMEOUT, config_up)
+        .await
+        .unwrap_or(false);
+    if has_ip {
+        JoinOutcome::Connected
+    } else {
+        JoinOutcome::NoIp
+    }
+}
+
+async fn run_client_mode(
+    stack: &'static embassy_net::Stack<'static>,
+    mut control: cyw43::Control<'static>,
+    net_seed: u64,
+) -> ! {
+    defmt::info!("Wi-Fi: Booting in Client Mode");
+    bus::set_wifi_up(false);
+    let probe_ident = (net_seed as u16) | 1;
+    let mut attempt: u32 = 0;
+
+    loop {
+        let (wifi, seen_rev) = bus::get_wifi_settings();
+        if wifi.ssid.is_empty() {
+            Timer::after(Duration::from_secs(1)).await;
+            continue;
+        }
+
+        match try_join(&mut control, stack, &wifi).await {
+            JoinOutcome::Connected => {
+                defmt::info!("Wi-Fi: Connected to SSID");
+                attempt = 0;
+                bus::set_wifi_up(true);
+                wait_disconnect_or_rejoin(stack, seen_rev, probe_ident).await;
+                bus::set_wifi_up(false);
+                defmt::warn!(
+                    "Wi-Fi: Link/config lost, gateway unreachable, or credentials updated"
+                );
+            }
+            JoinOutcome::NoIp => defmt::warn!("Wi-Fi: DHCP/config timeout"),
+            JoinOutcome::JoinFailed => defmt::warn!("Wi-Fi: Join failed"),
+        }
+
+        // Tear down any stale association so the next join never panics on IOCTL error -5.
+        leave(&mut control).await;
+        attempt = attempt.saturating_add(1);
+        let delay_ms = default_backoff_ms(attempt, Instant::now().as_ticks());
+        Timer::after(Duration::from_millis(delay_ms)).await;
+    }
+}
+
+#[embassy_executor::task]
+pub async fn wifi_init_task(
+    spawner: Spawner,
+    pwr: Output<'static>,
+    spi: cyw43_pio::PioSpi<'static, PIO1, 0>,
+    force_ap: bool,
+    net_seed: u64,
+) {
+    defmt::info!("Wifi: init task started");
+    let (net_device, control) = bring_up_radio(spawner, pwr, spi).await;
+    let stack = start_network_stack(spawner, net_device, net_seed);
 
     let (initial_wifi, _) = bus::get_wifi_settings();
     let is_ap = force_ap || initial_wifi.ssid.is_empty();
     bus::set_ap_mode(is_ap);
 
-    spawner.spawn(wifi_server_task(stack).unwrap());
-    spawner.spawn(wifi_server_task(stack).unwrap());
-    spawner.spawn(tcp_telemetry_task(stack).unwrap());
+    spawn_network_services(spawner, stack);
 
     if is_ap {
-        defmt::info!("Wi-Fi: Booting strictly in AP Mode");
-        stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
-            address: embassy_net::Ipv4Cidr::new(embassy_net::Ipv4Address::new(192, 168, 4, 1), 24),
-            gateway: None,
-            dns_servers: Default::default(),
-        }));
-        if let Ok(token) = dhcp_server_task(stack) {
-            spawner.spawn(token);
-        }
-        control.start_ap_wpa2("Oximite-Setup", "password", 6).await;
-        bus::set_wifi_up(true);
-        core::future::pending::<()>().await;
+        run_ap_mode(spawner, stack, control).await
     } else {
-        defmt::info!("Wi-Fi: Booting in Client Mode");
-        bus::set_wifi_up(false);
-        let probe_ident = (net_seed as u16) | 1;
-        let mut attempt: u32 = 0;
-
-        loop {
-            let (wifi, seen_rev) = bus::get_wifi_settings();
-            if wifi.ssid.is_empty() {
-                Timer::after(Duration::from_secs(1)).await;
-                continue;
-            }
-            defmt::info!("Wi-Fi: Joining SSID: {}", wifi.ssid.as_str());
-            let joined = matches!(
-                with_timeout(
-                    JOIN_TIMEOUT,
-                    control.join(
-                        wifi.ssid.as_str(),
-                        cyw43::JoinOptions::new(wifi.password.as_bytes()),
-                    )
-                )
-                .await,
-                Ok(Ok(()))
-            );
-
-            if joined {
-                let config_up = async {
-                    stack.wait_link_up().await;
-                    matches!(
-                        select(stack.wait_config_up(), stack.wait_link_down()).await,
-                        Either::First(())
-                    )
-                };
-                let has_ip = with_timeout(CONFIG_UP_TIMEOUT, config_up)
-                    .await
-                    .unwrap_or(false);
-                if has_ip {
-                    defmt::info!("Wi-Fi: Connected to SSID");
-                    attempt = 0;
-                    bus::set_wifi_up(true);
-                    wait_disconnect_or_rejoin(stack, seen_rev, probe_ident).await;
-                    bus::set_wifi_up(false);
-                    defmt::warn!(
-                        "Wi-Fi: Link/config lost, gateway unreachable, or credentials updated"
-                    );
-                } else {
-                    defmt::warn!("Wi-Fi: DHCP/config timeout");
-                }
-            } else {
-                defmt::warn!("Wi-Fi: Join failed");
-            }
-
-            // Tear down any stale association so the next join never panics on IOCTL error -5.
-            leave(&mut control).await;
-            attempt = attempt.saturating_add(1);
-            let delay_ms = default_backoff_ms(attempt, Instant::now().as_ticks());
-            Timer::after(Duration::from_millis(delay_ms)).await;
-        }
+        run_client_mode(stack, control, net_seed).await
     }
 }

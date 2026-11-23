@@ -47,6 +47,37 @@ pub const fn is_profile_dirty(mask: u16, slot: u8) -> bool {
     mask & dirty_profile(slot) != 0
 }
 
+/// One flash section that a dirty mask asks the storage task to write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaveItem {
+    Machine,
+    Pids,
+    Wifi,
+    Profile(u8),
+}
+
+/// Maximum number of items one dirty mask can produce.
+pub const MAX_SAVE_ITEMS: usize = 3 + MAX_PROFILES as usize;
+
+/// Turns a dirty mask into the ordered list of sections to write.
+pub fn plan_saves(mask: u16) -> heapless::Vec<SaveItem, MAX_SAVE_ITEMS> {
+    let mut plan = heapless::Vec::new();
+    // Capacity covers every possible item, so `push` cannot fail.
+    if is_machine_dirty(mask) {
+        let _ = plan.push(SaveItem::Machine);
+    }
+    if is_pids_dirty(mask) {
+        let _ = plan.push(SaveItem::Pids);
+    }
+    if is_wifi_dirty(mask) {
+        let _ = plan.push(SaveItem::Wifi);
+    }
+    for slot in (0..MAX_PROFILES).filter(|&slot| is_profile_dirty(mask, slot)) {
+        let _ = plan.push(SaveItem::Profile(slot));
+    }
+    plan
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TargetTempMode {
     Brew,

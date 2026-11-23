@@ -6,6 +6,23 @@ fn empty_profiles() -> [Option<BrewProfile>; MAX_PROFILES as usize] {
 }
 
 #[test]
+fn plan_saves_orders_sections_and_covers_all_bits() {
+    assert!(plan_saves(0).is_empty());
+    assert_eq!(plan_saves(DIRTY_PIDS).as_slice(), &[SaveItem::Pids]);
+    let mask = DIRTY_MACHINE | DIRTY_WIFI | dirty_profile(0) | dirty_profile(MAX_PROFILES - 1);
+    assert_eq!(
+        plan_saves(mask).as_slice(),
+        &[
+            SaveItem::Machine,
+            SaveItem::Wifi,
+            SaveItem::Profile(0),
+            SaveItem::Profile(MAX_PROFILES - 1),
+        ]
+    );
+    assert_eq!(plan_saves(u16::MAX).len(), MAX_SAVE_ITEMS);
+}
+
+#[test]
 fn state_transitions_and_steaming_branches() {
     assert_eq!(dirty_profile(10), 0);
     assert!(!is_wifi_dirty(0));
